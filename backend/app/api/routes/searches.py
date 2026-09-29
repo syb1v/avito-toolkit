@@ -1,17 +1,13 @@
 import uuid
-from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import get_db
+from app.api.deps import DbSession
 from app.db.models import Listing, Search, SearchListing
 
 router = APIRouter(prefix="/searches", tags=["searches"])
-
-DbSession = Annotated[AsyncSession, Depends(get_db)]
 
 
 class SearchCreate(BaseModel):

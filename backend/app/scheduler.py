@@ -9,17 +9,30 @@ from sqlalchemy import select
 from app.config import get_settings
 from app.db.models import Search
 from app.db.session import dispose_engine, get_session_factory
-from app.workers.tasks import crawl_search
+from app.workers.tasks import crawl_search, recalc_analytics
 
 logger = logging.getLogger(__name__)
 
 REFRESH_INTERVAL_SECONDS = 300
 SEARCH_JOB_PREFIX = "search:"
+ANALYTICS_HOUR_UTC = 1
+ANALYTICS_MINUTE_UTC = 10
 
 
 def _enqueue_search(search_id: str) -> None:
     crawl_search.send(search_id)
     logger.info("enqueued crawl for search %s", search_id)
+
+
+def _enqueue_analytics() -> None:
+    try:
+        searches = _load_searches()
+    except Exception:
+        logger.exception("failed to load searches for analytics")
+        return
+    for search_id, _ in searches:
+        recalc_analytics.send(search_id)
+    logger.info("enqueued daily analytics for %s searches", len(searches))
 
 
 def _load_searches() -> list[tuple[str, str]]:
@@ -75,6 +88,11 @@ def main() -> None:
         args=[scheduler],
         id="refresh",
         next_run_time=datetime.now(UTC),
+    )
+    scheduler.add_job(
+        _enqueue_analytics,
+        CronTrigger(hour=ANALYTICS_HOUR_UTC, minute=ANALYTICS_MINUTE_UTC, timezone="UTC"),
+        id="analytics-daily",
     )
     logger.info("scheduler started")
     scheduler.start()

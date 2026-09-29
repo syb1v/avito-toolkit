@@ -5,7 +5,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app import __version__
-from app.api.routes import health, searches
+from app.api.routes import analytics, health, searches
 from app.config import get_settings
 from app.db.session import dispose_engine
 
@@ -33,6 +33,7 @@ def create_app() -> FastAPI:
     )
     application.include_router(health.router)
     application.include_router(searches.router, prefix="/api/v1")
+    application.include_router(analytics.router, prefix="/api/v1")
     application.state.environment = settings.environment
     return application
 

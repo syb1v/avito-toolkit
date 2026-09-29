@@ -13,6 +13,17 @@ class DailyAnalytics:
     avg_lifetime_days: float | None
 
 
+@dataclass(frozen=True, slots=True)
+class MarketSummary:
+    active_count: int
+    new_today_count: int
+    delisted_today_count: int
+    delisted_7d: int
+    delisting_velocity: float
+    avg_lifetime_days: float | None
+    stats: PriceStats | None
+
+
 def compute_daily_analytics(
     active_prices: Sequence[float],
     new_today_count: int,
@@ -32,6 +43,33 @@ def compute_daily_analytics(
         delisted_today_count=delisted_today_count,
         stats=stats,
         avg_lifetime_days=avg_lifetime,
+    )
+
+
+def build_market_summary(
+    active_prices: Sequence[float],
+    new_today_count: int,
+    delisted_today_count: int,
+    delisted_7d: int,
+    lifetimes_days: Iterable[float] | None = None,
+    use_iqr: bool = True,
+) -> MarketSummary:
+    """Сводка рынка: цены с IQR-фильтрацией, активность и прокси-спрос."""
+    daily = compute_daily_analytics(
+        active_prices,
+        new_today_count,
+        delisted_today_count,
+        lifetimes_days,
+        use_iqr=use_iqr,
+    )
+    return MarketSummary(
+        active_count=daily.active_count,
+        new_today_count=daily.new_today_count,
+        delisted_today_count=daily.delisted_today_count,
+        delisted_7d=delisted_7d,
+        delisting_velocity=delisting_velocity(delisted_7d, daily.active_count),
+        avg_lifetime_days=daily.avg_lifetime_days,
+        stats=daily.stats,
     )
 
 

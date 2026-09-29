@@ -7,6 +7,18 @@
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-09-29
+
+### Добавлено
+
+- Аналитический сервис: пересчёт дневных агрегатов (`market_analytics_daily`) и
+  сводка рынка — цены с IQR-фильтрацией (медиана/средняя/P25/P75/min/max),
+  новые и снятые объявления, вымывание за 7 дней, средний срок жизни.
+- API: `GET /api/v1/searches/{id}/summary` и `GET /api/v1/searches/{id}/history`.
+- Автоматический пересчёт агрегатов после каждого обхода и ночной job планировщика.
+- Дашборд: список поисков, страница поиска с карточками метрик,
+  графиком медианы/P25/P75 (recharts) и таблицей выдачи.
+
 ### Исправлено
 
 - Пустые значения переменных окружения (например, `AVITO_USER_ID=""` из docker-compose)
@@ -50,6 +62,7 @@
 - Дашборд Next.js 16 + Tailwind 4 со статусом API и дорожной картой.
 - Документация: README, `docs/plan.md`, `.env.example`, MIT-лицензия.
 
-[Unreleased]: https://github.com/syb1v/avito-toolkit/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/syb1v/avito-toolkit/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/syb1v/avito-toolkit/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/syb1v/avito-toolkit/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/syb1v/avito-toolkit/releases/tag/v0.1.0
