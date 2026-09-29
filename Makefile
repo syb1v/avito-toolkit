@@ -1,4 +1,4 @@
-.PHONY: up down logs build test lint typecheck migrate revision web-dev backend-install fetch-page
+.PHONY: up down logs build test lint typecheck migrate revision web-dev backend-install fetch-page bump tag
 
 up:
 	docker compose up -d --build
@@ -35,3 +35,11 @@ web-dev:
 
 fetch-page:
 	cd backend && .venv/bin/python scripts/fetch_page.py --url "$(url)" --out /tmp/avito_page.html
+
+bump:
+	python3 scripts/bump_version.py --part $(part)
+
+tag:
+	@version=$$(python3 -c 'import re; print(re.search(r"__version__ = \"([^\"]+)\"", open("backend/app/__init__.py", encoding="utf-8").read()).group(1))'); \
+	git tag -a "v$$version" -m "v$$version" && \
+	git push origin "v$$version"

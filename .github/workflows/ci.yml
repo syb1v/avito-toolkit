@@ -6,6 +6,22 @@ on:
   pull_request:
 
 jobs:
+  meta:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Version consistency
+        run: python scripts/check_version_consistency.py
+      - name: Compile release scripts
+        run: >-
+          python -m py_compile
+          scripts/bump_version.py
+          scripts/extract_changelog.py
+          scripts/check_version_consistency.py
+
   backend:
     runs-on: ubuntu-latest
     defaults:

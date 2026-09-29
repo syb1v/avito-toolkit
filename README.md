@@ -96,6 +96,22 @@ make web-dev                 # frontend на http://localhost:3000
 make migrate                 # alembic upgrade head
 ```
 
+## Версионирование и релизы
+
+Проект следует [Semantic Versioning](https://semver.org/lang/ru/), история изменений —
+[CHANGELOG.md](CHANGELOG.md) в формате Keep a Changelog. Единый источник версии —
+`backend/app/__init__.py` (pyproject подхватывает её автоматически);
+`frontend/package.json` и CHANGELOG синхронизируются скриптом.
+
+```bash
+make bump part=minor                          # 0.2.0 -> 0.3.0, финализирует Unreleased
+git add -A && git commit -m "chore(release): v0.3.0"
+make tag                                      # тег v0.3.0 -> GitHub Release из CHANGELOG
+```
+
+CI проверяет согласованность версий (`scripts/check_version_consistency.py`),
+push тега `v*` публикует GitHub Release с секцией из CHANGELOG.
+
 ## Дорожная карта
 
 | Фаза | Содержание | Статус |
