@@ -64,6 +64,27 @@ export type Listing = {
   last_position: number | null;
 };
 
+export type Alert = {
+  id: string;
+  type: string;
+  payload: Record<string, unknown> | null;
+  status: string;
+  created_at: string;
+};
+
+export type Digest = {
+  search_id: string;
+  headline: string;
+  demand_signal: string;
+  price_range_comment: string;
+  competitor_notes: string[];
+  recommended_actions: string[];
+  model: string;
+  tokens_in: number | null;
+  tokens_out: number | null;
+  cost_usd: number | null;
+};
+
 async function getJson<T>(path: string): Promise<T | null> {
   try {
     const response = await fetch(`${SERVER_API_URL}${path}`, { cache: "no-store" });
@@ -89,3 +110,38 @@ export const fetchHistory = async (searchId: string, days = 30): Promise<DailyPo
 
 export const fetchListings = async (searchId: string, limit = 100): Promise<Listing[]> =>
   (await getJson<Listing[]>(`/api/v1/searches/${searchId}/listings?limit=${limit}`)) ?? [];
+
+export const fetchAlerts = async (searchId: string): Promise<Alert[]> =>
+  (await getJson<Alert[]>(`/api/v1/alerts?search_id=${searchId}`)) ?? [];
+
+export async function createDigest(
+  searchId: string,
+): Promise<{ digest?: Digest; error?: string }> {
+  try {
+    const response = await fetch(`${API_URL}/api/v1/searches/${searchId}/digest`, {
+      method: "POST",
+    });
+    const body: unknown = await response.json().catch(() => null);
+    if (!response.ok) {
+      const detail =
+        body && typeof body === "object" && "detail" in body
+          ? String((body as { detail: unknown }).detail)
+          : "Не удалось сгенерировать дайджест";
+      return { error: detail };
+    }
+    return { digest: body as Digest };
+  } catch {
+    return { error: "API недоступен" };
+  }
+}
+
+export async function ackAlert(alertId: string): Promise<boolean> {
+  try {
+    const response = await fetch(`${API_URL}/api/v1/alerts/${alertId}/ack`, {
+      method: "POST",
+    });
+    return response.ok;
+  } catch {
+    return false;
+  }
+}

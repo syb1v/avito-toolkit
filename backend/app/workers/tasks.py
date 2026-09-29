@@ -13,6 +13,7 @@ from app.collectors.ratelimit import RedisRateLimiter
 from app.collectors.transport.http_cffi import HttpCffiTransport
 from app.config import get_settings
 from app.db.session import dispose_engine, get_engine
+from app.services.alerts import evaluate_search_alerts
 from app.services.analytics.service import recalc_daily_analytics
 from app.services.collector import CrawlResult, SearchCollector
 
@@ -44,6 +45,7 @@ async def _collect(search_id: str) -> CrawlResult:
             collector = SearchCollector(session, transport, RedisRateLimiter(redis))
             result = await collector.collect(uuid.UUID(search_id))
             await recalc_daily_analytics(session, result.search_id)
+            await evaluate_search_alerts(session, result.search_id)
             await session.commit()
             return result
     finally:

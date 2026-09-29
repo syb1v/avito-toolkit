@@ -6,22 +6,13 @@ from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import DbSession
+from app.api.schemas import PriceStatsOut
 from app.db.models import Search
 from app.services.analytics.service import build_search_summary, fetch_daily_history
 
 router = APIRouter(prefix="/searches", tags=["analytics"])
 
 MAX_HISTORY_DAYS = 365
-
-
-class PriceStatsOut(BaseModel):
-    count: int
-    price_min: float
-    price_max: float
-    mean: float
-    median: float
-    p25: float
-    p75: float
 
 
 class MarketSummaryOut(BaseModel):

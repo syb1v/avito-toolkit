@@ -1,7 +1,9 @@
 import Link from "next/link";
 
+import { AlertsPanel } from "@/app/components/alerts-panel";
+import { DigestPanel } from "@/app/components/digest-panel";
 import { PriceChart } from "@/app/components/price-chart";
-import { fetchHistory, fetchListings, fetchSummary } from "@/lib/api";
+import { fetchAlerts, fetchHistory, fetchListings, fetchSummary } from "@/lib/api";
 import { formatDays, formatPercent, formatPrice } from "@/lib/format";
 
 const LISTINGS_PREVIEW = 50;
@@ -50,10 +52,11 @@ export default async function SearchDetailPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const [summary, history, listings] = await Promise.all([
+  const [summary, history, listings, alerts] = await Promise.all([
     fetchSummary(id),
     fetchHistory(id),
     fetchListings(id, 200),
+    fetchAlerts(id),
   ]);
 
   if (summary === null) {
@@ -116,6 +119,10 @@ export default async function SearchDetailPage({
           hint="средний по снятым"
         />
       </section>
+
+      <AlertsPanel alerts={alerts.filter((alert) => alert.status === "new")} />
+
+      <DigestPanel searchId={id} />
 
       <section className="rounded-xl border border-neutral-800 bg-neutral-900/60 p-5">
         <h2 className="text-lg font-medium">Цены рынка</h2>

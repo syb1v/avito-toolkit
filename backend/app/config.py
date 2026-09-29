@@ -39,6 +39,11 @@ class Settings(BaseSettings):
     reprice_hitl_threshold_pct: float = 10.0
     reprice_max_step_pct: float = 5.0
 
+    match_min_score: int = 75
+    match_max_candidates: int = 300
+    match_top_n: int = 10
+    alert_price_above_market_pct: float = 10.0
+
     @field_validator("avito_user_id", mode="before")
     @classmethod
     def _empty_str_to_none(cls, value: object) -> object:
