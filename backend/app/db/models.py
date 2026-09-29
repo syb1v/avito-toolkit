@@ -1,0 +1,166 @@
+import uuid
+from datetime import date, datetime
+
+from sqlalchemy import (
+    BigInteger,
+    Boolean,
+    Date,
+    DateTime,
+    Float,
+    ForeignKey,
+    Integer,
+    Numeric,
+    String,
+    Text,
+    Uuid,
+    func,
+)
+from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.orm import Mapped, mapped_column
+
+from app.db.base import Base
+
+
+class Search(Base):
+    __tablename__ = "searches"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    name: Mapped[str] = mapped_column(String(255))
+    url: Mapped[str] = mapped_column(Text)
+    params: Mapped[dict | None] = mapped_column(JSONB)
+    schedule_cron: Mapped[str] = mapped_column(String(64), default="*/30 * * * *")
+    priority: Mapped[int] = mapped_column(Integer, default=100)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
+class Seller(Base):
+    __tablename__ = "sellers"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    name: Mapped[str | None] = mapped_column(String(255))
+    url: Mapped[str | None] = mapped_column(Text)
+    first_seen: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    last_seen: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class Listing(Base):
+    __tablename__ = "listings"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    seller_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("sellers.id", ondelete="SET NULL")
+    )
+    title: Mapped[str] = mapped_column(Text)
+    category: Mapped[str | None] = mapped_column(String(255))
+    params: Mapped[dict | None] = mapped_column(JSONB)
+    current_price: Mapped[float | None] = mapped_column(Numeric(12, 2))
+    status: Mapped[str] = mapped_column(String(32), default="active")
+    url: Mapped[str | None] = mapped_column(Text)
+    first_seen: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    last_seen: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class SearchListing(Base):
+    __tablename__ = "search_listings"
+
+    search_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, ForeignKey("searches.id", ondelete="CASCADE"), primary_key=True
+    )
+    listing_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("listings.id", ondelete="CASCADE"), primary_key=True
+    )
+    first_seen: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    last_seen: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    last_position: Mapped[int | None] = mapped_column(Integer)
+
+
+class ListingSnapshot(Base):
+    __tablename__ = "listing_snapshots"
+
+    search_id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True)
+    listing_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    recorded_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), primary_key=True)
+    price: Mapped[float] = mapped_column(Numeric(12, 2))
+    position_index: Mapped[int | None] = mapped_column(Integer)
+    is_vip: Mapped[bool] = mapped_column(Boolean, default=False)
+    is_highlighted: Mapped[bool] = mapped_column(Boolean, default=False)
+
+
+class MarketAnalyticsDaily(Base):
+    __tablename__ = "market_analytics_daily"
+
+    search_id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True)
+    calc_date: Mapped[date] = mapped_column(Date, primary_key=True)
+    active_count: Mapped[int] = mapped_column(Integer, default=0)
+    new_today_count: Mapped[int] = mapped_column(Integer, default=0)
+    delisted_today_count: Mapped[int] = mapped_column(Integer, default=0)
+    price_min: Mapped[float | None] = mapped_column(Numeric(12, 2))
+    price_max: Mapped[float | None] = mapped_column(Numeric(12, 2))
+    price_median: Mapped[float | None] = mapped_column(Numeric(12, 2))
+    price_p25: Mapped[float | None] = mapped_column(Numeric(12, 2))
+    price_p75: Mapped[float | None] = mapped_column(Numeric(12, 2))
+    avg_lifetime_days: Mapped[float | None] = mapped_column(Numeric(5, 1))
+
+
+class ProductMarketMatch(Base):
+    __tablename__ = "product_market_matches"
+
+    our_sku_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    market_listing_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    similarity_score: Mapped[float] = mapped_column(Float, default=0.0)
+    match_status: Mapped[str] = mapped_column(String(20), default="auto_matched")
+    matched_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class Job(Base):
+    __tablename__ = "jobs"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    type: Mapped[str] = mapped_column(String(64))
+    status: Mapped[str] = mapped_column(String(32), default="pending")
+    payload: Mapped[dict | None] = mapped_column(JSONB)
+    result: Mapped[dict | None] = mapped_column(JSONB)
+    error: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class LlmRun(Base):
+    __tablename__ = "llm_runs"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    task: Mapped[str] = mapped_column(String(64))
+    model: Mapped[str] = mapped_column(String(128))
+    prompt_version: Mapped[str] = mapped_column(String(32), default="v1")
+    tokens_in: Mapped[int | None] = mapped_column(Integer)
+    tokens_out: Mapped[int | None] = mapped_column(Integer)
+    cost_usd: Mapped[float | None] = mapped_column(Numeric(12, 6))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class Alert(Base):
+    __tablename__ = "alerts"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    type: Mapped[str] = mapped_column(String(64))
+    payload: Mapped[dict | None] = mapped_column(JSONB)
+    status: Mapped[str] = mapped_column(String(20), default="new")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class AuditLog(Base):
+    __tablename__ = "audit_log"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    entity: Mapped[str] = mapped_column(String(64))
+    entity_id: Mapped[str] = mapped_column(String(64))
+    action: Mapped[str] = mapped_column(String(64))
+    before: Mapped[dict | None] = mapped_column(JSONB)
+    after: Mapped[dict | None] = mapped_column(JSONB)
+    actor: Mapped[str] = mapped_column(String(128), default="system")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

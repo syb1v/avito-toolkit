@@ -1,0 +1,96 @@
+name: avito-toolkit
+
+x-backend-env: &backend-env
+  ENVIRONMENT: ${ENVIRONMENT:-dev}
+  LOG_LEVEL: ${LOG_LEVEL:-INFO}
+  DATABASE_URL: postgresql+asyncpg://avito:avito@postgres:5432/avito
+  REDIS_URL: redis://redis:6379/0
+  LLM_MODEL: ${LLM_MODEL:-deepseek/deepseek-chat}
+  DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
+  LLM_TEMPERATURE: ${LLM_TEMPERATURE:-0.1}
+  LLM_MAX_TOKENS: ${LLM_MAX_TOKENS:-1024}
+  PROXY_ENABLED: ${PROXY_ENABLED:-false}
+  PROXY_URL: ${PROXY_URL:-}
+  CRAWL_RATE_PER_MINUTE: ${CRAWL_RATE_PER_MINUTE:-12}
+  CRAWL_MAX_PAGES_PER_RUN: ${CRAWL_MAX_PAGES_PER_RUN:-20}
+  CRAWL_DELAY_MIN_SECONDS: ${CRAWL_DELAY_MIN_SECONDS:-5}
+  CRAWL_DELAY_MAX_SECONDS: ${CRAWL_DELAY_MAX_SECONDS:-15}
+  AVITO_CLIENT_ID: ${AVITO_CLIENT_ID:-}
+  AVITO_CLIENT_SECRET: ${AVITO_CLIENT_SECRET:-}
+  AVITO_USER_ID: ${AVITO_USER_ID:-}
+  REPRICE_HITL_THRESHOLD_PCT: ${REPRICE_HITL_THRESHOLD_PCT:-10}
+  REPRICE_MAX_STEP_PCT: ${REPRICE_MAX_STEP_PCT:-5}
+
+services:
+  postgres:
+    image: timescale/timescaledb:latest-pg16
+    environment:
+      POSTGRES_USER: avito
+      POSTGRES_PASSWORD: avito
+      POSTGRES_DB: avito
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U avito -d avito"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  api:
+    build: ./backend
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000
+    environment: *backend-env
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  worker:
+    build: ./backend
+    command: dramatiq app.workers.tasks --processes 1 --threads 4
+    environment: *backend-env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  scheduler:
+    build: ./backend
+    command: python -m app.scheduler
+    environment: *backend-env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  web:
+    build: ./frontend
+    environment:
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
+    ports:
+      - "3000:3000"
+    depends_on:
+      - api
+
+volumes:
+  pgdata:
+  redisdata:
