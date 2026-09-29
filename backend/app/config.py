@@ -35,6 +35,7 @@ class Settings(BaseSettings):
     avito_client_id: str | None = None
     avito_client_secret: str | None = None
     avito_user_id: int | None = None
+    avito_base_url: str = "https://api.avito.ru"
 
     reprice_hitl_threshold_pct: float = 10.0
     reprice_max_step_pct: float = 5.0

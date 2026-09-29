@@ -9,7 +9,7 @@ from sqlalchemy import select
 from app.config import get_settings
 from app.db.models import Search
 from app.db.session import dispose_engine, get_session_factory
-from app.workers.tasks import crawl_search, recalc_analytics
+from app.workers.tasks import crawl_search, recalc_analytics, sync_avito
 
 logger = logging.getLogger(__name__)
 
@@ -17,6 +17,8 @@ REFRESH_INTERVAL_SECONDS = 300
 SEARCH_JOB_PREFIX = "search:"
 ANALYTICS_HOUR_UTC = 1
 ANALYTICS_MINUTE_UTC = 10
+AVITO_SYNC_HOUR_UTC = 2
+AVITO_SYNC_MINUTE_UTC = 0
 
 
 def _enqueue_search(search_id: str) -> None:
@@ -33,6 +35,11 @@ def _enqueue_analytics() -> None:
     for search_id, _ in searches:
         recalc_analytics.send(search_id)
     logger.info("enqueued daily analytics for %s searches", len(searches))
+
+
+def _enqueue_avito_sync() -> None:
+    sync_avito.send(True)
+    logger.info("enqueued avito sync")
 
 
 def _load_searches() -> list[tuple[str, str]]:
@@ -94,6 +101,17 @@ def main() -> None:
         CronTrigger(hour=ANALYTICS_HOUR_UTC, minute=ANALYTICS_MINUTE_UTC, timezone="UTC"),
         id="analytics-daily",
     )
+    if settings.avito_client_id and settings.avito_client_secret:
+        scheduler.add_job(
+            _enqueue_avito_sync,
+            CronTrigger(hour=AVITO_SYNC_HOUR_UTC, minute=AVITO_SYNC_MINUTE_UTC, timezone="UTC"),
+            id="avito-daily",
+        )
+        logger.info(
+            "avito daily sync scheduled at %02d:%02d UTC",
+            AVITO_SYNC_HOUR_UTC,
+            AVITO_SYNC_MINUTE_UTC,
+        )
     logger.info("scheduler started")
     scheduler.start()
 

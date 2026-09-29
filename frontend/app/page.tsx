@@ -12,15 +12,23 @@ export default async function Home() {
           <p className="text-sm uppercase tracking-widest text-neutral-500">
             avito-toolkit
           </p>
-          <span
-            className={`rounded-full border px-3 py-1 text-xs ${
-              health
-                ? "border-emerald-500/30 bg-emerald-500/15 text-emerald-300"
-                : "border-red-500/30 bg-red-500/10 text-red-300"
-            }`}
-          >
-            {health ? `API ${health.version} · на связи` : "API недоступен"}
-          </span>
+          <div className="flex items-center gap-4">
+            <Link
+              href="/our-listings"
+              className="text-xs text-neutral-400 underline decoration-neutral-700 underline-offset-4 hover:text-neutral-200"
+            >
+              Наши объявления
+            </Link>
+            <span
+              className={`rounded-full border px-3 py-1 text-xs ${
+                health
+                  ? "border-emerald-500/30 bg-emerald-500/15 text-emerald-300"
+                  : "border-red-500/30 bg-red-500/10 text-red-300"
+              }`}
+            >
+              {health ? `API ${health.version} · на связи` : "API недоступен"}
+            </span>
+          </div>
         </div>
         <h1 className="text-3xl font-semibold tracking-tight sm:text-4xl">
           Аналитика рынка Авито

@@ -7,7 +7,37 @@
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-09-29
+
+### Добавлено
+
+- Официальный Avito API: OAuth2-клиент (`client_credentials`, кэш токена),
+  tolerant-парсинг и постраничная выгрузка своих объявлений.
+- Синхронизация своих объявлений в `our_listings` (avito_item_id, статус, URL,
+  last_synced_at); эндпоинты `GET /api/v1/avito/status`, `POST /api/v1/avito/sync`
+  (выгрузка + матчинг + прогон алертов).
+- Батч-матчинг `POST /api/v1/our-listings/match-all` и сводка
+  `GET /api/v1/our-listings/overview` (медиана рынка, дельта нашей цены).
+- Ночная синхронизация с Авито (02:00 UTC) при заданных ключах.
+- UI: страница «Наши объявления» с дельтой к медиане и статусом на Авито.
+
 ## [0.4.0] - 2026-09-29
+
+### Добавлено
+
+- Матчинг: таблица `our_listings`, нечёткое сопоставление наших SKU с конкурентами
+  (rapidfuzz token_set_ratio), ручное подтверждение/отклонение матчей, позиция нашей
+  цены относительно рынка (доля дешевле нас, дельта к медиане).
+- API матчинга: `GET/POST /api/v1/our-listings`, `POST /{sku}/match`,
+  `GET /{sku}/matches`, `PATCH /{sku}/matches/{id}`, `GET /{sku}/position`.
+- AI-слой: рыночный дайджест через litellm (`POST /api/v1/searches/{id}/digest`),
+  рекомендация цены (`POST /api/v1/our-listings/{sku}/advice`) — детерминированная
+  стратегия с ограничением шага и порогом HITL, плюс LLM-обоснование при наличии ключа.
+- Учёт вызовов LLM: таблица `llm_runs`, эндпоинт `GET /api/v1/llm-runs` (токены, стоимость).
+- Алерты: правило «наша цена выше медианы рынка на N%» с дедупликацией,
+  API `GET /api/v1/alerts`, `POST /alerts/{id}/ack`,
+  `POST /searches/{id}/alerts/evaluate`; авто-прогон после каждого обхода.
+- UI: панель AI-дайджеста и блок алертов с подтверждением на странице поиска.
 
 ## [0.3.0] - 2026-09-29
 
@@ -64,7 +94,8 @@
 - Дашборд Next.js 16 + Tailwind 4 со статусом API и дорожной картой.
 - Документация: README, `docs/plan.md`, `.env.example`, MIT-лицензия.
 
-[Unreleased]: https://github.com/syb1v/avito-toolkit/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/syb1v/avito-toolkit/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/syb1v/avito-toolkit/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/syb1v/avito-toolkit/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/syb1v/avito-toolkit/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/syb1v/avito-toolkit/compare/v0.1.0...v0.2.0

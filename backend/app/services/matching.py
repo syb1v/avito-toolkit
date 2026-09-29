@@ -46,6 +46,20 @@ class MarketPosition:
     delta_to_median_pct: float | None
 
 
+@dataclass(frozen=True, slots=True)
+class OverviewRow:
+    sku: str
+    title: str
+    our_price: float
+    is_active: bool
+    avito_status: str | None
+    avito_url: str | None
+    matched_count: int
+    market_median: float | None
+    delta_to_median_pct: float | None
+    cheaper_share: float | None
+
+
 def rank_candidates(
     query: str,
     candidates: Sequence[MatchCandidate],
@@ -187,3 +201,58 @@ async def build_our_position(session: AsyncSession, sku: str) -> MarketPosition 
     if not prices:
         return None
     return compute_market_position(float(our.price), prices)
+
+
+async def match_all_our_listings(session: AsyncSession) -> int:
+    """Прогоняет матчинг по всем активным нашим SKU."""
+    rows = await session.execute(
+        select(OurListing.sku).where(OurListing.is_active.is_(True)).order_by(OurListing.sku)
+    )
+    matched = 0
+    for (sku,) in rows.all():
+        await match_our_listing(session, sku)
+        matched += 1
+    return matched
+
+
+async def build_overview(session: AsyncSession) -> list[OverviewRow]:
+    """Сводка по нашим SKU: цена, статус на Авито, матчи и дельта к медиане."""
+    our_rows = (await session.execute(select(OurListing).order_by(OurListing.sku))).scalars().all()
+    price_rows = await session.execute(
+        select(ProductMarketMatch.our_sku_id, Listing.current_price)
+        .join(Listing, Listing.id == ProductMarketMatch.market_listing_id)
+        .where(
+            ProductMarketMatch.match_status != "rejected",
+            Listing.current_price.is_not(None),
+        )
+    )
+    grouped: dict[str, list[float]] = {}
+    for sku, price in price_rows.all():
+        if price is not None:
+            grouped.setdefault(sku, []).append(float(price))
+
+    overview: list[OverviewRow] = []
+    for our in our_rows:
+        prices = grouped.get(our.sku, [])
+        position = compute_market_position(float(our.price), prices) if prices else None
+        overview.append(
+            OverviewRow(
+                sku=our.sku,
+                title=our.title,
+                our_price=float(our.price),
+                is_active=our.is_active,
+                avito_status=our.avito_status,
+                avito_url=our.avito_url,
+                matched_count=position.matched_count if position is not None else 0,
+                market_median=(
+                    position.stats.median
+                    if position is not None and position.stats is not None
+                    else None
+                ),
+                delta_to_median_pct=(
+                    position.delta_to_median_pct if position is not None else None
+                ),
+                cheaper_share=position.cheaper_share if position is not None else None,
+            )
+        )
+    return overview

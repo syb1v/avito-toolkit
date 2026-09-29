@@ -10,7 +10,9 @@ from app.api.schemas import PositionOut, PriceStatsOut
 from app.db.models import OurListing
 from app.services.matching import (
     build_our_position,
+    build_overview,
     list_matches,
+    match_all_our_listings,
     match_our_listing,
     update_match_status,
 )
@@ -51,6 +53,19 @@ class MatchStatusUpdate(BaseModel):
     status: Literal["auto_matched", "confirmed", "rejected"]
 
 
+class OverviewOut(BaseModel):
+    sku: str
+    title: str
+    our_price: float
+    is_active: bool
+    avito_status: str | None
+    avito_url: str | None
+    matched_count: int
+    market_median: float | None
+    delta_to_median_pct: float | None
+    cheaper_share: float | None
+
+
 @router.get("/our-listings", response_model=list[OurListingOut])
 async def list_our_listings(session: DbSession) -> list[OurListing]:
     rows = await session.execute(select(OurListing).order_by(OurListing.sku))
@@ -69,6 +84,18 @@ async def upsert_our_listing(payload: OurListingCreate, session: DbSession) -> O
     await session.commit()
     await session.refresh(our)
     return our
+
+
+@router.get("/our-listings/overview", response_model=list[OverviewOut])
+async def our_listings_overview(session: DbSession) -> list[OverviewOut]:
+    rows = await build_overview(session)
+    return [OverviewOut(**asdict(row)) for row in rows]
+
+
+@router.post("/our-listings/match-all")
+async def match_all(session: DbSession) -> dict[str, int]:
+    matched = await match_all_our_listings(session)
+    return {"matched": matched}
 
 
 @router.post("/our-listings/{sku}/match", response_model=list[MatchOut])

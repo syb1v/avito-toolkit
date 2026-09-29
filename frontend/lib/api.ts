@@ -85,6 +85,19 @@ export type Digest = {
   cost_usd: number | null;
 };
 
+export type OurListingOverview = {
+  sku: string;
+  title: string;
+  our_price: number;
+  is_active: boolean;
+  avito_status: string | null;
+  avito_url: string | null;
+  matched_count: number;
+  market_median: number | null;
+  delta_to_median_pct: number | null;
+  cheaper_share: number | null;
+};
+
 async function getJson<T>(path: string): Promise<T | null> {
   try {
     const response = await fetch(`${SERVER_API_URL}${path}`, { cache: "no-store" });
@@ -113,6 +126,9 @@ export const fetchListings = async (searchId: string, limit = 100): Promise<List
 
 export const fetchAlerts = async (searchId: string): Promise<Alert[]> =>
   (await getJson<Alert[]>(`/api/v1/alerts?search_id=${searchId}`)) ?? [];
+
+export const fetchOurListingsOverview = async (): Promise<OurListingOverview[]> =>
+  (await getJson<OurListingOverview[]>("/api/v1/our-listings/overview")) ?? [];
 
 export async function createDigest(
   searchId: string,
