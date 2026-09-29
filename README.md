@@ -42,6 +42,10 @@ cd backend
 .venv/bin/python scripts/fetch_page.py \
   --url "https://www.avito.ru/moskva/telefony?q=iphone+15" \
   --out /tmp/avito.html --pages 2
+
+# если страница отдаёт только SSR-оболочку или антибот-челлендж — рендер браузером:
+.venv/bin/python scripts/fetch_page.py --browser \
+  --url "https://www.avito.ru/moskva/telefony?q=iphone+15" --out /tmp/avito.html
 ```
 
 Полный цикл с записью снапшотов:
@@ -62,6 +66,8 @@ curl -s localhost:8000/api/v1/searches/<id>/listings
 
 Прокси включаются переменными `PROXY_ENABLED=true` и `PROXY_URL=...` — по умолчанию выключены.
 Повторный обход не создаёт дубли: снапшоты пишутся только для новых объявлений и смены цены.
+Если Авито отвечает страницей «Доступ ограничен: проблема с IP» — IP временно ограничен после
+серии запросов: подождите, смените сеть или используйте прокси.
 
 
 

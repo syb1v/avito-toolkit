@@ -12,6 +12,8 @@ import asyncio
 import sys
 from pathlib import Path
 
+from app.collectors.base import SourceAdapter
+from app.collectors.transport.browser_patchright import BrowserTransport
 from app.collectors.transport.http_cffi import HttpCffiTransport
 from app.collectors.web.parsing import parse_search_page
 
@@ -22,8 +24,14 @@ REQUEST_HEADERS = {
 PREVIEW_ITEMS = 5
 
 
-async def _run(url: str, out: str | None, proxy: str | None, pages: int) -> int:
-    transport = HttpCffiTransport(proxy=proxy)
+def _build_transport(use_browser: bool, proxy: str | None) -> SourceAdapter:
+    if use_browser:
+        return BrowserTransport(proxy=proxy)
+    return HttpCffiTransport(proxy=proxy)
+
+
+async def _run(url: str, out: str | None, proxy: str | None, pages: int, use_browser: bool) -> int:
+    transport = _build_transport(use_browser, proxy)
     separator = "&" if "?" in url else "?"
     total = 0
     try:
@@ -59,8 +67,13 @@ def main() -> int:
     parser.add_argument("--out", help="сохранить HTML первой страницы в файл")
     parser.add_argument("--proxy", help="прокси, например http://user:pass@host:port")
     parser.add_argument("--pages", type=int, default=1, help="число страниц (по умолчанию 1)")
+    parser.add_argument(
+        "--browser",
+        action="store_true",
+        help="рендер через Patchright (Level 2) вместо HTTP-запроса",
+    )
     args = parser.parse_args()
-    return asyncio.run(_run(args.url, args.out, args.proxy, args.pages))
+    return asyncio.run(_run(args.url, args.out, args.proxy, args.pages, args.browser))
 
 
 if __name__ == "__main__":

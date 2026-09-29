@@ -73,6 +73,10 @@ class SearchCollector:
         if search is None:
             raise LookupError(f"search {search_id} not found")
 
+        reset = getattr(self._transport, "reset", None)
+        if callable(reset):
+            reset()
+
         now = datetime.now(UTC)
         unique: dict[int, ParsedListing] = {}
         pages_fetched = 0
