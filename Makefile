@@ -1,4 +1,4 @@
-.PHONY: up down logs build test lint typecheck migrate revision web-dev backend-install
+.PHONY: up down logs build test lint typecheck migrate revision web-dev backend-install fetch-page
 
 up:
 	docker compose up -d --build
@@ -32,3 +32,6 @@ typecheck:
 
 web-dev:
 	cd frontend && npm run dev
+
+fetch-page:
+	cd backend && .venv/bin/python scripts/fetch_page.py --url "$(url)" --out /tmp/avito_page.html

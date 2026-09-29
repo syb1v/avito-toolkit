@@ -33,6 +33,38 @@ docker compose exec api alembic upgrade head
 - Дашборд: http://localhost:3000
 - Healthcheck: `curl http://localhost:8000/healthz`
 
+## Локальная проверка парсера (фаза 1)
+
+Скачать страницу выдачи и распарсить без записи в БД:
+
+```bash
+cd backend
+.venv/bin/python scripts/fetch_page.py \
+  --url "https://www.avito.ru/moskva/telefony?q=iphone+15" \
+  --out /tmp/avito.html --pages 2
+```
+
+Полный цикл с записью снапшотов:
+
+```bash
+docker compose up -d postgres redis          # из корня репозитория
+cd backend
+.venv/bin/alembic upgrade head
+.venv/bin/dramatiq app.workers.tasks --processes 1 --threads 2 &
+.venv/bin/uvicorn app.main:app --port 8000 &
+
+# создать поиск и запустить обход
+curl -s -X POST localhost:8000/api/v1/searches -H 'Content-Type: application/json' \
+  -d '{"name":"iPhone 15","url":"https://www.avito.ru/moskva/telefony?q=iphone+15"}'
+curl -s -X POST localhost:8000/api/v1/searches/<id>/crawl
+curl -s localhost:8000/api/v1/searches/<id>/listings
+```
+
+Прокси включаются переменными `PROXY_ENABLED=true` и `PROXY_URL=...` — по умолчанию выключены.
+Повторный обход не создаёт дубли: снапшоты пишутся только для новых объявлений и смены цены.
+
+
+
 ## Структура
 
 ```
@@ -62,8 +94,8 @@ make migrate                 # alembic upgrade head
 
 | Фаза | Содержание | Статус |
 |---|---|---|
-| 0 | Каркас, инфраструктура, CI | текущая |
-| 1 | Коллектор Level 1 (curl_cffi), снапшоты цен | |
+| 0 | Каркас, инфраструктура, CI | готово |
+| 1 | Коллектор Level 1 (curl_cffi), снапшоты цен | в работе |
 | 2 | Аналитика + дашборд | |
 | 3 | Level 2 fallback (Patchright/Camoufox) | |
 | 4 | Матчинг + AI-дайджесты и рекомендации | |
