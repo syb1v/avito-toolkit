@@ -34,6 +34,8 @@ class Settings(BaseSettings):
     crawl_max_pages_per_run: int = 20
     crawl_delay_min_seconds: float = 5.0
     crawl_delay_max_seconds: float = 15.0
+    # auto | browser | hybrid | http: auto = браузер, если установлен patchright
+    crawl_transport: str = "auto"
 
     reprice_hitl_threshold_pct: float = 10.0
     reprice_max_step_pct: float = 5.0

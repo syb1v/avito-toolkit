@@ -1,4 +1,9 @@
-from app.collectors.base import BotChallengeError, FetchedPage, SourceAdapter
+from app.collectors.base import (
+    BotChallengeError,
+    FetchedPage,
+    RateLimitedError,
+    SourceAdapter,
+)
 from app.collectors.web.parsing import parse_search_page
 
 
@@ -25,7 +30,7 @@ class HybridTransport:
         page: FetchedPage | None = None
         try:
             page = await self._primary.fetch(url, headers=headers)
-        except BotChallengeError:
+        except (BotChallengeError, RateLimitedError):
             page = None
         if page is not None:
             if _has_items(page):

@@ -96,6 +96,10 @@ class SearchCollector:
                 logger.warning("bot challenge on page %s of search %s", page_number, search_id)
                 stopped_by_challenge = True
                 break
+            except Exception as error:
+                logger.warning("page %s of search %s failed: %s", page_number, search_id, error)
+                pages_failed += 1
+                break
             if page.status_code >= 400:
                 logger.warning(
                     "page %s of search %s returned %s",

@@ -134,14 +134,42 @@ class BrowserTransport:
         finally:
             await page.close()
 
+    async def _safe_content(self, page: Any) -> str:
+        for _ in range(2):
+            try:
+                return await page.content()
+            except Exception:
+                try:
+                    await page.wait_for_load_state("domcontentloaded", timeout=10000)
+                except Exception:
+                    await asyncio.sleep(1.0)
+        try:
+            return await page.content()
+        except Exception as error:
+            logger.warning("cannot read page content: %s", error)
+            return ""
+
     async def _load_with_retries(self, page: Any, url: str) -> FetchedPage:
         for attempt in range(1, CHALLENGE_RETRIES + 1):
-            response = await page.goto(url, wait_until="domcontentloaded", timeout=self._timeout_ms)
-            status_code = response.status if response is not None else 200
+            status_code = 200
+            try:
+                response = await page.goto(
+                    url, wait_until="domcontentloaded", timeout=self._timeout_ms
+                )
+                if response is not None:
+                    status_code = response.status
+            except Exception as error:
+                logger.warning(
+                    "navigation issue at %s (attempt %s/%s): %s",
+                    url,
+                    attempt,
+                    CHALLENGE_RETRIES,
+                    error,
+                )
             try:
                 await page.wait_for_selector(ITEM_SELECTOR, timeout=SELECTOR_TIMEOUT_MS)
             except Exception:
-                body = await page.content()
+                body = await self._safe_content(page)
                 if not self._is_challenge(body) or attempt == CHALLENGE_RETRIES:
                     return FetchedPage(url=page.url, status_code=status_code, body=body)
                 logger.info(
@@ -153,9 +181,10 @@ class BrowserTransport:
                 )
                 await asyncio.sleep(CHALLENGE_WAIT_SECONDS)
                 continue
-            body = await page.content()
+            await asyncio.sleep(0.5)
+            body = await self._safe_content(page)
             return FetchedPage(url=page.url, status_code=status_code, body=body)
-        body = await page.content()
+        body = await self._safe_content(page)
         return FetchedPage(url=page.url, status_code=200, body=body)
 
     @staticmethod

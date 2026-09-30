@@ -46,7 +46,9 @@ reset-data:
 	docker compose exec -T postgres psql -U avito -d avito -c "truncate search_listings, listing_snapshots, listings, sellers, market_analytics_daily, product_market_matches, our_listings, alerts, jobs, llm_runs, audit_log, searches cascade;"
 
 worker-local:
-	cd backend && BROWSER_USER_DATA_DIR=.browser-profile .venv/bin/dramatiq app.workers.tasks --processes 1 --threads 2
+	cd backend && BROWSER_USER_DATA_DIR=.browser-profile BROWSER_HEADLESS=false \
+		$$(command -v xvfb-run >/dev/null 2>&1 && echo xvfb-run -a) \
+		.venv/bin/dramatiq app.workers.tasks --processes 1 --threads 2
 
 bump:
 	python3 scripts/bump_version.py --part $(part)

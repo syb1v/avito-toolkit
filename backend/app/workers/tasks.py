@@ -28,14 +28,21 @@ HAS_BROWSER = importlib.util.find_spec("patchright") is not None
 
 
 def _build_transport() -> SourceAdapter:
+    settings = get_settings()
+    mode = settings.crawl_transport.strip().lower()
     http = HttpCffiTransport()
+    if mode == "http":
+        return http
     if not HAS_BROWSER:
-        logger.warning("patchright не установлен: Level 2 (браузер) отключён")
+        logger.warning("patchright не установлен: остаётся только HTTP (Level 1)")
         return http
     from app.collectors.transport.browser_patchright import BrowserTransport
     from app.collectors.transport.hybrid import HybridTransport
 
-    return HybridTransport(http, BrowserTransport())
+    browser = BrowserTransport()
+    if mode == "hybrid":
+        return HybridTransport(http, browser)
+    return browser
 
 
 async def _match_if_needed(session: AsyncSession) -> int:
