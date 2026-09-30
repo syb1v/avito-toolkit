@@ -24,14 +24,21 @@ REQUEST_HEADERS = {
 PREVIEW_ITEMS = 5
 
 
-def _build_transport(use_browser: bool, proxy: str | None) -> SourceAdapter:
+def _build_transport(use_browser: bool, proxy: str | None, headed: bool = False) -> SourceAdapter:
     if use_browser:
-        return BrowserTransport(proxy=proxy)
+        return BrowserTransport(proxy=proxy, headless=False if headed else None)
     return HttpCffiTransport(proxy=proxy)
 
 
-async def _run(url: str, out: str | None, proxy: str | None, pages: int, use_browser: bool) -> int:
-    transport = _build_transport(use_browser, proxy)
+async def _run(
+    url: str,
+    out: str | None,
+    proxy: str | None,
+    pages: int,
+    use_browser: bool,
+    headed: bool = False,
+) -> int:
+    transport = _build_transport(use_browser, proxy, headed)
     separator = "&" if "?" in url else "?"
     total = 0
     try:
@@ -72,8 +79,13 @@ def main() -> int:
         action="store_true",
         help="рендер через Patchright (Level 2) вместо HTTP-запроса",
     )
+    parser.add_argument(
+        "--headed",
+        action="store_true",
+        help="показать окно браузера (для прохождения проверки вручную)",
+    )
     args = parser.parse_args()
-    return asyncio.run(_run(args.url, args.out, args.proxy, args.pages, args.browser))
+    return asyncio.run(_run(args.url, args.out, args.proxy, args.pages, args.browser, args.headed))
 
 
 if __name__ == "__main__":

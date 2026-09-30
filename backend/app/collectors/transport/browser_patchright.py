@@ -8,11 +8,18 @@ from app.config import get_settings
 
 logger = logging.getLogger(__name__)
 
-CHALLENGE_MARKERS = ("доступ ограничен", "проверка безопасности")
+CHALLENGE_MARKERS = (
+    "доступ ограничен",
+    "проверка безопасности",
+    "проблема с ip",
+)
 ITEM_SELECTOR = "div[data-marker='item']"
-CHALLENGE_RETRIES = 2
-CHALLENGE_WAIT_SECONDS = 6.0
+SELECTOR_TIMEOUT_MS = 15000
+CHALLENGE_RETRIES = 3
+CHALLENGE_WAIT_SECONDS = 8.0
 BLOCKED_RESOURCE_TYPES = {"image", "media", "font"}
+WARMUP_URL = "https://www.avito.ru/"
+WARMUP_WAIT_SECONDS = 1.5
 
 
 def proxy_settings(proxy_url: str) -> dict[str, str]:
@@ -31,9 +38,12 @@ def proxy_settings(proxy_url: str) -> dict[str, str]:
 class BrowserTransport:
     """Level 2: рендер через Patchright (undetected Chromium).
 
-    Используется как fallback, когда HTTP-выдача пуста или встречает
-    JS-челлендж. Реализация patchright импортируется лениво, чтобы пакет
-    не был обязательным для базового HTTP-сбора.
+    Отличия от «чистого» Playwright, критичные для Авито:
+    - полный Chromium (channel=chromium), а не headless-shell;
+    - постоянный профиль (BROWSER_USER_DATA_DIR) с живыми cookies;
+    - прогрев сессии заходом на главную;
+    - никакой подмены User-Agent — соответствует реальному фингерпринту;
+    - ожидание JS-челленджа с повторами и перезагрузкой.
     """
 
     name = "browser-patchright"
@@ -41,20 +51,25 @@ class BrowserTransport:
     def __init__(
         self,
         proxy: str | None = None,
-        headless: bool = True,
+        headless: bool | None = None,
         locale: str = "ru-RU",
         timeout_ms: int = 45000,
         block_resources: bool = True,
+        user_data_dir: str | None = None,
+        channel: str | None = None,
     ) -> None:
         settings = get_settings()
         self._proxy = proxy or (settings.proxy_url if settings.proxy_enabled else None)
-        self._headless = headless
+        self._headless = settings.browser_headless if headless is None else headless
+        self._user_data_dir = user_data_dir or settings.browser_user_data_dir or None
+        self._channel = channel or settings.browser_channel or None
         self._locale = locale
         self._timeout_ms = timeout_ms
         self._block_resources = block_resources
         self._playwright: Any | None = None
         self._browser: Any | None = None
         self._context: Any | None = None
+        self._warmed_up = False
 
     async def _ensure_context(self) -> Any:
         if self._context is not None:
@@ -65,22 +80,31 @@ class BrowserTransport:
         launch_args = ["--disable-blink-features=AutomationControlled"]
         if get_settings().browser_no_sandbox:
             launch_args.append("--no-sandbox")
+
         launch_options: dict[str, Any] = {
             "headless": self._headless,
             "args": launch_args,
         }
+        if self._channel:
+            launch_options["channel"] = self._channel
         if self._proxy:
             launch_options["proxy"] = proxy_settings(self._proxy)
-        self._browser = await self._playwright.chromium.launch(**launch_options)
-        self._context = await self._browser.new_context(
-            locale=self._locale,
-            timezone_id="Europe/Moscow",
-            viewport={"width": 1440, "height": 900},
-            user_agent=(
-                "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
-                "(KHTML, like Gecko) Chrome/153.0.0.0 Safari/537.36"
-            ),
-        )
+
+        context_options: dict[str, Any] = {
+            "locale": self._locale,
+            "timezone_id": "Europe/Moscow",
+            "viewport": {"width": 1440, "height": 900},
+        }
+        if self._user_data_dir:
+            self._context = await self._playwright.chromium.launch_persistent_context(
+                self._user_data_dir,
+                **launch_options,
+                **context_options,
+            )
+        else:
+            self._browser = await self._playwright.chromium.launch(**launch_options)
+            self._context = await self._browser.new_context(**context_options)
+
         if self._block_resources:
             await self._context.route("**/*", self._block_route)
         return self._context
@@ -92,26 +116,47 @@ class BrowserTransport:
         else:
             await route.continue_()
 
+    async def _warm_up(self, page: Any) -> None:
+        try:
+            await page.goto(WARMUP_URL, wait_until="domcontentloaded", timeout=self._timeout_ms)
+            await asyncio.sleep(WARMUP_WAIT_SECONDS)
+        except Exception as error:
+            logger.debug("warmup failed: %s", error)
+        self._warmed_up = True
+
     async def fetch(self, url: str, headers: dict[str, str] | None = None) -> FetchedPage:
         context = await self._ensure_context()
         page = await context.new_page()
         try:
-            response = await page.goto(url, wait_until="domcontentloaded", timeout=self._timeout_ms)
-            status_code = response.status if response is not None else 200
-            for attempt in range(CHALLENGE_RETRIES + 1):
-                try:
-                    await page.wait_for_selector(ITEM_SELECTOR, timeout=self._timeout_ms)
-                    break
-                except Exception:
-                    body = await page.content()
-                    if not self._is_challenge(body) or attempt == CHALLENGE_RETRIES:
-                        break
-                    logger.info("browser challenge detected, waiting %.0fs", CHALLENGE_WAIT_SECONDS)
-                    await asyncio.sleep(CHALLENGE_WAIT_SECONDS)
-            body = await page.content()
-            return FetchedPage(url=page.url, status_code=status_code, body=body)
+            if not self._warmed_up:
+                await self._warm_up(page)
+            return await self._load_with_retries(page, url)
         finally:
             await page.close()
+
+    async def _load_with_retries(self, page: Any, url: str) -> FetchedPage:
+        for attempt in range(1, CHALLENGE_RETRIES + 1):
+            response = await page.goto(url, wait_until="domcontentloaded", timeout=self._timeout_ms)
+            status_code = response.status if response is not None else 200
+            try:
+                await page.wait_for_selector(ITEM_SELECTOR, timeout=SELECTOR_TIMEOUT_MS)
+            except Exception:
+                body = await page.content()
+                if not self._is_challenge(body) or attempt == CHALLENGE_RETRIES:
+                    return FetchedPage(url=page.url, status_code=status_code, body=body)
+                logger.info(
+                    "antibot challenge at %s (attempt %s/%s), wait %.0fs",
+                    url,
+                    attempt,
+                    CHALLENGE_RETRIES,
+                    CHALLENGE_WAIT_SECONDS,
+                )
+                await asyncio.sleep(CHALLENGE_WAIT_SECONDS)
+                continue
+            body = await page.content()
+            return FetchedPage(url=page.url, status_code=status_code, body=body)
+        body = await page.content()
+        return FetchedPage(url=page.url, status_code=200, body=body)
 
     @staticmethod
     def _is_challenge(body: str) -> bool:

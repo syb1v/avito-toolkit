@@ -37,6 +37,7 @@ artifacts/
 .patchright/
 .camoufox/
 cookies/
+.browser-profile/
 
 # IDE / OS
 .idea/

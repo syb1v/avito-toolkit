@@ -26,6 +26,9 @@ class Settings(BaseSettings):
     proxy_enabled: bool = False
     proxy_url: str | None = None
     browser_no_sandbox: bool = False
+    browser_headless: bool = True
+    browser_channel: str | None = "chromium"
+    browser_user_data_dir: str | None = None
 
     crawl_rate_per_minute: int = 12
     crawl_max_pages_per_run: int = 20
