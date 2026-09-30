@@ -31,9 +31,9 @@ class Settings(BaseSettings):
     browser_user_data_dir: str | None = None
 
     crawl_rate_per_minute: int = 12
-    crawl_max_pages_per_run: int = 20
-    crawl_delay_min_seconds: float = 5.0
-    crawl_delay_max_seconds: float = 15.0
+    crawl_max_pages_per_run: int = 10
+    crawl_delay_min_seconds: float = 8.0
+    crawl_delay_max_seconds: float = 20.0
     # auto | browser | hybrid | http: auto = браузер, если установлен patchright
     crawl_transport: str = "auto"
 
