@@ -62,9 +62,12 @@ class BrowserTransport:
         from patchright.async_api import async_playwright
 
         self._playwright = await async_playwright().start()
+        launch_args = ["--disable-blink-features=AutomationControlled"]
+        if get_settings().browser_no_sandbox:
+            launch_args.append("--no-sandbox")
         launch_options: dict[str, Any] = {
             "headless": self._headless,
-            "args": ["--disable-blink-features=AutomationControlled"],
+            "args": launch_args,
         }
         if self._proxy:
             launch_options["proxy"] = proxy_settings(self._proxy)

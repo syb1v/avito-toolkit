@@ -6,6 +6,7 @@ from sqlalchemy import select
 
 from app.api.deps import DbSession
 from app.db.models import Listing, Search, SearchListing
+from app.services.searches import import_searches, normalize_search_rows
 
 router = APIRouter(prefix="/searches", tags=["searches"])
 
@@ -52,6 +53,29 @@ async def create_search(payload: SearchCreate, session: DbSession) -> Search:
     await session.commit()
     await session.refresh(search)
     return search
+
+
+class SearchImportRequest(BaseModel):
+    items: list[dict[str, object]] = Field(min_length=1, max_length=1000)
+
+
+class SearchImportOut(BaseModel):
+    created: int
+    updated: int
+    skipped: int
+
+
+@router.post("/import", response_model=SearchImportOut)
+async def import_searches_endpoint(
+    payload: SearchImportRequest, session: DbSession
+) -> SearchImportOut:
+    rows, invalid = normalize_search_rows(payload.items)
+    result = await import_searches(session, rows)
+    return SearchImportOut(
+        created=result.created,
+        updated=result.updated,
+        skipped=result.skipped + invalid,
+    )
 
 
 @router.post("/{search_id}/crawl", status_code=202)

@@ -1,3 +1,4 @@
+import uuid
 from dataclasses import asdict
 from typing import Literal
 
@@ -7,7 +8,7 @@ from sqlalchemy import select
 
 from app.api.deps import DbSession
 from app.api.schemas import PositionOut, PriceStatsOut
-from app.db.models import OurListing
+from app.db.models import OurListing, Search
 from app.services.matching import (
     build_our_position,
     build_overview,
@@ -15,6 +16,11 @@ from app.services.matching import (
     match_all_our_listings,
     match_our_listing,
     update_match_status,
+)
+from app.services.our_listings import (
+    import_from_search,
+    normalize_import_rows,
+    upsert_our_listings,
 )
 
 router = APIRouter(tags=["matching"])
@@ -66,6 +72,16 @@ class OverviewOut(BaseModel):
     cheaper_share: float | None
 
 
+class ImportRequest(BaseModel):
+    items: list[dict[str, object]] = Field(min_length=1, max_length=5000)
+
+
+class ImportOut(BaseModel):
+    created: int
+    updated: int
+    skipped: int
+
+
 @router.get("/our-listings", response_model=list[OurListingOut])
 async def list_our_listings(session: DbSession) -> list[OurListing]:
     rows = await session.execute(select(OurListing).order_by(OurListing.sku))
@@ -96,6 +112,25 @@ async def our_listings_overview(session: DbSession) -> list[OverviewOut]:
 async def match_all(session: DbSession) -> dict[str, int]:
     matched = await match_all_our_listings(session)
     return {"matched": matched}
+
+
+@router.post("/our-listings/import", response_model=ImportOut)
+async def import_our_listings(payload: ImportRequest, session: DbSession) -> ImportOut:
+    rows, invalid = normalize_import_rows(payload.items)
+    result = await upsert_our_listings(session, rows)
+    return ImportOut(
+        created=result.created,
+        updated=result.updated,
+        skipped=result.skipped + invalid,
+    )
+
+
+@router.post("/our-listings/import-from-search/{search_id}", response_model=ImportOut)
+async def import_our_listings_from_search(search_id: uuid.UUID, session: DbSession) -> ImportOut:
+    if await session.get(Search, search_id) is None:
+        raise HTTPException(status_code=404, detail="search not found")
+    result = await import_from_search(session, search_id)
+    return ImportOut(created=result.created, updated=result.updated, skipped=result.skipped)
 
 
 @router.post("/our-listings/{sku}/match", response_model=list[MatchOut])

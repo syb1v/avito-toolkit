@@ -1,6 +1,5 @@
 from functools import lru_cache
 
-from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -26,16 +25,12 @@ class Settings(BaseSettings):
 
     proxy_enabled: bool = False
     proxy_url: str | None = None
+    browser_no_sandbox: bool = False
 
     crawl_rate_per_minute: int = 12
     crawl_max_pages_per_run: int = 20
     crawl_delay_min_seconds: float = 5.0
     crawl_delay_max_seconds: float = 15.0
-
-    avito_client_id: str | None = None
-    avito_client_secret: str | None = None
-    avito_user_id: int | None = None
-    avito_base_url: str = "https://api.avito.ru"
 
     reprice_hitl_threshold_pct: float = 10.0
     reprice_max_step_pct: float = 5.0
@@ -44,13 +39,6 @@ class Settings(BaseSettings):
     match_max_candidates: int = 300
     match_top_n: int = 10
     alert_price_above_market_pct: float = 10.0
-
-    @field_validator("avito_user_id", mode="before")
-    @classmethod
-    def _empty_str_to_none(cls, value: object) -> object:
-        if isinstance(value, str) and not value.strip():
-            return None
-        return value
 
 
 @lru_cache

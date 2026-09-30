@@ -14,22 +14,26 @@ export default async function OurListingsPage() {
         </Link>
         <h1 className="text-2xl font-semibold tracking-tight">Наши объявления</h1>
         <p className="max-w-2xl text-sm text-neutral-400">
-          SKU из базы и синхронизация с официальным API Авито: цена, статус,
-          количество матчей с рынком и отклонение от медианы.
+          SKU из базы: цена, количество матчей с рынком и отклонение от медианы.
+          Источники данных — импорт JSON/CSV и парсинг своего публичного профиля,
+          без API Авито.
         </p>
       </header>
 
       {rows.length === 0 ? (
         <div className="rounded-xl border border-dashed border-neutral-800 p-8 text-sm text-neutral-400">
-          <p>Пока пусто. Добавьте SKU через API:</p>
+          <p>Пока пусто. Добавьте SKU через API или импортом:</p>
           <pre className="mt-4 overflow-x-auto rounded-lg bg-neutral-900 p-4 text-xs text-neutral-400">
-{`curl -X POST http://localhost:8000/api/v1/our-listings \\
+{`curl -X POST http://localhost:8000/api/v1/our-listings/import \\
   -H 'Content-Type: application/json' \\
-  -d '{"sku":"SKU-1","title":"iPhone 15 128GB","price":90000,"cost_price":60000}'`}
+  -d '{"items":[
+    {"sku":"SKU-1","title":"iPhone 15 128GB","price":"90 000 ₽","cost_price":60000}
+  ]}'`}
           </pre>
           <p className="mt-3 text-xs text-neutral-500">
-            Синхронизация с Авито выполняется эндпоинтом{" "}
-            <code>POST /api/v1/avito/sync</code> после настройки AVITO_CLIENT_ID/SECRET.
+            Ещё вариант — обойти свой публичный профиль как обычный поиск
+            (имя продавца в URL) и перенести объявления эндпоинтом{" "}
+            <code>POST /api/v1/our-listings/import-from-search/&#123;id&#125;</code>.
           </p>
         </div>
       ) : (

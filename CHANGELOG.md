@@ -7,6 +7,35 @@
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-09-30
+
+### Добавлено
+
+- Импорт своих объявлений без API Авито: `POST /api/v1/our-listings/import`
+  (JSON, принимает цены вида «89 990 ₽») и
+  `POST /api/v1/our-listings/import-from-search/{id}` — перенос объявлений из
+  любого спарсенного поиска, включая свой публичный профиль.
+- Страница «Наши объявления» дополнена подсказками по импорту.
+- Массовый импорт реальных поисков: `POST /api/v1/searches/import` и CLI
+  `backend/scripts/import_searches.py` (`make import-searches file=searches.json`).
+- Автопрогон матчинга наших SKU после каждого обхода — сравнение с рынком и алерты
+  обновляются без ручных действий.
+- Браузерный воркер для Docker (`backend/Dockerfile.browser`: Patchright + Chromium,
+  `BROWSER_NO_SANDBOX=true`), плюс `make worker-local` и `make reset-data`.
+
+### Удалено
+
+- Интеграция официального Avito Business API (платный, недоступен, внутренний):
+  OAuth2-клиент, синхронизация `our_listings`, эндпоинты `/api/v1/avito/*`,
+  зависимость `avito-py` и ночной job. Свои объявления ведутся через импорт
+  JSON/CSV и парсинг публичного профиля.
+
+### Изменено
+
+- Dockerfile backend: pip-установка с ретраями (`--retries 10 --timeout 60`).
+- В `docker-compose.yml` воркер теперь собирается из браузерного образа
+  (Level 2 доступен в контейнере без ручных действий).
+
 ## [0.5.0] - 2026-09-29
 
 ### Добавлено
@@ -94,7 +123,8 @@
 - Дашборд Next.js 16 + Tailwind 4 со статусом API и дорожной картой.
 - Документация: README, `docs/plan.md`, `.env.example`, MIT-лицензия.
 
-[Unreleased]: https://github.com/syb1v/avito-toolkit/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/syb1v/avito-toolkit/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/syb1v/avito-toolkit/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/syb1v/avito-toolkit/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/syb1v/avito-toolkit/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/syb1v/avito-toolkit/compare/v0.2.0...v0.3.0

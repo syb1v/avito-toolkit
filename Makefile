@@ -1,4 +1,4 @@
-.PHONY: up down logs build test lint typecheck migrate revision web-dev backend-install fetch-page bump tag
+.PHONY: up down logs build test lint typecheck migrate revision web-dev backend-install fetch-page bump tag import-searches reset-data worker-local
 
 up:
 	docker compose up -d --build
@@ -35,6 +35,15 @@ web-dev:
 
 fetch-page:
 	cd backend && .venv/bin/python scripts/fetch_page.py --url "$(url)" --out /tmp/avito_page.html
+
+import-searches:
+	cd backend && .venv/bin/python scripts/import_searches.py --file "$(file)"
+
+reset-data:
+	docker compose exec -T postgres psql -U avito -d avito -c "truncate search_listings, listing_snapshots, listings, sellers, market_analytics_daily, product_market_matches, our_listings, alerts, jobs, llm_runs, audit_log, searches cascade;"
+
+worker-local:
+	cd backend && .venv/bin/dramatiq app.workers.tasks --processes 1 --threads 2
 
 bump:
 	python3 scripts/bump_version.py --part $(part)
