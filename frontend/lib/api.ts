@@ -89,13 +89,46 @@ export type OurListingOverview = {
   sku: string;
   title: string;
   our_price: number;
+  cost_price: number | null;
   is_active: boolean;
   avito_status: string | null;
   avito_url: string | null;
   matched_count: number;
   market_median: number | null;
+  market_p25: number | null;
+  market_p75: number | null;
   delta_to_median_pct: number | null;
   cheaper_share: number | null;
+};
+
+export type Recommendation = {
+  sku: string;
+  title: string;
+  our_price: number;
+  cost_price: number | null;
+  market_median: number | null;
+  matched_count: number;
+  strategy: string;
+  target_price: number;
+  clamped_price: number;
+  delta_pct: number;
+  requires_approval: boolean;
+};
+
+export type DashboardAlert = {
+  id: string;
+  type: string;
+  payload: Record<string, unknown> | null;
+  created_at: string;
+};
+
+export type Dashboard = {
+  searches_total: number;
+  searches_active: number;
+  listings_active: number;
+  our_listings_active: number;
+  alerts_new: number;
+  latest_alerts: DashboardAlert[];
 };
 
 async function getJson<T>(path: string): Promise<T | null> {
@@ -129,6 +162,11 @@ export const fetchAlerts = async (searchId: string): Promise<Alert[]> =>
 
 export const fetchOurListingsOverview = async (): Promise<OurListingOverview[]> =>
   (await getJson<OurListingOverview[]>("/api/v1/our-listings/overview")) ?? [];
+
+export const fetchRecommendations = async (): Promise<Recommendation[]> =>
+  (await getJson<Recommendation[]>("/api/v1/our-listings/recommendations")) ?? [];
+
+export const fetchDashboard = () => getJson<Dashboard>("/api/v1/dashboard");
 
 export async function createDigest(
   searchId: string,

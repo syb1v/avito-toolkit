@@ -171,6 +171,15 @@ make tag                                      # тег v0.3.0 -> GitHub Release 
 CI проверяет согласованность версий (`scripts/check_version_consistency.py`),
 push тега `v*` публикует GitHub Release с секцией из CHANGELOG.
 
+## Документация
+
+- [docs/user-guide.md](docs/user-guide.md) — как пользоваться панелью: метрики,
+  рекомендации, алерты, автоматика.
+- [docs/authorization.md](docs/authorization.md) — «прогретые» аккаунты: browser-login,
+  импорт cookies, Xvfb/Docker, диагностика антибота.
+- [docs/plan.md](docs/plan.md) — план развития, журнал проверок, известные ограничения.
+- [CHANGELOG.md](CHANGELOG.md) — история версий.
+
 ## Известные ограничения
 
 - Авито отдаёт результаты поиска только «видимому» браузеру: headless-режим возвращает

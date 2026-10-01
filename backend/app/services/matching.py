@@ -51,11 +51,14 @@ class OverviewRow:
     sku: str
     title: str
     our_price: float
+    cost_price: float | None
     is_active: bool
     avito_status: str | None
     avito_url: str | None
     matched_count: int
     market_median: float | None
+    market_p25: float | None
+    market_p75: float | None
     delta_to_median_pct: float | None
     cheaper_share: float | None
 
@@ -235,20 +238,20 @@ async def build_overview(session: AsyncSession) -> list[OverviewRow]:
     for our in our_rows:
         prices = grouped.get(our.sku, [])
         position = compute_market_position(float(our.price), prices) if prices else None
+        stats = position.stats if position is not None else None
         overview.append(
             OverviewRow(
                 sku=our.sku,
                 title=our.title,
                 our_price=float(our.price),
+                cost_price=float(our.cost_price) if our.cost_price is not None else None,
                 is_active=our.is_active,
                 avito_status=our.avito_status,
                 avito_url=our.avito_url,
                 matched_count=position.matched_count if position is not None else 0,
-                market_median=(
-                    position.stats.median
-                    if position is not None and position.stats is not None
-                    else None
-                ),
+                market_median=stats.median if stats is not None else None,
+                market_p25=stats.p25 if stats is not None else None,
+                market_p75=stats.p75 if stats is not None else None,
                 delta_to_median_pct=(
                     position.delta_to_median_pct if position is not None else None
                 ),

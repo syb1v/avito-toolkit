@@ -1,7 +1,11 @@
-.PHONY: up down logs build test lint typecheck migrate revision web-dev backend-install fetch-page bump tag import-searches reset-data worker-local browser-login
+.PHONY: up down logs build test lint typecheck migrate revision web-dev backend-install fetch-page bump tag import-searches reset-data worker-local browser-login up-dev
 
 up:
 	docker compose up -d --build
+
+up-dev:
+	PLAYWRIGHT_BROWSERS_DIR="$${PLAYWRIGHT_BROWSERS_DIR:-$$HOME/.cache/ms-playwright}" \
+	docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --build worker
 
 down:
 	docker compose down

@@ -7,15 +7,30 @@
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-10-01
+
 ### Добавлено
 
+- Адаптивный UI: шапка с навигацией, мобильные карточки вместо таблиц на телефонах,
+  сетки метрик 2/3/6 колонок, полноширинная кнопка дайджеста.
+- Дашборд на главной: поиски (активные/всего), лоты на рынке, наши SKU, новые
+  алерты, последние алерты со ссылкой на поиск.
+- Рекомендации по ценам: `GET /api/v1/our-listings/recommendations` (стратегия,
+  цель, дельта, флаг подтверждения) и блок на странице «Наши объявления».
+- `GET /api/v1/dashboard` — сводные счётчики для панели.
+- Документация: `docs/user-guide.md` (панель) и `docs/authorization.md`
+  («прогретые» аккаунты: browser-login, импорт cookies, Xvfb/Docker, диагностика).
+- Локальная сборка браузерного воркера без скачивания Chromium: `make up-dev`
+  (Chromium монтируется с хоста); сервер — `INSTALL_BROWSER=1`.
 - Инструменты стабилизации: `scripts/make_fixture.py` (санитайз реальных страниц
-  в фикстуры), `scripts/smoke_idempotency.py` (детерминированная проверка повторного
-  обхода на реальной БД), `scripts/verify_analytics.py` (сверка IQR-метрик с polars).
+  в фикстуры), `scripts/smoke_idempotency.py` (проверка повторного обхода на
+  реальной БД), `scripts/verify_analytics.py` (сверка IQR-метрик с polars).
 - Тесты: реальная фикстура выдачи (50 карточек), 429-fallback гибридного транспорта,
-  маркеры челленджа, парсинг прокси-настроек, сверка аналитики (66 тестов).
-- README: раздел «Известные ограничения»; `docs/plan.md`: журнал проверок и закрытый
-  чеклист стабилизации.
+  маркеры челленджа, парсинг прокси-настроек, сверка аналитики, рекомендации.
+
+### Изменено
+
+- `OverviewRow`/ответ overview дополнены `cost_price`, `market_p25`, `market_p75`.
 
 ## [0.6.1] - 2026-09-30
 
@@ -152,7 +167,8 @@
 - Дашборд Next.js 16 + Tailwind 4 со статусом API и дорожной картой.
 - Документация: README, `docs/plan.md`, `.env.example`, MIT-лицензия.
 
-[Unreleased]: https://github.com/syb1v/avito-toolkit/compare/v0.6.1...HEAD
+[Unreleased]: https://github.com/syb1v/avito-toolkit/compare/v0.7.0...HEAD
+[0.7.0]: https://github.com/syb1v/avito-toolkit/compare/v0.6.1...v0.7.0
 [0.6.1]: https://github.com/syb1v/avito-toolkit/compare/v0.6.0...v0.6.1
 [0.6.0]: https://github.com/syb1v/avito-toolkit/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/syb1v/avito-toolkit/compare/v0.4.0...v0.5.0

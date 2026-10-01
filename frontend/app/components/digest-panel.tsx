@@ -46,7 +46,7 @@ export function DigestPanel({ searchId }: { searchId: string }) {
           type="button"
           onClick={generate}
           disabled={loading}
-          className="rounded-lg border border-emerald-500/40 bg-emerald-500/15 px-4 py-2 text-sm text-emerald-200 transition hover:bg-emerald-500/25 disabled:opacity-50"
+          className="w-full rounded-lg border border-emerald-500/40 bg-emerald-500/15 px-4 py-2 text-sm text-emerald-200 transition hover:bg-emerald-500/25 disabled:opacity-50 sm:w-auto"
         >
           {loading ? "Генерация…" : "Сгенерировать"}
         </button>

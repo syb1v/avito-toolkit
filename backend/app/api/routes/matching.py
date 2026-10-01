@@ -22,6 +22,7 @@ from app.services.our_listings import (
     normalize_import_rows,
     upsert_our_listings,
 )
+from app.services.recommendations import build_recommendations
 
 router = APIRouter(tags=["matching"])
 
@@ -63,13 +64,30 @@ class OverviewOut(BaseModel):
     sku: str
     title: str
     our_price: float
+    cost_price: float | None
     is_active: bool
     avito_status: str | None
     avito_url: str | None
     matched_count: int
     market_median: float | None
+    market_p25: float | None
+    market_p75: float | None
     delta_to_median_pct: float | None
     cheaper_share: float | None
+
+
+class RecommendationOut(BaseModel):
+    sku: str
+    title: str
+    our_price: float
+    cost_price: float | None
+    market_median: float | None
+    matched_count: int
+    strategy: str
+    target_price: float
+    clamped_price: float
+    delta_pct: float
+    requires_approval: bool
 
 
 class ImportRequest(BaseModel):
@@ -106,6 +124,12 @@ async def upsert_our_listing(payload: OurListingCreate, session: DbSession) -> O
 async def our_listings_overview(session: DbSession) -> list[OverviewOut]:
     rows = await build_overview(session)
     return [OverviewOut(**asdict(row)) for row in rows]
+
+
+@router.get("/our-listings/recommendations", response_model=list[RecommendationOut])
+async def our_listings_recommendations(session: DbSession) -> list[RecommendationOut]:
+    recommendations = await build_recommendations(session)
+    return [RecommendationOut(**asdict(item)) for item in recommendations]
 
 
 @router.post("/our-listings/match-all")

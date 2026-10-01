@@ -1,0 +1,16 @@
+# Локальная разработка: воркер использует Chromium с хоста (без скачивания в образ).
+# Сервер собирается обычным `docker compose build worker` (INSTALL_BROWSER=1).
+#
+# Запуск (Makefile сам подставит PLAYWRIGHT_BROWSERS_DIR):
+#   make up-dev
+# или вручную:
+#   PLAYWRIGHT_BROWSERS_DIR=$HOME/.cache/ms-playwright \
+#     docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --build worker
+
+services:
+  worker:
+    build:
+      args:
+        INSTALL_BROWSER: "0"
+    volumes:
+      - ${PLAYWRIGHT_BROWSERS_DIR:?Укажите PLAYWRIGHT_BROWSERS_DIR (кэш ms-playwright)}:/ms-playwright:ro

@@ -3,13 +3,14 @@ FROM python:3.13-slim
 ENV PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    PLAYWRIGHT_BROWSERS_PATH=/ms-playwright \
     BROWSER_HEADLESS=false \
     BROWSER_NO_SANDBOX=true
 
 WORKDIR /srv
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends curl xvfb \
+    && apt-get install -y --no-install-recommends curl xvfb xauth \
     && rm -rf /var/lib/apt/lists/*
 
 COPY pyproject.toml ./
@@ -17,8 +18,13 @@ COPY app ./app
 COPY migrations ./migrations
 COPY alembic.ini ./
 
+# INSTALL_BROWSER=1 — self-contained образ (скачивает Chromium, для сервера).
+# INSTALL_BROWSER=0 — локальная разработка: браузер монтируется с хоста
+# (docker-compose.dev.yml, PLAYWRIGHT_BROWSERS_PATH=/ms-playwright).
+ARG INSTALL_BROWSER=1
 RUN pip install --upgrade pip \
     && pip install --retries 10 --timeout 60 ".[browser]" \
-    && patchright install --with-deps chromium
+    && patchright install-deps chromium \
+    && if [ "$INSTALL_BROWSER" = "1" ]; then patchright install chromium; fi
 
 CMD ["xvfb-run", "-a", "dramatiq", "app.workers.tasks", "--processes", "1", "--threads", "4"]
