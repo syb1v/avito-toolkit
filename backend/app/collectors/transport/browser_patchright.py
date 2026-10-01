@@ -12,6 +12,8 @@ CHALLENGE_MARKERS = (
     "доступ ограничен",
     "проверка безопасности",
     "проблема с ip",
+    "firewallcaptcha",
+    "hcaptcha",
 )
 ITEM_SELECTOR = "div[data-marker='item']"
 SELECTOR_TIMEOUT_MS = 15000

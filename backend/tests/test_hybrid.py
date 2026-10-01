@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from app.collectors.base import BotChallengeError, FetchedPage
+from app.collectors.base import BotChallengeError, FetchedPage, RateLimitedError
 from app.collectors.transport.hybrid import HybridTransport
 
 FIXTURE = (Path(__file__).parent / "fixtures" / "min_search.html").read_text(encoding="utf-8")
@@ -45,6 +45,15 @@ async def test_primary_used_when_items_present() -> None:
 
 async def test_fallback_on_bot_challenge() -> None:
     primary = FakeTransport([BotChallengeError("403")])
+    fallback = FakeTransport([FIXTURE])
+    transport = HybridTransport(primary, fallback)
+    page = await transport.fetch("https://www.avito.ru/moskva?q=test")
+    assert "iPhone" in page.body
+    assert fallback.calls == 1
+
+
+async def test_fallback_on_rate_limited() -> None:
+    primary = FakeTransport([RateLimitedError("429")])
     fallback = FakeTransport([FIXTURE])
     transport = HybridTransport(primary, fallback)
     page = await transport.fetch("https://www.avito.ru/moskva?q=test")
