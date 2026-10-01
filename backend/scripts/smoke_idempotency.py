@@ -7,6 +7,7 @@
 
 Используется реальная санитизированная разметка выдачи
 (`tests/fixtures/real/search_iphone15.html`), записанная в реальную БД.
+После проверки тестовый поиск удаляется из базы (флаг `--keep` оставляет его).
 
 Запуск из каталога backend/ (нужна БД):
 
@@ -22,7 +23,7 @@ import asyncio
 import uuid
 from pathlib import Path
 
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.collectors.base import FetchedPage
@@ -80,9 +81,18 @@ async def _collect_once(
         return await collector.collect(search_id)
 
 
-async def _run(fixture_path: str, max_pages: int) -> int:
+async def _cleanup(search_id: uuid.UUID) -> None:
+    factory = get_session_factory()
+    async with factory() as session:
+        await session.execute(delete(ListingSnapshot).where(ListingSnapshot.search_id == search_id))
+        await session.execute(delete(Search).where(Search.id == search_id))
+        await session.commit()
+
+
+async def _run(fixture_path: str, max_pages: int, keep: bool) -> int:
     html = Path(fixture_path).read_text(encoding="utf-8")
     factory = get_session_factory()
+    search_id: uuid.UUID | None = None
     try:
         async with factory() as session:
             search = Search(
@@ -124,6 +134,9 @@ async def _run(fixture_path: str, max_pages: int) -> int:
         )
         return 0 if ok else 1
     finally:
+        if search_id is not None and not keep:
+            await _cleanup(search_id)
+            print("cleanup: тестовый поиск удалён из базы (--keep, чтобы оставить)")
         await dispose_engine()
 
 
@@ -131,8 +144,11 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Idempotency smoke (real fixture, DB)")
     parser.add_argument("--fixture", default=DEFAULT_FIXTURE)
     parser.add_argument("--max-pages", type=int, default=2)
+    parser.add_argument(
+        "--keep", action="store_true", help="не удалять тестовый поиск после проверки"
+    )
     args = parser.parse_args()
-    return asyncio.run(_run(args.fixture, args.max_pages))
+    return asyncio.run(_run(args.fixture, args.max_pages, args.keep))
 
 
 if __name__ == "__main__":
