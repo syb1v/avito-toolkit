@@ -128,7 +128,31 @@ export type Dashboard = {
   listings_active: number;
   our_listings_active: number;
   alerts_new: number;
+  worker_alive: boolean;
+  queues: { crawl: number; analytics: number };
+  active_crawls: {
+    search_id: string;
+    search_name: string | null;
+    stage: string | null;
+    page: number | null;
+    max_pages: number | null;
+    listings_seen: number | null;
+    started_at: string | null;
+  }[];
   latest_alerts: DashboardAlert[];
+};
+
+export type SearchProgress = {
+  search_id: string;
+  status: "idle" | "running" | "done" | "failed";
+  stage: string | null;
+  page: number | null;
+  max_pages: number | null;
+  listings_seen: number | null;
+  result: Record<string, unknown> | null;
+  error: string | null;
+  updated_at: string | null;
+  last_crawl_at: string | null;
 };
 
 async function getJson<T>(path: string): Promise<T | null> {
@@ -167,6 +191,45 @@ export const fetchRecommendations = async (): Promise<Recommendation[]> =>
   (await getJson<Recommendation[]>("/api/v1/our-listings/recommendations")) ?? [];
 
 export const fetchDashboard = () => getJson<Dashboard>("/api/v1/dashboard");
+
+export async function fetchDashboardClient(): Promise<Dashboard | null> {
+  try {
+    const response = await fetch(`${API_URL}/api/v1/dashboard`, { cache: "no-store" });
+    if (!response.ok) {
+      return null;
+    }
+    return (await response.json()) as Dashboard;
+  } catch {
+    return null;
+  }
+}
+
+export async function fetchProgressClient(
+  searchId: string,
+): Promise<SearchProgress | null> {
+  try {
+    const response = await fetch(`${API_URL}/api/v1/searches/${searchId}/progress`, {
+      cache: "no-store",
+    });
+    if (!response.ok) {
+      return null;
+    }
+    return (await response.json()) as SearchProgress;
+  } catch {
+    return null;
+  }
+}
+
+export async function triggerCrawl(searchId: string): Promise<boolean> {
+  try {
+    const response = await fetch(`${API_URL}/api/v1/searches/${searchId}/crawl`, {
+      method: "POST",
+    });
+    return response.ok;
+  } catch {
+    return false;
+  }
+}
 
 export async function createDigest(
   searchId: string,

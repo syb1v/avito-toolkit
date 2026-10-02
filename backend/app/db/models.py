@@ -124,6 +124,7 @@ class OurListing(Base):
     price: Mapped[float] = mapped_column(Numeric(12, 2))
     cost_price: Mapped[float | None] = mapped_column(Numeric(12, 2))
     category: Mapped[str | None] = mapped_column(String(255))
+    account: Mapped[str | None] = mapped_column(String(64))
     params: Mapped[dict | None] = mapped_column(JSONB)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     avito_item_id: Mapped[int | None] = mapped_column(BigInteger, unique=True)

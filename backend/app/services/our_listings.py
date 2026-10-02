@@ -18,6 +18,7 @@ class ImportRow:
     price: float
     cost_price: float | None = None
     category: str | None = None
+    account: str | None = None
     avito_item_id: int | None = None
     avito_url: str | None = None
     avito_status: str | None = None
@@ -88,6 +89,7 @@ def normalize_import_rows(
                 price=price,
                 cost_price=_as_float(raw.get("cost_price")),
                 category=_as_str(raw.get("category")),
+                account=_as_str(raw.get("account")),
                 avito_item_id=_as_int(raw.get("avito_item_id")),
                 avito_url=_as_str(raw.get("avito_url")),
                 avito_status=_as_str(raw.get("avito_status")),
@@ -113,6 +115,7 @@ async def upsert_our_listings(session: AsyncSession, rows: Sequence[ImportRow]) 
                     price=row.price,
                     cost_price=row.cost_price,
                     category=row.category,
+                    account=row.account,
                     avito_item_id=row.avito_item_id,
                     avito_url=row.avito_url,
                     avito_status=row.avito_status,
@@ -126,6 +129,8 @@ async def upsert_our_listings(session: AsyncSession, rows: Sequence[ImportRow]) 
             existing.cost_price = row.cost_price
         if row.category:
             existing.category = row.category
+        if row.account:
+            existing.account = row.account
         if row.avito_item_id is not None:
             existing.avito_item_id = row.avito_item_id
         if row.avito_url:
@@ -137,7 +142,9 @@ async def upsert_our_listings(session: AsyncSession, rows: Sequence[ImportRow]) 
     return ImportResult(created=created, updated=updated, skipped=0)
 
 
-async def import_from_search(session: AsyncSession, search_id: Any) -> ImportResult:
+async def import_from_search(
+    session: AsyncSession, search_id: Any, account: str | None = None
+) -> ImportResult:
     """Переносит объявления спарсенного поиска (например, своего профиля) в наши SKU."""
     rows = await session.execute(
         select(
@@ -161,6 +168,7 @@ async def import_from_search(session: AsyncSession, search_id: Any) -> ImportRes
                 sku=sku_for_item(listing_id),
                 title=title,
                 price=float(price),
+                account=account,
                 avito_item_id=listing_id,
                 avito_url=url,
                 avito_status=status,

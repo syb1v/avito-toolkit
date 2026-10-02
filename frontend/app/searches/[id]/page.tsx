@@ -1,6 +1,7 @@
 import Link from "next/link";
 
 import { AlertsPanel } from "@/app/components/alerts-panel";
+import { CrawlPanel } from "@/app/components/crawl-panel";
 import { DigestPanel } from "@/app/components/digest-panel";
 import { PriceChart } from "@/app/components/price-chart";
 import { StatCard } from "@/app/components/stat-card";
@@ -89,6 +90,8 @@ export default async function SearchDetailPage({
         </a>
       </header>
 
+      <CrawlPanel searchId={id} />
+
       <section className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-6">
         <StatCard label="Активных" value={String(summary.active_count)} />
         <StatCard label="Новых сегодня" value={String(summary.new_today_count)} />
@@ -118,10 +121,15 @@ export default async function SearchDetailPage({
           </p>
         ) : (
           <div className="mt-4 grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-6">
-            <StatCard label="Медиана" value={formatPrice(stats.median)} accent="info" />
+            <StatCard
+              label="Медиана"
+              value={formatPrice(stats.median)}
+              accent="info"
+              hint="середина рынка"
+            />
             <StatCard label="Средняя" value={formatPrice(stats.mean)} />
-            <StatCard label="P25" value={formatPrice(stats.p25)} />
-            <StatCard label="P75" value={formatPrice(stats.p75)} />
+            <StatCard label="P25" value={formatPrice(stats.p25)} hint="25% лотов дешевле" />
+            <StatCard label="P75" value={formatPrice(stats.p75)} hint="25% лотов дороже" />
             <StatCard label="Минимум" value={formatPrice(stats.price_min)} />
             <StatCard
               label="Максимум"

@@ -13,12 +13,13 @@ from app.collectors.base import SourceAdapter
 from app.collectors.ratelimit import RedisRateLimiter
 from app.collectors.transport.http_cffi import HttpCffiTransport
 from app.config import get_settings
-from app.db.models import OurListing
+from app.db.models import OurListing, Search
 from app.db.session import dispose_engine, get_engine
 from app.services.alerts import evaluate_search_alerts
 from app.services.analytics.service import recalc_daily_analytics
 from app.services.collector import CrawlResult, SearchCollector
 from app.services.matching import match_all_our_listings
+from app.services.progress import CrawlProgress
 
 logger = logging.getLogger(__name__)
 
@@ -58,17 +59,32 @@ async def _collect(search_id: str) -> CrawlResult:
     settings = get_settings()
     transport = _build_transport()
     redis = Redis.from_url(settings.redis_url)
+    progress = CrawlProgress(redis, search_id)
     try:
         session_factory = async_sessionmaker(get_engine(), expire_on_commit=False)
         async with session_factory() as session:
-            collector = SearchCollector(session, transport, RedisRateLimiter(redis))
+            search = await session.get(Search, uuid.UUID(search_id))
+            await progress.start(
+                settings.crawl_max_pages_per_run,
+                search.name if search is not None else None,
+            )
+            collector = SearchCollector(
+                session, transport, RedisRateLimiter(redis), progress=progress
+            )
             result = await collector.collect(uuid.UUID(search_id))
+            await progress.stage("analytics")
             await recalc_daily_analytics(session, result.search_id)
+            await progress.stage("matching")
             matched = await _match_if_needed(session)
+            await progress.stage("alerts")
             await evaluate_search_alerts(session, result.search_id)
             await session.commit()
+            await progress.finish(result.to_dict())
             logger.info("crawl pipeline: matched %s our SKUs", matched)
             return result
+    except Exception as error:
+        await progress.fail(str(error))
+        raise
     finally:
         await transport.close()
         await redis.aclose()

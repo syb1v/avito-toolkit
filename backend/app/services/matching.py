@@ -52,6 +52,7 @@ class OverviewRow:
     title: str
     our_price: float
     cost_price: float | None
+    account: str | None
     is_active: bool
     avito_status: str | None
     avito_url: str | None
@@ -245,6 +246,7 @@ async def build_overview(session: AsyncSession) -> list[OverviewRow]:
                 title=our.title,
                 our_price=float(our.price),
                 cost_price=float(our.cost_price) if our.cost_price is not None else None,
+                account=our.account,
                 is_active=our.is_active,
                 avito_status=our.avito_status,
                 avito_url=our.avito_url,

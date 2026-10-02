@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import { createDigest, type Digest } from "@/lib/api";
 
@@ -20,6 +20,16 @@ export function DigestPanel({ searchId }: { searchId: string }) {
   const [digest, setDigest] = useState<Digest | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [elapsed, setElapsed] = useState(0);
+
+  useEffect(() => {
+    if (!loading) {
+      return;
+    }
+    setElapsed(0);
+    const timer = setInterval(() => setElapsed((value) => value + 1), 1000);
+    return () => clearInterval(timer);
+  }, [loading]);
 
   async function generate() {
     setLoading(true);
@@ -51,6 +61,17 @@ export function DigestPanel({ searchId }: { searchId: string }) {
           {loading ? "Генерация…" : "Сгенерировать"}
         </button>
       </div>
+
+      {loading ? (
+        <div className="mt-4">
+          <div className="h-1.5 w-full overflow-hidden rounded-full bg-neutral-800">
+            <div className="h-full w-1/3 animate-pulse rounded-full bg-emerald-500/70" />
+          </div>
+          <p className="mt-2 text-xs text-neutral-500">
+            Запрос к {`DeepSeek`}… прошло {elapsed} с (обычно 5–30 с)
+          </p>
+        </div>
+      ) : null}
 
       {error ? (
         <p className="mt-4 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-200">

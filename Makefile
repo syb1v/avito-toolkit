@@ -5,7 +5,7 @@ up:
 
 up-dev:
 	PLAYWRIGHT_BROWSERS_DIR="$${PLAYWRIGHT_BROWSERS_DIR:-$$HOME/.cache/ms-playwright}" \
-	docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --build worker
+	docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d worker
 
 down:
 	docker compose down

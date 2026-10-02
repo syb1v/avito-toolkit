@@ -1,5 +1,6 @@
 import asyncio
 import logging
+from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
@@ -22,6 +23,21 @@ CHALLENGE_WAIT_SECONDS = 8.0
 BLOCKED_RESOURCE_TYPES = {"image", "media", "font"}
 WARMUP_URL = "https://www.avito.ru/"
 WARMUP_WAIT_SECONDS = 1.5
+SINGLETON_FILES = ("SingletonLock", "SingletonCookie", "SingletonSocket")
+
+
+def _clear_singleton_files(user_data_dir: str) -> None:
+    """Убирает stale-lock Chromium, оставшийся после падения прошлого запуска."""
+    base = Path(user_data_dir)
+    if not base.exists():
+        return
+    for pattern in SINGLETON_FILES:
+        for path in base.glob(pattern):
+            try:
+                if path.is_symlink() or path.is_file():
+                    path.unlink()
+            except OSError:
+                continue
 
 
 def proxy_settings(proxy_url: str) -> dict[str, str]:
@@ -98,6 +114,7 @@ class BrowserTransport:
             "viewport": {"width": 1440, "height": 900},
         }
         if self._user_data_dir:
+            _clear_singleton_files(self._user_data_dir)
             self._context = await self._playwright.chromium.launch_persistent_context(
                 self._user_data_dir,
                 **launch_options,

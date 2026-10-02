@@ -14,3 +14,4 @@ services:
         INSTALL_BROWSER: "0"
     volumes:
       - ${PLAYWRIGHT_BROWSERS_DIR:?Укажите PLAYWRIGHT_BROWSERS_DIR (кэш ms-playwright)}:/ms-playwright:ro
+      - ./backend:/srv

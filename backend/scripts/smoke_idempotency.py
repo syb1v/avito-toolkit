@@ -26,7 +26,7 @@ from pathlib import Path
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.collectors.base import FetchedPage
+from app.collectors.base import FetchedPage, SourceAdapter
 from app.db.models import ListingSnapshot, Search, SearchListing
 from app.db.session import dispose_engine, get_session_factory
 from app.services.collector import CrawlResult, SearchCollector
@@ -54,6 +54,18 @@ class FixtureTransport:
         return None
 
 
+class FailingTransport:
+    """Имитация антибот-челленджа: страница 1 отвечает 439."""
+
+    name = "failing"
+
+    async def fetch(self, url: str, headers: dict[str, str] | None = None) -> FetchedPage:
+        return FetchedPage(url=url, status_code=439, body="Доступ ограничен")
+
+    async def close(self) -> None:
+        return None
+
+
 async def _counts(session: AsyncSession, search_id: uuid.UUID) -> tuple[int, int]:
     snapshots = await session.scalar(
         select(func.count())
@@ -67,7 +79,7 @@ async def _counts(session: AsyncSession, search_id: uuid.UUID) -> tuple[int, int
 
 
 async def _collect_once(
-    search_id: uuid.UUID, transport: FixtureTransport, max_pages: int
+    search_id: uuid.UUID, transport: SourceAdapter, max_pages: int
 ) -> CrawlResult:
     factory = get_session_factory()
     async with factory() as session:
@@ -129,6 +141,14 @@ async def _run(fixture_path: str, max_pages: int, keep: bool) -> int:
             and second_snapshots == first_snapshots
             and second_links == first_links
         )
+
+        failed_run = await _collect_once(search_id, FailingTransport(), max_pages)
+        print(f"failure run: {failed_run.to_dict()}")
+        no_false_gone = failed_run.gone_listings == 0 and failed_run.pages_fetched == 0
+        if not no_false_gone:
+            print("FAIL: неполный/сбойный обход пометил лоты снятыми")
+        ok = ok and no_false_gone
+
         print(
             "PASS: повторный обход идемпотентен" if ok else "FAIL: обнаружены дубли/лишние снапшоты"
         )

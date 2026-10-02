@@ -16,6 +16,7 @@ from app.collectors.web.parsing import ParsedListing, parse_search_page
 from app.config import get_settings
 from app.db.models import Listing, ListingSnapshot, Search, SearchListing, Seller
 from app.services.normalizer import price_changed
+from app.services.progress import CrawlProgress
 
 logger = logging.getLogger(__name__)
 
@@ -56,11 +57,13 @@ class SearchCollector:
         limiter: RedisRateLimiter | None = None,
         delay_range: tuple[float, float] | None = None,
         max_pages: int | None = None,
+        progress: CrawlProgress | None = None,
     ) -> None:
         settings = get_settings()
         self._session = session
         self._transport = transport
         self._limiter = limiter
+        self._progress = progress
         self._delay_range = delay_range or (
             settings.crawl_delay_min_seconds,
             settings.crawl_delay_max_seconds,
@@ -82,6 +85,7 @@ class SearchCollector:
         pages_fetched = 0
         pages_failed = 0
         stopped_by_challenge = False
+        completed_pagination = False
 
         for page_number, page_url in enumerate(self._page_urls(search.url), start=1):
             if page_number > self._max_pages:
@@ -111,13 +115,21 @@ class SearchCollector:
                 break
             parsed = parse_search_page(page.body, base_url=page.url)
             if not parsed:
+                completed_pagination = True
                 break
             pages_fetched += 1
             for listing in parsed:
                 absolute_position = (page_number - 1) * ITEMS_PER_PAGE + listing.position
                 unique.setdefault(listing.listing_id, replace(listing, position=absolute_position))
+            if self._progress is not None:
+                await self._progress.page(page_number, len(unique))
 
-        result = await self._persist(search, list(unique.values()), now)
+        result = await self._persist(
+            search,
+            list(unique.values()),
+            now,
+            mark_gone=completed_pagination,
+        )
         result.pages_fetched = pages_fetched
         result.pages_failed = pages_failed
         result.stopped_by_challenge = stopped_by_challenge
@@ -137,7 +149,11 @@ class SearchCollector:
         await asyncio.sleep(random.uniform(low, max(low, high)))
 
     async def _persist(
-        self, search: Search, listings: list[ParsedListing], now: datetime
+        self,
+        search: Search,
+        listings: list[ParsedListing],
+        now: datetime,
+        mark_gone: bool = True,
     ) -> CrawlResult:
         session = self._session
         listing_ids = [listing.listing_id for listing in listings]
@@ -243,7 +259,7 @@ class SearchCollector:
         if snapshot_rows:
             await session.execute(insert(ListingSnapshot).values(snapshot_rows))
 
-        gone_ids = await self._gone_ids(search, set(listing_ids), now)
+        gone_ids = await self._gone_ids(search, set(listing_ids), now) if mark_gone else []
         if gone_ids:
             other_activity = select(SearchListing.listing_id).where(
                 SearchListing.last_seen >= now - RECENT_ACTIVITY_WINDOW,

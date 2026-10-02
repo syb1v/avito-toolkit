@@ -27,4 +27,4 @@ RUN pip install --upgrade pip \
     && patchright install-deps chromium \
     && if [ "$INSTALL_BROWSER" = "1" ]; then patchright install chromium; fi
 
-CMD ["xvfb-run", "-a", "dramatiq", "app.workers.tasks", "--processes", "1", "--threads", "4"]
+CMD ["sh", "-c", "Xvfb :99 -screen 0 1440x900x24 -nolisten tcp & export DISPLAY=:99; exec dramatiq app.workers.tasks --processes 1 --threads 4"]

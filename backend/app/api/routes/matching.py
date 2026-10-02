@@ -65,6 +65,7 @@ class OverviewOut(BaseModel):
     title: str
     our_price: float
     cost_price: float | None
+    account: str | None
     is_active: bool
     avito_status: str | None
     avito_url: str | None
@@ -150,10 +151,12 @@ async def import_our_listings(payload: ImportRequest, session: DbSession) -> Imp
 
 
 @router.post("/our-listings/import-from-search/{search_id}", response_model=ImportOut)
-async def import_our_listings_from_search(search_id: uuid.UUID, session: DbSession) -> ImportOut:
+async def import_our_listings_from_search(
+    search_id: uuid.UUID, session: DbSession, account: str | None = None
+) -> ImportOut:
     if await session.get(Search, search_id) is None:
         raise HTTPException(status_code=404, detail="search not found")
-    result = await import_from_search(session, search_id)
+    result = await import_from_search(session, search_id, account=account)
     return ImportOut(created=result.created, updated=result.updated, skipped=result.skipped)
 
 

@@ -31,7 +31,7 @@ PROFILE_CRON = "0 */2 * * *"
 PROFILE_PRIORITY = 50
 
 
-async def _run(url: str, name: str, max_pages: int, activate: bool) -> int:
+async def _run(url: str, name: str, max_pages: int, activate: bool, account: str | None) -> int:
     factory = get_session_factory()
     settings = get_settings()
     redis = Redis.from_url(settings.redis_url)
@@ -62,7 +62,7 @@ async def _run(url: str, name: str, max_pages: int, activate: bool) -> int:
             return 1
 
         async with factory() as session:
-            imported = await import_from_search(session, search_id)
+            imported = await import_from_search(session, search_id, account=account)
         print(
             f"our listings: created={imported.created} updated={imported.updated} "
             f"skipped={imported.skipped}"
@@ -81,8 +81,11 @@ def main() -> int:
     parser.add_argument("--name", default="Мой профиль")
     parser.add_argument("--max-pages", type=int, default=5)
     parser.add_argument("--activate", action="store_true", help="обходить профиль по расписанию")
+    parser.add_argument(
+        "--account", default=None, help="метка аккаунта продавца (для нескольких профилей)"
+    )
     args = parser.parse_args()
-    return asyncio.run(_run(args.url, args.name, args.max_pages, args.activate))
+    return asyncio.run(_run(args.url, args.name, args.max_pages, args.activate, args.account))
 
 
 if __name__ == "__main__":

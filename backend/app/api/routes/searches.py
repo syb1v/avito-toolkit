@@ -1,11 +1,15 @@
 import uuid
+from datetime import datetime
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
-from sqlalchemy import select
+from redis.asyncio import Redis
+from sqlalchemy import func, select
 
 from app.api.deps import DbSession
+from app.config import get_settings
 from app.db.models import Listing, Search, SearchListing
+from app.services.progress import progress_key, read_progress
 from app.services.searches import import_searches, normalize_search_rows
 
 router = APIRouter(prefix="/searches", tags=["searches"])
@@ -85,8 +89,60 @@ async def trigger_crawl(search_id: uuid.UUID, session: DbSession) -> dict[str, s
         raise HTTPException(status_code=404, detail="search not found")
     from app.workers.tasks import crawl_search
 
+    settings = get_settings()
+    redis = Redis.from_url(settings.redis_url)
+    try:
+        await redis.delete(progress_key(search_id))
+    finally:
+        await redis.aclose()
     message = crawl_search.send(str(search_id))
     return {"status": "queued", "message_id": message.message_id}
+
+
+class ProgressOut(BaseModel):
+    search_id: uuid.UUID
+    status: str
+    stage: str | None = None
+    page: int | None = None
+    max_pages: int | None = None
+    listings_seen: int | None = None
+    result: dict | None = None
+    error: str | None = None
+    updated_at: str | None = None
+    last_crawl_at: datetime | None = None
+
+
+@router.get("/{search_id}/progress", response_model=ProgressOut)
+async def get_search_progress(search_id: uuid.UUID, session: DbSession) -> ProgressOut:
+    if await session.get(Search, search_id) is None:
+        raise HTTPException(status_code=404, detail="search not found")
+
+    settings = get_settings()
+    redis = Redis.from_url(settings.redis_url)
+    try:
+        data = await read_progress(redis, search_id)
+    finally:
+        await redis.aclose()
+
+    last_crawl_at = await session.scalar(
+        select(func.max(SearchListing.last_seen)).where(SearchListing.search_id == search_id)
+    )
+    if not data:
+        return ProgressOut(search_id=search_id, status="idle", last_crawl_at=last_crawl_at)
+    return ProgressOut(
+        search_id=search_id,
+        status=str(data.get("status") or "idle"),
+        stage=str(data["stage"]) if data.get("stage") else None,
+        page=int(data["page"]) if data.get("page") is not None else None,
+        max_pages=int(data["max_pages"]) if data.get("max_pages") is not None else None,
+        listings_seen=(
+            int(data["listings_seen"]) if data.get("listings_seen") is not None else None
+        ),
+        result=data.get("result") if isinstance(data.get("result"), dict) else None,
+        error=str(data["error"]) if data.get("error") else None,
+        updated_at=str(data["updated_at"]) if data.get("updated_at") else None,
+        last_crawl_at=last_crawl_at,
+    )
 
 
 @router.get("/{search_id}/listings", response_model=list[ListingRead])
