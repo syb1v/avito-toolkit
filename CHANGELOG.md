@@ -7,6 +7,13 @@
 
 ## [Unreleased]
 
+## [0.14.1] - 2026-10-02
+
+### Исправлено
+
+- CI: `mypy` на Python 3.13 ругался на лишний `type: ignore` в `app/services/cookies.py` —
+  заменено на `cast(Any, ...)`, одинаково проходит на 3.13 и 3.14.
+
 ## [0.14.0] - 2026-10-02
 
 ### Добавлено
@@ -347,7 +354,8 @@
 - Дашборд Next.js 16 + Tailwind 4 со статусом API и дорожной картой.
 - Документация: README, `docs/plan.md`, `.env.example`, MIT-лицензия.
 
-[Unreleased]: https://github.com/syb1v/avito-toolkit/compare/v0.14.0...HEAD
+[Unreleased]: https://github.com/syb1v/avito-toolkit/compare/v0.14.1...HEAD
+[0.14.1]: https://github.com/syb1v/avito-toolkit/compare/v0.14.0...v0.14.1
 [0.14.0]: https://github.com/syb1v/avito-toolkit/compare/v0.13.0...v0.14.0
 [0.13.0]: https://github.com/syb1v/avito-toolkit/compare/v0.12.0...v0.13.0
 [0.12.0]: https://github.com/syb1v/avito-toolkit/compare/v0.11.0...v0.12.0

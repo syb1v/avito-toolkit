@@ -6,7 +6,7 @@ import re
 import shutil
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from app.config import get_settings
 
@@ -158,7 +158,7 @@ async def apply_cookies_to_profile(
             timezone_id="Europe/Moscow",
             viewport={"width": 1440, "height": 900},
         )
-        await context.add_cookies(cookies)  # type: ignore[arg-type]
+        await context.add_cookies(cast(Any, cookies))
         page = context.pages[0] if context.pages else await context.new_page()
         await page.goto(verify_url, wait_until="domcontentloaded", timeout=60000)
         await page.wait_for_timeout(5000)
