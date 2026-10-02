@@ -21,6 +21,7 @@ from app.services.collector import CrawlResult, SearchCollector
 from app.services.matching import match_all_our_listings
 from app.services.moderation import moderate_search
 from app.services.progress import CrawlProgress
+from app.services.proxy_pool import build_proxy_pool
 
 logger = logging.getLogger(__name__)
 
@@ -29,10 +30,11 @@ ANALYTICS_TIME_LIMIT_MS = 10 * 60 * 1000
 HAS_BROWSER = importlib.util.find_spec("patchright") is not None
 
 
-def _build_transport() -> SourceAdapter:
+def _build_transport(redis: Redis) -> SourceAdapter:
     settings = get_settings()
     mode = settings.crawl_transport.strip().lower()
-    http = HttpCffiTransport()
+    pool = build_proxy_pool(redis)
+    http = HttpCffiTransport(proxy_pool=pool)
     if mode == "http":
         return http
     if not HAS_BROWSER:
@@ -41,7 +43,7 @@ def _build_transport() -> SourceAdapter:
     from app.collectors.transport.browser_patchright import BrowserTransport
     from app.collectors.transport.hybrid import HybridTransport
 
-    browser = BrowserTransport()
+    browser = BrowserTransport(proxy_pool=pool)
     if mode == "hybrid":
         return HybridTransport(http, browser)
     return browser
@@ -58,8 +60,8 @@ async def _match_if_needed(session: AsyncSession) -> int:
 
 async def _collect(search_id: str) -> CrawlResult:
     settings = get_settings()
-    transport = _build_transport()
     redis = Redis.from_url(settings.redis_url)
+    transport = _build_transport(redis)
     progress = CrawlProgress(redis, search_id)
     try:
         session_factory = async_sessionmaker(get_engine(), expire_on_commit=False)
@@ -131,3 +133,22 @@ def recalc_analytics(search_id: str, day_iso: str | None = None) -> None:
     """Пересчёт дневных агрегатов поиска (в том числе ночной догон)."""
     calc_day = asyncio.run(_recalc(search_id, day_iso))
     logger.info("analytics recalculated: search=%s day=%s", search_id, calc_day)
+
+
+async def _check_proxies() -> dict[str, int]:
+    settings = get_settings()
+    redis = Redis.from_url(settings.redis_url)
+    try:
+        pool = build_proxy_pool(redis)
+        if pool is None:
+            return {"checked": 0, "ok": 0, "failed": 0}
+        return await pool.check_all()
+    finally:
+        await redis.aclose()
+
+
+@dramatiq.actor(queue_name="proxy", max_retries=1, time_limit=ANALYTICS_TIME_LIMIT_MS)
+def check_proxies() -> None:
+    """Healthcheck всех прокси пула (статусы в Redis, видны в панели)."""
+    result = asyncio.run(_check_proxies())
+    logger.info("proxy healthcheck: %s", result)

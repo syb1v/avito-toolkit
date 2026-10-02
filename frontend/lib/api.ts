@@ -211,6 +211,48 @@ export const fetchRecommendations = async (): Promise<Recommendation[]> =>
 
 export const fetchDashboard = () => getJson<Dashboard>("/api/v1/dashboard");
 
+export type ProxyEntryStatus = {
+  label: string;
+  scheme: string;
+  healthy: boolean;
+  failures: number;
+  cooldown_seconds_left: number;
+  last_ok: string | null;
+  last_error: string | null;
+  latency_ms: number | null;
+  exit_ip: string | null;
+};
+
+export type ProxyStatus = {
+  enabled: boolean;
+  mode: string | null;
+  count: number;
+  alive: number;
+  in_cooldown: number;
+  entries: ProxyEntryStatus[];
+};
+
+export async function fetchProxiesClient(): Promise<ProxyStatus | null> {
+  try {
+    const response = await fetch(`${API_URL}/api/v1/proxies`, { cache: "no-store" });
+    if (!response.ok) {
+      return null;
+    }
+    return (await response.json()) as ProxyStatus;
+  } catch {
+    return null;
+  }
+}
+
+export async function checkProxiesClient(): Promise<boolean> {
+  try {
+    const response = await fetch(`${API_URL}/api/v1/proxies/check`, { method: "POST" });
+    return response.ok;
+  } catch {
+    return false;
+  }
+}
+
 export async function fetchDashboardClient(): Promise<Dashboard | null> {
   try {
     const response = await fetch(`${API_URL}/api/v1/dashboard`, { cache: "no-store" });

@@ -88,10 +88,26 @@ cd backend
 ```bash
 docker compose cp backend/.browser-profile/. worker:/data/browser-profile
 ```
-- Для объёмов и стабильности используйте **резидентные прокси**:
-  `PROXY_ENABLED=true`, `PROXY_URL=http://user:pass@host:port`. Прокси подключается и в
-  браузерном транспорте, и в HTTP.
-- Один прокси ↔ один профиль: не смешивайте выходные IP у одного профиля.
+- Для объёмов и стабильности используйте **пул прокси**:
+  ```bash
+  # .env
+  PROXY_LIST=http://user:pass@host1:8000,socks5://host2:1080,host3:8000:user:pass
+  PROXY_ROTATION=round_robin     # или random
+  PROXY_MAX_FAILURES=3           # после скольких ошибок прокси в кулдаун
+  PROXY_COOLDOWN_SECONDS=300
+  PROXY_HEALTHCHECK_ENABLED=true # проверка выхода и IP
+  ```
+  Форматы записей: `http://user:pass@host:port`, `socks5://host:port`,
+  `host:port:user:pass`, `host:port` (без схемы — http). Ротационные прокси
+  (один endpoint, меняющий IP на каждый запрос) указываются одной записью.
+- **Что брать:** для браузерного транспорта — **HTTP/HTTPS** (Chromium не умеет
+  авторизацию в SOCKS5); для HTTP-транспорта (curl_cffi) подойдут и HTTP, и SOCKS5.
+  Резидентные/мобильные IP дают меньше челленджей, чем датацентр.
+- Пул сам выбирает живой прокси (не в кулдауне), по кругу или рандомом; упавшие
+  временно исключаются и возвращаются после healthcheck. Статусы и внешний IP видны
+  на главной панели в блоке «Прокси», там же кнопка «Проверить»
+  (`GET /api/v1/proxies`, `POST /api/v1/proxies/check`).
+- Один прокси ↔ один профиль: не смешивайте выходные IP у одного профиля продавца.
 
 ## Диагностика
 

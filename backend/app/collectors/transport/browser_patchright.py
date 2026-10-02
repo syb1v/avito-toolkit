@@ -1,11 +1,14 @@
 import asyncio
+import contextlib
 import logging
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
 from app.collectors.base import FetchedPage
 from app.config import get_settings
+from app.services.proxy_pool import ProxyEntry, ProxyPool
 
 logger = logging.getLogger(__name__)
 
@@ -38,6 +41,12 @@ def _clear_singleton_files(user_data_dir: str) -> None:
                     path.unlink()
             except OSError:
                 continue
+
+
+@dataclass(frozen=True, slots=True)
+class _PageOutcome:
+    page: FetchedPage
+    challenge: bool
 
 
 def proxy_settings(proxy_url: str) -> dict[str, str]:
@@ -75,8 +84,11 @@ class BrowserTransport:
         block_resources: bool = True,
         user_data_dir: str | None = None,
         channel: str | None = None,
+        proxy_pool: ProxyPool | None = None,
     ) -> None:
         settings = get_settings()
+        self._proxy_pool = proxy_pool
+        self._current_entry: ProxyEntry | None = None
         self._proxy = proxy or (settings.proxy_url if settings.proxy_enabled else None)
         self._headless = settings.browser_headless if headless is None else headless
         self._user_data_dir = user_data_dir or settings.browser_user_data_dir or None
@@ -92,6 +104,9 @@ class BrowserTransport:
     async def _ensure_context(self) -> Any:
         if self._context is not None:
             return self._context
+        if self._proxy_pool is not None:
+            self._current_entry = await self._proxy_pool.next()
+            self._proxy = self._current_entry.url
         from patchright.async_api import async_playwright
 
         self._playwright = await async_playwright().start()
@@ -144,14 +159,75 @@ class BrowserTransport:
         self._warmed_up = True
 
     async def fetch(self, url: str, headers: dict[str, str] | None = None) -> FetchedPage:
-        context = await self._ensure_context()
-        page = await context.new_page()
+        last: _PageOutcome | None = None
+        for attempt in range(1, CHALLENGE_RETRIES + 1):
+            context = await self._ensure_context()
+            page = await context.new_page()
+            try:
+                if not self._warmed_up:
+                    await self._warm_up(page)
+                outcome = await self._load_once(page, url)
+            finally:
+                with contextlib.suppress(Exception):
+                    await page.close()
+            last = outcome
+            if not outcome.challenge:
+                await self._report_success()
+                return outcome.page
+            logger.info(
+                "antibot challenge at %s (attempt %s/%s)",
+                url,
+                attempt,
+                CHALLENGE_RETRIES,
+            )
+            if attempt == CHALLENGE_RETRIES:
+                await self._report_failure("antibot challenge")
+                return outcome.page
+            if self._proxy_pool is not None:
+                await self._rotate_proxy()
+            else:
+                await asyncio.sleep(CHALLENGE_WAIT_SECONDS)
+        assert last is not None
+        return last.page
+
+    async def _load_once(self, page: Any, url: str) -> "_PageOutcome":
+        status_code = 200
         try:
-            if not self._warmed_up:
-                await self._warm_up(page)
-            return await self._load_with_retries(page, url)
-        finally:
-            await page.close()
+            response = await page.goto(url, wait_until="domcontentloaded", timeout=self._timeout_ms)
+            if response is not None:
+                status_code = response.status
+        except Exception as error:
+            logger.warning("navigation issue at %s: %s", url, error)
+        try:
+            await page.wait_for_selector(ITEM_SELECTOR, timeout=SELECTOR_TIMEOUT_MS)
+        except Exception:
+            body = await self._safe_content(page)
+            return _PageOutcome(
+                page=FetchedPage(url=page.url, status_code=status_code, body=body),
+                challenge=self._is_challenge(body),
+            )
+        await asyncio.sleep(0.5)
+        body = await self._safe_content(page)
+        return _PageOutcome(
+            page=FetchedPage(url=page.url, status_code=status_code, body=body),
+            challenge=self._is_challenge(body),
+        )
+
+    async def _rotate_proxy(self) -> bool:
+        if self._proxy_pool is None:
+            return False
+        await self._close_context()
+        self._warmed_up = False
+        self._current_entry = None
+        return True
+
+    async def _report_success(self) -> None:
+        if self._proxy_pool is not None and self._current_entry is not None:
+            await self._proxy_pool.report_success(self._current_entry)
+
+    async def _report_failure(self, error: str) -> None:
+        if self._proxy_pool is not None and self._current_entry is not None:
+            await self._proxy_pool.report_failure(self._current_entry, error)
 
     async def _safe_content(self, page: Any) -> str:
         for _ in range(2):
@@ -168,56 +244,23 @@ class BrowserTransport:
             logger.warning("cannot read page content: %s", error)
             return ""
 
-    async def _load_with_retries(self, page: Any, url: str) -> FetchedPage:
-        for attempt in range(1, CHALLENGE_RETRIES + 1):
-            status_code = 200
-            try:
-                response = await page.goto(
-                    url, wait_until="domcontentloaded", timeout=self._timeout_ms
-                )
-                if response is not None:
-                    status_code = response.status
-            except Exception as error:
-                logger.warning(
-                    "navigation issue at %s (attempt %s/%s): %s",
-                    url,
-                    attempt,
-                    CHALLENGE_RETRIES,
-                    error,
-                )
-            try:
-                await page.wait_for_selector(ITEM_SELECTOR, timeout=SELECTOR_TIMEOUT_MS)
-            except Exception:
-                body = await self._safe_content(page)
-                if not self._is_challenge(body) or attempt == CHALLENGE_RETRIES:
-                    return FetchedPage(url=page.url, status_code=status_code, body=body)
-                logger.info(
-                    "antibot challenge at %s (attempt %s/%s), wait %.0fs",
-                    url,
-                    attempt,
-                    CHALLENGE_RETRIES,
-                    CHALLENGE_WAIT_SECONDS,
-                )
-                await asyncio.sleep(CHALLENGE_WAIT_SECONDS)
-                continue
-            await asyncio.sleep(0.5)
-            body = await self._safe_content(page)
-            return FetchedPage(url=page.url, status_code=status_code, body=body)
-        body = await self._safe_content(page)
-        return FetchedPage(url=page.url, status_code=200, body=body)
-
     @staticmethod
     def _is_challenge(body: str) -> bool:
         lowered = body.lower()
         return any(marker in lowered for marker in CHALLENGE_MARKERS)
 
-    async def close(self) -> None:
+    async def _close_context(self) -> None:
         if self._context is not None:
-            await self._context.close()
+            with contextlib.suppress(Exception):
+                await self._context.close()
             self._context = None
         if self._browser is not None:
-            await self._browser.close()
+            with contextlib.suppress(Exception):
+                await self._browser.close()
             self._browser = None
+
+    async def close(self) -> None:
+        await self._close_context()
         if self._playwright is not None:
             await self._playwright.stop()
             self._playwright = None

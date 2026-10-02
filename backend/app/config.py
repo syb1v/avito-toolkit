@@ -25,6 +25,14 @@ class Settings(BaseSettings):
 
     proxy_enabled: bool = False
     proxy_url: str | None = None
+    proxy_list: str = ""
+    proxy_rotation: str = "round_robin"
+    proxy_cooldown_seconds: int = 300
+    proxy_max_failures: int = 3
+    proxy_healthcheck_enabled: bool = True
+    proxy_healthcheck_url: str = "https://api.ipify.org?format=json"
+    proxy_healthcheck_timeout: float = 10.0
+    proxy_healthcheck_interval_minutes: int = 15
     browser_no_sandbox: bool = False
     browser_headless: bool = True
     browser_channel: str | None = "chromium"

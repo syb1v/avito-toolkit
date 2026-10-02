@@ -9,7 +9,7 @@ from sqlalchemy import select
 from app.config import get_settings
 from app.db.models import Search
 from app.db.session import dispose_engine, get_session_factory
-from app.workers.tasks import crawl_search, recalc_analytics
+from app.workers.tasks import check_proxies, crawl_search, recalc_analytics
 
 logger = logging.getLogger(__name__)
 
@@ -33,6 +33,11 @@ def _enqueue_analytics() -> None:
     for search_id, _ in searches:
         recalc_analytics.send(search_id)
     logger.info("enqueued daily analytics for %s searches", len(searches))
+
+
+def _enqueue_proxy_check() -> None:
+    check_proxies.send()
+    logger.info("enqueued proxy healthcheck")
 
 
 def _load_searches() -> list[tuple[str, str]]:
@@ -94,6 +99,20 @@ def main() -> None:
         CronTrigger(hour=ANALYTICS_HOUR_UTC, minute=ANALYTICS_MINUTE_UTC, timezone="UTC"),
         id="analytics-daily",
     )
+    has_proxies = bool(settings.proxy_list.strip()) or (
+        settings.proxy_enabled and settings.proxy_url
+    )
+    if has_proxies and settings.proxy_healthcheck_enabled:
+        scheduler.add_job(
+            _enqueue_proxy_check,
+            "interval",
+            minutes=settings.proxy_healthcheck_interval_minutes,
+            id="proxies-healthcheck",
+        )
+        logger.info(
+            "proxy healthcheck scheduled every %s min",
+            settings.proxy_healthcheck_interval_minutes,
+        )
     logger.info("scheduler started")
     scheduler.start()
 

@@ -7,6 +7,20 @@
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-10-02
+
+### Добавлено
+
+- Пул прокси: `PROXY_LIST` (форматы `http://user:pass@host:port`, `socks5://host:port`,
+  `host:port:user:pass`, `host:port`), ротация `round_robin`/`random`, состояние в Redis,
+  кулдаун после N ошибок, healthcheck (dramatiq-актор + планировщик каждые 15 минут)
+  с внешним IP и латентностью.
+- HTTP-транспорт пересоздаёт сессию при смене прокси и сообщает об успехах/ошибках;
+  браузерный транспорт ротирует прокси при антибот-челлендже.
+- API: `GET /api/v1/proxies`, `POST /api/v1/proxies/check`; панель «Прокси» на главной
+  (живые/кулдаун, IP, латентность, ошибки, кнопка «Проверить»).
+- `httpx[socks]` — healthcheck через SOCKS5.
+
 ## [0.10.0] - 2026-10-02
 
 ### Добавлено
@@ -242,7 +256,8 @@
 - Дашборд Next.js 16 + Tailwind 4 со статусом API и дорожной картой.
 - Документация: README, `docs/plan.md`, `.env.example`, MIT-лицензия.
 
-[Unreleased]: https://github.com/syb1v/avito-toolkit/compare/v0.10.0...HEAD
+[Unreleased]: https://github.com/syb1v/avito-toolkit/compare/v0.11.0...HEAD
+[0.11.0]: https://github.com/syb1v/avito-toolkit/compare/v0.10.0...v0.11.0
 [0.10.0]: https://github.com/syb1v/avito-toolkit/compare/v0.9.0...v0.10.0
 [0.9.0]: https://github.com/syb1v/avito-toolkit/compare/v0.8.0...v0.9.0
 [0.8.0]: https://github.com/syb1v/avito-toolkit/compare/v0.7.1...v0.8.0

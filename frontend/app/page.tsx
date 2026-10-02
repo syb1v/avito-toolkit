@@ -1,6 +1,7 @@
 import Link from "next/link";
 
 import { StatCard } from "@/app/components/stat-card";
+import { ProxyPanel } from "@/app/components/proxy-panel";
 import { SystemStatusPanel } from "@/app/components/system-status";
 import { API_URL, fetchDashboard, fetchHealth, fetchSearches } from "@/lib/api";
 import { formatPercent, formatPrice } from "@/lib/format";
@@ -49,6 +50,8 @@ export default async function Home() {
       </header>
 
       <SystemStatusPanel initial={dashboard} />
+
+      <ProxyPanel />
 
       <section className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
         <StatCard
