@@ -7,6 +7,8 @@
 
 ## [Unreleased]
 
+## [0.7.1] - 2026-10-02
+
 ## [0.7.0] - 2026-10-01
 
 ### Добавлено
@@ -34,6 +36,10 @@
 
 ### Исправлено
 
+- AI-клиент: DeepSeek не поддерживает `response_format` со схемой (structured
+  outputs) — теперь для DeepSeek используется JSON-режим (`json_object`) со схемой
+  в промпте, для остальных провайдеров — Pydantic-схема. Дайджест и рекомендация
+  цены проверены на реальном ключе; расходы видны в `GET /api/v1/llm-runs`.
 - Смоуки и проверки больше не засоряют панель: `smoke_idempotency.py` удаляет
   тестовый поиск после прогона (`--keep` оставляет для отладки); ранее созданные
   тестовые поиски удалены из базы.
@@ -173,7 +179,8 @@
 - Дашборд Next.js 16 + Tailwind 4 со статусом API и дорожной картой.
 - Документация: README, `docs/plan.md`, `.env.example`, MIT-лицензия.
 
-[Unreleased]: https://github.com/syb1v/avito-toolkit/compare/v0.7.0...HEAD
+[Unreleased]: https://github.com/syb1v/avito-toolkit/compare/v0.7.1...HEAD
+[0.7.1]: https://github.com/syb1v/avito-toolkit/compare/v0.7.0...v0.7.1
 [0.7.0]: https://github.com/syb1v/avito-toolkit/compare/v0.6.1...v0.7.0
 [0.6.1]: https://github.com/syb1v/avito-toolkit/compare/v0.6.0...v0.6.1
 [0.6.0]: https://github.com/syb1v/avito-toolkit/compare/v0.5.0...v0.6.0

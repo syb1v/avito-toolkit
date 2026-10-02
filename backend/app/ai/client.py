@@ -1,3 +1,4 @@
+import json
 from dataclasses import dataclass
 
 from pydantic import BaseModel
@@ -18,6 +19,21 @@ class LlmResult[T: BaseModel]:
     cost_usd: float | None = None
 
 
+def prepare_response_format(model: str, schema: type[BaseModel]) -> tuple[object, str]:
+    """Возвращает (response_format, доп. инструкция для system-промпта).
+
+    DeepSeek поддерживает только JSON-режим (`json_object`), поэтому схема
+    передаётся текстом. Остальные провайдеры (OpenAI-совместимые с json_schema)
+    получают Pydantic-схему напрямую.
+    """
+    if model.startswith("deepseek/"):
+        instruction = "\n\nВерни ответ строго в формате JSON по схеме:\n" + json.dumps(
+            schema.model_json_schema(), ensure_ascii=False
+        )
+        return {"type": "json_object"}, instruction
+    return schema, ""
+
+
 async def complete_structured[T: BaseModel](
     schema: type[T],
     *,
@@ -33,15 +49,16 @@ async def complete_structured[T: BaseModel](
 
     import litellm
 
+    response_format, schema_instruction = prepare_response_format(settings.llm_model, schema)
     response = await litellm.acompletion(
         model=settings.llm_model,
         messages=[
-            {"role": "system", "content": system_prompt},
+            {"role": "system", "content": f"{system_prompt}{schema_instruction}"},
             {"role": "user", "content": user_prompt},
         ],
         temperature=settings.llm_temperature,
         max_tokens=settings.llm_max_tokens,
-        response_format=schema,
+        response_format=response_format,
     )
     content = response.choices[0].message.content
     if content is None:
