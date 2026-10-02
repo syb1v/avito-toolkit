@@ -30,6 +30,7 @@ data/
 artifacts/
 searches.json
 skus.json
+products.txt
 *.sqlite3
 *.dump
 *.log
