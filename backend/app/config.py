@@ -45,6 +45,14 @@ class Settings(BaseSettings):
     match_top_n: int = 10
     alert_price_above_market_pct: float = 10.0
 
+    moderation_enabled: bool = True
+    moderation_ai_enabled: bool = True
+    moderation_low_price_ratio: float = 0.35
+    moderation_ai_candidate_ratio: float = 0.6
+    moderation_duplicate_min_cluster: int = 5
+    moderation_ai_batch_size: int = 10
+    moderation_max_ai_items: int = 40
+
 
 @lru_cache
 def get_settings() -> Settings:

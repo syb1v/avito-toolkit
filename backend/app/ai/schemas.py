@@ -17,3 +17,15 @@ class MarketDigest(BaseModel):
     price_range_comment: str
     competitor_notes: list[str]
     recommended_actions: list[str]
+
+
+class ModerationItem(BaseModel):
+    listing_id: int
+    relevant: bool
+    likely_fake_or_copy: bool
+    confidence: float = Field(..., ge=0.0, le=1.0)
+    reason: str
+
+
+class ModerationBatch(BaseModel):
+    items: list[ModerationItem]

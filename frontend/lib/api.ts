@@ -39,6 +39,7 @@ export type MarketSummary = {
   delisted_7d: number;
   delisting_velocity: number;
   avg_lifetime_days: number | null;
+  flagged_count: number;
   stats: PriceStats | null;
 };
 
@@ -62,6 +63,9 @@ export type Listing = {
   url: string | null;
   status: string;
   last_position: number | null;
+  is_flagged: boolean;
+  flag_reasons: string[] | null;
+  relevance_score: number | null;
 };
 
 export type Alert = {
@@ -178,8 +182,18 @@ export const fetchSummary = (searchId: string) =>
 export const fetchHistory = async (searchId: string, days = 30): Promise<DailyPoint[]> =>
   (await getJson<DailyPoint[]>(`/api/v1/searches/${searchId}/history?days=${days}`)) ?? [];
 
-export const fetchListings = async (searchId: string, limit = 100): Promise<Listing[]> =>
-  (await getJson<Listing[]>(`/api/v1/searches/${searchId}/listings?limit=${limit}`)) ?? [];
+export const fetchListings = async (
+  searchId: string,
+  limit = 100,
+  flagged?: boolean,
+): Promise<Listing[]> => {
+  const flaggedParam = flagged === undefined ? "" : `&flagged=${flagged}`;
+  return (
+    (await getJson<Listing[]>(
+      `/api/v1/searches/${searchId}/listings?limit=${limit}${flaggedParam}`,
+    )) ?? []
+  );
+};
 
 export const fetchAlerts = async (searchId: string): Promise<Alert[]> =>
   (await getJson<Alert[]>(`/api/v1/alerts?search_id=${searchId}`)) ?? [];

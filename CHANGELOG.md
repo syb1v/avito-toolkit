@@ -7,8 +7,18 @@
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-10-02
+
 ### Добавлено
 
+- Умная фильтрация выдачи (AI-модерация): стоп-слова, аномальная цена (<35% медианы),
+  дубли «название+цена» (≥5 от разных продавцов); AI-скоринг DeepSeek для подозрительных
+  батчами (лимит 40/прогон, ~$0.001–0.002) с записью в `llm_runs`.
+- Флаги у объявлений: `is_flagged`, `flag_reasons`, `relevance_score`, `moderated_at`
+  (миграция 0005); исключение отфильтрованных из ценовой статистики и `flagged_count`.
+- API: `POST /searches/{id}/moderate`, фильтр `?flagged=` в списке выдачи.
+- UI: бейджи «подозрительное» с причинами, ссылка «показать подозрительные (N)»,
+  строка «исключено из статистики», стадия «AI-модерация» в прогрессе обхода.
 - Подсказки «?» с формулами и пояснениями ко всем метрикам: P25/P75/медиана/IQR,
   средняя, вымывание, срок жизни, дельта к медиане, матчи, правила алертов и
   стратегий репрайсинга. Работают наведением на десктопе и тапом на телефоне.
@@ -212,7 +222,8 @@
 - Дашборд Next.js 16 + Tailwind 4 со статусом API и дорожной картой.
 - Документация: README, `docs/plan.md`, `.env.example`, MIT-лицензия.
 
-[Unreleased]: https://github.com/syb1v/avito-toolkit/compare/v0.8.0...HEAD
+[Unreleased]: https://github.com/syb1v/avito-toolkit/compare/v0.9.0...HEAD
+[0.9.0]: https://github.com/syb1v/avito-toolkit/compare/v0.8.0...v0.9.0
 [0.8.0]: https://github.com/syb1v/avito-toolkit/compare/v0.7.1...v0.8.0
 [0.7.1]: https://github.com/syb1v/avito-toolkit/compare/v0.7.0...v0.7.1
 [0.7.0]: https://github.com/syb1v/avito-toolkit/compare/v0.6.1...v0.7.0

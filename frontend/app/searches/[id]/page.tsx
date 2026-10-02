@@ -31,17 +31,50 @@ function StatusBadge({ status }: { status: string }) {
   );
 }
 
+function ListingFlags({
+  flagged,
+  reasons,
+}: {
+  flagged: boolean;
+  reasons: string[] | null;
+}) {
+  if (!flagged && (!reasons || reasons.length === 0)) {
+    return null;
+  }
+  const title = (reasons ?? []).join("; ");
+  return (
+    <div className="mt-1 flex flex-wrap gap-1" title={title}>
+      {flagged ? (
+        <span className="rounded border border-amber-500/40 bg-amber-500/10 px-1.5 py-0.5 text-[10px] text-amber-200">
+          подозрительное
+        </span>
+      ) : null}
+      {(reasons ?? []).slice(0, 2).map((reason) => (
+        <span
+          key={reason}
+          className="rounded border border-neutral-700 bg-neutral-800 px-1.5 py-0.5 text-[10px] text-neutral-400"
+        >
+          {reason}
+        </span>
+      ))}
+    </div>
+  );
+}
+
 export default async function SearchDetailPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string }>;
+  searchParams: Promise<{ flagged?: string }>;
 }) {
-  const { id } = await params;
-  const [summary, history, listings, alerts] = await Promise.all([
+  const [{ id }, query] = await Promise.all([params, searchParams]);
+  const flaggedOnly = query?.flagged === "1";
+  const [summary, history, alerts, listings] = await Promise.all([
     fetchSummary(id),
     fetchHistory(id),
-    fetchListings(id, 200),
     fetchAlerts(id),
+    flaggedOnly ? fetchListings(id, 200, true) : fetchListings(id, 200),
   ]);
 
   if (summary === null) {
@@ -137,9 +170,14 @@ export default async function SearchDetailPage({
           <h2 className="text-base font-medium sm:text-lg">Цены рынка</h2>
           <InfoHint
             title="Как считаем цены"
-            text="Берём цены активных объявлений и отсекаем выбросы методом IQR: IQR = P75 − P25, всё вне [P25 − 1.5·IQR; P75 + 1.5·IQR] отбрасывается. Метрики считаются по очищенной выборке."
+            text="Берём цены активных объявлений и отсекаем выбросы методом IQR: IQR = P75 − P25, всё вне [P25 − 1.5·IQR; P75 + 1.5·IQR] отбрасывается. Подозрительные карточки (копии/реплики, аномальные цены, дубли) исключаются из статистики — их видно по бейджам в выдаче."
           />
         </div>
+        {stats !== null && summary.flagged_count > 0 ? (
+          <p className="mt-2 text-xs text-amber-300/80">
+            Исключено подозрительных из статистики: {summary.flagged_count}
+          </p>
+        ) : null}
         {stats === null ? (
           <p className="mt-3 text-sm text-neutral-500">
             Нет активных объявлений с ценой — выполните обход поиска.
@@ -193,11 +231,32 @@ export default async function SearchDetailPage({
       </section>
 
       <section className="rounded-xl border border-neutral-800">
-        <div className="flex items-baseline justify-between gap-3 px-4 py-4 sm:px-5">
-          <h2 className="text-base font-medium sm:text-lg">Выдача</h2>
-          <span className="text-xs text-neutral-500">
-            показано {preview.length} из {listings.length}
-          </span>
+        <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-4 sm:px-5">
+          <h2 className="text-base font-medium sm:text-lg">
+            {flaggedOnly ? "Подозрительные" : "Выдача"}
+          </h2>
+          <div className="flex flex-wrap items-center gap-3 text-xs">
+            <span className="text-neutral-500">
+              показано {preview.length} из {listings.length}
+            </span>
+            {summary.flagged_count > 0 ? (
+              flaggedOnly ? (
+                <Link
+                  href={`/searches/${id}`}
+                  className="text-sky-300 underline decoration-sky-500/40 underline-offset-4 hover:text-sky-200"
+                >
+                  ← показать все
+                </Link>
+              ) : (
+                <Link
+                  href={`/searches/${id}?flagged=1`}
+                  className="text-amber-300 underline decoration-amber-500/40 underline-offset-4 hover:text-amber-200"
+                >
+                  показать подозрительные ({summary.flagged_count})
+                </Link>
+              )
+            ) : null}
+          </div>
         </div>
 
         <div className="hidden overflow-x-auto md:block">
@@ -233,6 +292,10 @@ export default async function SearchDetailPage({
                       </span>
                     )}
                     <span className="text-xs text-neutral-500">id {listing.id}</span>
+                    <ListingFlags
+                      flagged={listing.is_flagged}
+                      reasons={listing.flag_reasons}
+                    />
                   </td>
                   <td className="px-5 py-3 text-right tabular-nums">
                     {formatPrice(listing.price)}
@@ -275,6 +338,10 @@ export default async function SearchDetailPage({
                 <div className="mt-1.5">
                   <StatusBadge status={listing.status} />
                 </div>
+                <ListingFlags
+                  flagged={listing.is_flagged}
+                  reasons={listing.flag_reasons}
+                />
               </div>
               <p className="whitespace-nowrap text-sm font-medium tabular-nums">
                 {formatPrice(listing.price)}

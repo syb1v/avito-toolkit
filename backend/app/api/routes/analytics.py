@@ -26,6 +26,7 @@ class MarketSummaryOut(BaseModel):
     delisted_7d: int
     delisting_velocity: float
     avg_lifetime_days: float | None
+    flagged_count: int
     stats: PriceStatsOut | None
 
 
@@ -65,6 +66,7 @@ async def get_summary(search_id: uuid.UUID, session: DbSession) -> MarketSummary
         delisted_7d=summary.delisted_7d,
         delisting_velocity=summary.delisting_velocity,
         avg_lifetime_days=summary.avg_lifetime_days,
+        flagged_count=summary.flagged_count,
         stats=(
             PriceStatsOut(
                 count=stats.count,

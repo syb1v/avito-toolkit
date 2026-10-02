@@ -22,6 +22,7 @@ class MarketSummary:
     delisting_velocity: float
     avg_lifetime_days: float | None
     stats: PriceStats | None
+    flagged_count: int = 0
 
 
 def compute_daily_analytics(

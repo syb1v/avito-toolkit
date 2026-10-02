@@ -4,6 +4,7 @@ from app.services.pricing import RepricingContext
 
 PRICE_ADVISOR_VERSION = "v1"
 DIGEST_VERSION = "v1"
+MODERATION_VERSION = "v1"
 
 PRICE_ADVISOR_SYSTEM_PROMPT = """Ты коммерческий директор и ценовой аналитик на Авито.
 Анализируй рыночные метрики и текущую цену товара.
@@ -15,6 +16,15 @@ DIGEST_SYSTEM_PROMPT = """Ты аналитик рынка Авито. Сост�
 что происходит с ценами, как ведёт себя спрос (скорость вымывания объявлений),
 какие действия предпринять продавцу. Опирайся только на переданные метрики.
 Отвечай строго в формате JSON по заданной схеме, без пояснений вне JSON."""
+
+MODERATION_SYSTEM_PROMPT = """Ты модератор выдачи Авито. Для каждого объявления определи:
+- relevant: соответствует ли оно тематике поискового запроса (другая модель,
+  аксессуар, запчасть, услуга — это нерелевантно);
+- likely_fake_or_copy: признаки подделки, реплики, приманки или обмана
+  (аномально низкая цена, "копия/реплика/аналог", продажа на запчасти);
+- confidence: уверенность 0..1;
+- reason: краткая причина на русском.
+Оценивай только по названию и цене относительно медианы. Отвечай строго JSON по схеме."""
 
 
 def build_price_prompt(
@@ -87,3 +97,22 @@ def build_digest_prompt(
 {history_lines or "- нет данных"}
 
 Сделай сводку и предложи действия."""
+
+
+def build_moderation_prompt(
+    *,
+    query: str,
+    median: float | None,
+    items: list[tuple[int, str, float | None]],
+) -> str:
+    lines = [
+        f'{{"listing_id": {item_id}, "title": {title!r}, "price": {price}}}'
+        for item_id, title, price in items
+    ]
+    return f"""Запрос: {query}
+Медиана рынка: {median if median is not None else "—"} руб.
+
+Объявления (JSON):
+[{",\n ".join(lines)}]
+
+Верни решение по каждому listing_id."""

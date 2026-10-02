@@ -10,6 +10,7 @@ const POLL_INTERVAL_MS = 5000;
 
 const STAGE_LABELS: Record<string, string> = {
   crawl: "сбор страниц",
+  moderation: "AI-модерация",
   analytics: "аналитика",
   matching: "матчинг",
   alerts: "алерты",

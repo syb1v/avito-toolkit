@@ -19,6 +19,7 @@ from app.services.alerts import evaluate_search_alerts
 from app.services.analytics.service import recalc_daily_analytics
 from app.services.collector import CrawlResult, SearchCollector
 from app.services.matching import match_all_our_listings
+from app.services.moderation import moderate_search
 from app.services.progress import CrawlProgress
 
 logger = logging.getLogger(__name__)
@@ -72,6 +73,8 @@ async def _collect(search_id: str) -> CrawlResult:
                 session, transport, RedisRateLimiter(redis), progress=progress
             )
             result = await collector.collect(uuid.UUID(search_id))
+            await progress.stage("moderation")
+            moderation = await moderate_search(session, result.search_id)
             await progress.stage("analytics")
             await recalc_daily_analytics(session, result.search_id)
             await progress.stage("matching")
@@ -80,7 +83,12 @@ async def _collect(search_id: str) -> CrawlResult:
             await evaluate_search_alerts(session, result.search_id)
             await session.commit()
             await progress.finish(result.to_dict())
-            logger.info("crawl pipeline: matched %s our SKUs", matched)
+            logger.info(
+                "crawl pipeline: matched %s our SKUs, flagged %s listings, ai-scored %s",
+                matched,
+                moderation.flagged,
+                moderation.ai_scored,
+            )
             return result
     except Exception as error:
         await progress.fail(str(error))

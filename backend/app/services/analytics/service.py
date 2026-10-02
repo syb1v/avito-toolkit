@@ -1,4 +1,5 @@
 import uuid
+from dataclasses import replace
 from datetime import UTC, date, datetime, time, timedelta
 
 from sqlalchemy import Select, func, select
@@ -25,10 +26,25 @@ async def _active_prices(session: AsyncSession, search_id: uuid.UUID) -> list[fl
         .where(
             SearchListing.search_id == search_id,
             Listing.status == "active",
+            Listing.is_flagged.is_(False),
             Listing.current_price.is_not(None),
         )
     )
     return [float(row[0]) for row in rows.all() if row[0] is not None]
+
+
+async def _flagged_count(session: AsyncSession, search_id: uuid.UUID) -> int:
+    rows = await session.execute(
+        select(func.count())
+        .select_from(Listing)
+        .join(SearchListing, SearchListing.listing_id == Listing.id)
+        .where(
+            SearchListing.search_id == search_id,
+            Listing.status == "active",
+            Listing.is_flagged.is_(True),
+        )
+    )
+    return int(rows.scalar_one() or 0)
 
 
 async def _count_new(
@@ -133,7 +149,8 @@ async def build_search_summary(session: AsyncSession, search_id: uuid.UUID) -> M
     gone_today = await _count_gone(session, search_id, day_start, day_end)
     delisted_7d = await _count_gone(session, search_id, week_start, day_end)
     lifetimes = await _gone_lifetimes(session, search_id, lifetime_start, day_end)
-    return build_market_summary(prices, new_today, gone_today, delisted_7d, lifetimes)
+    summary = build_market_summary(prices, new_today, gone_today, delisted_7d, lifetimes)
+    return replace(summary, flagged_count=await _flagged_count(session, search_id))
 
 
 async def fetch_daily_history(

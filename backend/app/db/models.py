@@ -60,6 +60,10 @@ class Listing(Base):
     current_price: Mapped[float | None] = mapped_column(Numeric(12, 2))
     status: Mapped[str] = mapped_column(String(32), default="active")
     url: Mapped[str | None] = mapped_column(Text)
+    is_flagged: Mapped[bool] = mapped_column(Boolean, default=False)
+    flag_reasons: Mapped[list | None] = mapped_column(JSONB)
+    relevance_score: Mapped[float | None] = mapped_column(Float)
+    moderated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     first_seen: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     last_seen: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 

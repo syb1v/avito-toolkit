@@ -4,12 +4,19 @@ from app.ai.client import LlmResult, complete_structured
 from app.ai.prompts import (
     DIGEST_SYSTEM_PROMPT,
     DIGEST_VERSION,
+    MODERATION_SYSTEM_PROMPT,
+    MODERATION_VERSION,
     PRICE_ADVISOR_SYSTEM_PROMPT,
     PRICE_ADVISOR_VERSION,
     build_digest_prompt,
+    build_moderation_prompt,
     build_price_prompt,
 )
-from app.ai.schemas import MarketDigest, PriceActionRecommendation
+from app.ai.schemas import (
+    MarketDigest,
+    ModerationBatch,
+    PriceActionRecommendation,
+)
 from app.services.pricing import RepricingContext
 
 
@@ -66,4 +73,19 @@ async def generate_market_digest(
         ),
         task="market_digest",
         prompt_version=DIGEST_VERSION,
+    )
+
+
+async def moderate_listings_batch(
+    *,
+    query: str,
+    median: float | None,
+    items: list[tuple[int, str, float | None]],
+) -> LlmResult[ModerationBatch]:
+    return await complete_structured(
+        ModerationBatch,
+        system_prompt=MODERATION_SYSTEM_PROMPT,
+        user_prompt=build_moderation_prompt(query=query, median=median, items=items),
+        task="listing_moderation",
+        prompt_version=MODERATION_VERSION,
     )

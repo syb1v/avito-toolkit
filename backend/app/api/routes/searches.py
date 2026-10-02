@@ -42,6 +42,9 @@ class ListingRead(BaseModel):
     url: str | None
     status: str
     last_position: int | None
+    is_flagged: bool = False
+    flag_reasons: list[str] | None = None
+    relevance_score: float | None = None
 
 
 @router.get("", response_model=list[SearchRead])
@@ -147,9 +150,12 @@ async def get_search_progress(search_id: uuid.UUID, session: DbSession) -> Progr
 
 @router.get("/{search_id}/listings", response_model=list[ListingRead])
 async def list_search_listings(
-    search_id: uuid.UUID, session: DbSession, limit: int = 100
+    search_id: uuid.UUID,
+    session: DbSession,
+    limit: int = 100,
+    flagged: bool | None = None,
 ) -> list[ListingRead]:
-    rows = await session.execute(
+    statement = (
         select(
             Listing.id,
             Listing.title,
@@ -157,12 +163,19 @@ async def list_search_listings(
             Listing.url,
             Listing.status,
             SearchListing.last_position,
+            Listing.is_flagged,
+            Listing.flag_reasons,
+            Listing.relevance_score,
         )
         .join(SearchListing, SearchListing.listing_id == Listing.id)
         .where(SearchListing.search_id == search_id)
-        .order_by(SearchListing.last_position.nulls_last())
-        .limit(max(1, min(limit, 500)))
     )
+    if flagged is not None:
+        statement = statement.where(Listing.is_flagged.is_(flagged))
+    statement = statement.order_by(SearchListing.last_position.nulls_last()).limit(
+        max(1, min(limit, 500))
+    )
+    rows = await session.execute(statement)
     return [
         ListingRead(
             id=row[0],
@@ -171,6 +184,32 @@ async def list_search_listings(
             url=row[3],
             status=row[4],
             last_position=row[5],
+            is_flagged=bool(row[6]),
+            flag_reasons=row[7],
+            relevance_score=float(row[8]) if row[8] is not None else None,
         )
         for row in rows.all()
     ]
+
+
+class ModerateOut(BaseModel):
+    total: int
+    flagged: int
+    ai_scored: int
+    median: float | None
+
+
+@router.post("/{search_id}/moderate", response_model=ModerateOut)
+async def run_moderation(search_id: uuid.UUID, session: DbSession) -> ModerateOut:
+    if await session.get(Search, search_id) is None:
+        raise HTTPException(status_code=404, detail="search not found")
+    from app.services.moderation import moderate_search
+
+    result = await moderate_search(session, search_id)
+    await session.commit()
+    return ModerateOut(
+        total=result.total,
+        flagged=result.flagged,
+        ai_scored=result.ai_scored,
+        median=result.median,
+    )
