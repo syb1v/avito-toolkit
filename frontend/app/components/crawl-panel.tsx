@@ -73,7 +73,11 @@ export function CrawlPanel({ searchId }: { searchId: string }) {
   let percent = 0;
   let indeterminate = false;
   if (running && stage === "crawl") {
-    percent = maxPages > 0 ? Math.min(100, Math.round((page / maxPages) * 100)) : 0;
+    if (maxPages > 0) {
+      percent = Math.min(100, Math.round((page / maxPages) * 100));
+    } else {
+      indeterminate = true;
+    }
   } else if (running) {
     indeterminate = true;
   } else if (status === "done") {
@@ -127,9 +131,11 @@ export function CrawlPanel({ searchId }: { searchId: string }) {
         {running ? (
           <>
             <span>{STAGE_LABELS[stage ?? ""] ?? stage ?? "работа"}</span>
-            {stage === "crawl" && maxPages > 0 ? (
+            {stage === "crawl" ? (
               <span>
-                страница {page} из {maxPages}
+                {maxPages > 0
+                  ? `страница ${page} из ${maxPages}`
+                  : `страница ${page} · без лимита`}
               </span>
             ) : null}
             <span>найдено лотов: {listingsSeen}</span>

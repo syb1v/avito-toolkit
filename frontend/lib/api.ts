@@ -16,6 +16,22 @@ export type Search = {
   schedule_cron: string;
   priority: number;
   is_active: boolean;
+  account_id: string | null;
+};
+
+export type Account = {
+  id: string;
+  name: string;
+  profile_dir: string;
+  status: "active" | "paused";
+  notes: string | null;
+  is_default: boolean;
+  cookies_at: string | null;
+  last_check_at: string | null;
+  last_check_ok: boolean | null;
+  last_error: string | null;
+  searches_count: number;
+  profile_exists: boolean;
 };
 
 export type PriceStats = {
@@ -42,6 +58,9 @@ export type MarketSummary = {
   flagged_count: number;
   flag_categories: Record<string, number>;
   keyword_excluded: number;
+  stopword_excluded: number;
+  region_excluded: number;
+  manual_excluded: number;
   stats: PriceStats | null;
 };
 
@@ -70,7 +89,13 @@ export type Listing = {
   flag_reasons: string[] | null;
   relevance_score: number | null;
   description_snippet: string | null;
+  region: string | null;
+  manual_excluded: boolean;
+  exclude_reason: "manual" | "keyword" | "stopword" | "region" | null;
+  excluded: boolean;
 };
+
+export type ListingSort = "position" | "price_asc" | "price_desc" | "new" | "status";
 
 export type Alert = {
   id: string;
@@ -180,6 +205,9 @@ export const fetchHealth = () => getJson<Health>("/healthz");
 export const fetchSearches = async (): Promise<Search[]> =>
   (await getJson<Search[]>("/api/v1/searches")) ?? [];
 
+export const fetchAccounts = async (): Promise<Account[]> =>
+  (await getJson<Account[]>("/api/v1/accounts")) ?? [];
+
 export const fetchSummary = (searchId: string) =>
   getJson<MarketSummary>(`/api/v1/searches/${searchId}/summary`);
 
@@ -188,16 +216,34 @@ export const fetchHistory = async (searchId: string, days = 30): Promise<DailyPo
 
 export const fetchListings = async (
   searchId: string,
-  limit = 100,
-  flagged?: boolean,
-  category?: string,
+  options: {
+    limit?: number;
+    flagged?: boolean;
+    category?: string;
+    excluded?: boolean;
+    region?: string;
+    sort?: ListingSort;
+  } = {},
 ): Promise<Listing[]> => {
-  const flaggedParam = flagged === undefined ? "" : `&flagged=${flagged}`;
-  const categoryParam = category ? `&category=${encodeURIComponent(category)}` : "";
+  const parts = [`limit=${options.limit ?? 0}`];
+  if (options.flagged !== undefined) {
+    parts.push(`flagged=${options.flagged}`);
+  }
+  if (options.category) {
+    parts.push(`category=${encodeURIComponent(options.category)}`);
+  }
+  if (options.excluded !== undefined) {
+    parts.push(`excluded=${options.excluded}`);
+  }
+  if (options.region) {
+    parts.push(`region=${encodeURIComponent(options.region)}`);
+  }
+  if (options.sort && options.sort !== "position") {
+    parts.push(`sort=${options.sort}`);
+  }
   return (
-    (await getJson<Listing[]>(
-      `/api/v1/searches/${searchId}/listings?limit=${limit}${flaggedParam}${categoryParam}`,
-    )) ?? []
+    (await getJson<Listing[]>(`/api/v1/searches/${searchId}/listings?${parts.join("&")}`)) ??
+    []
   );
 };
 
@@ -319,6 +365,107 @@ export async function createDigest(
     return { error: "API недоступен" };
   }
 }
+
+export type MutationResult<T = unknown> =
+  | { ok: true; data: T }
+  | { ok: false; error: string };
+
+async function mutate<T>(path: string, init: RequestInit): Promise<MutationResult<T>> {
+  try {
+    const response = await fetch(`${API_URL}${path}`, {
+      cache: "no-store",
+      ...init,
+      headers: { "Content-Type": "application/json", ...(init.headers ?? {}) },
+    });
+    if (!response.ok) {
+      const body: unknown = await response.json().catch(() => null);
+      const detail =
+        body && typeof body === "object" && "detail" in body
+          ? String((body as { detail: unknown }).detail)
+          : `HTTP ${response.status}`;
+      return { ok: false, error: detail };
+    }
+    const data =
+      response.status === 204 ? ((undefined as unknown) as T) : ((await response.json()) as T);
+    return { ok: true, data };
+  } catch {
+    return { ok: false, error: "API недоступен" };
+  }
+}
+
+export type SearchPayload = {
+  name: string;
+  url: string;
+  params: Record<string, unknown>;
+  schedule_cron: string;
+  priority: number;
+  account_id: string | null;
+};
+
+export const createSearchClient = (payload: SearchPayload) =>
+  mutate<Search>("/api/v1/searches", { method: "POST", body: JSON.stringify(payload) });
+
+export const updateSearchClient = (
+  id: string,
+  payload: Partial<SearchPayload & { is_active: boolean }>,
+) =>
+  mutate<Search>(`/api/v1/searches/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify(payload),
+  });
+
+export const deleteSearchClient = (id: string) =>
+  mutate<void>(`/api/v1/searches/${id}`, { method: "DELETE" });
+
+export const createAccountClient = (payload: { name: string; notes?: string | null }) =>
+  mutate<Account>("/api/v1/accounts", { method: "POST", body: JSON.stringify(payload) });
+
+export const updateAccountClient = (
+  id: string,
+  payload: { name?: string; notes?: string | null; status?: string },
+) =>
+  mutate<Account>(`/api/v1/accounts/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify(payload),
+  });
+
+export const deleteAccountClient = (id: string) =>
+  mutate<void>(`/api/v1/accounts/${id}`, { method: "DELETE" });
+
+export const checkAccountClient = (id: string) =>
+  mutate<{ status: string }>(`/api/v1/accounts/${id}/check`, { method: "POST" });
+
+export const uploadAccountCookiesClient = (id: string, cookies: string, fresh = true) =>
+  mutate<{ status: string }>(`/api/v1/accounts/${id}/cookies`, {
+    method: "POST",
+    body: JSON.stringify({ cookies, fresh }),
+  });
+
+export const setListingsExcludedClient = (
+  searchId: string,
+  listingIds: number[],
+  excluded: boolean,
+  reason?: string,
+) =>
+  mutate<{ excluded: boolean; updated: number; total_excluded: number }>(
+    `/api/v1/searches/${searchId}/listings/exclusions`,
+    {
+      method: "POST",
+      body: JSON.stringify({ listing_ids: listingIds, excluded, reason }),
+    },
+  );
+
+export const clearAlertsClient = (payload: {
+  search_id?: string | null;
+  status?: string | null;
+}) =>
+  mutate<{ deleted: number }>("/api/v1/alerts/clear", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+
+export const deleteAlertClient = (id: string) =>
+  mutate<void>(`/api/v1/alerts/${id}`, { method: "DELETE" });
 
 export async function ackAlert(alertId: string): Promise<boolean> {
   try {

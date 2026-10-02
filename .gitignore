@@ -41,6 +41,7 @@ products.txt
 .camoufox/
 cookies/
 .browser-profile*/
+.accounts/
 
 # IDE / OS
 .idea/

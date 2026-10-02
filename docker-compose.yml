@@ -20,7 +20,7 @@ x-backend-env: &backend-env
   PROXY_HEALTHCHECK_URL: ${PROXY_HEALTHCHECK_URL:-https://api.ipify.org?format=json}
   PROXY_HEALTHCHECK_INTERVAL_MINUTES: ${PROXY_HEALTHCHECK_INTERVAL_MINUTES:-15}
   CRAWL_RATE_PER_MINUTE: ${CRAWL_RATE_PER_MINUTE:-12}
-  CRAWL_MAX_PAGES_PER_RUN: ${CRAWL_MAX_PAGES_PER_RUN:-20}
+  CRAWL_MAX_PAGES_PER_RUN: ${CRAWL_MAX_PAGES_PER_RUN:-0}
   CRAWL_DELAY_MIN_SECONDS: ${CRAWL_DELAY_MIN_SECONDS:-8}
   CRAWL_DELAY_MAX_SECONDS: ${CRAWL_DELAY_MAX_SECONDS:-20}
   CRAWL_MIN_INTERVAL_MINUTES: ${CRAWL_MIN_INTERVAL_MINUTES:-30}
@@ -97,7 +97,7 @@ services:
       BROWSER_NO_SANDBOX: "true"
       BROWSER_USER_DATA_DIR: /data/browser-profile
     volumes:
-      - browserdata:/data/browser-profile
+      - browserdata:/data
     depends_on:
       postgres:
         condition: service_healthy

@@ -6,6 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app import __version__
 from app.api.routes import (
+    accounts,
     ai,
     alerts,
     analytics,
@@ -48,6 +49,7 @@ def create_app() -> FastAPI:
     application.include_router(ai.router, prefix="/api/v1")
     application.include_router(dashboard.router, prefix="/api/v1")
     application.include_router(proxies.router, prefix="/api/v1")
+    application.include_router(accounts.router, prefix="/api/v1")
     application.state.environment = settings.environment
     return application
 

@@ -1,9 +1,17 @@
 import Link from "next/link";
 
-import { StatCard } from "@/app/components/stat-card";
+import { AccountManager } from "@/app/components/account-manager";
+import { ClearAlertsButton } from "@/app/components/clear-alerts-button";
 import { ProxyPanel } from "@/app/components/proxy-panel";
+import { SearchManager } from "@/app/components/search-manager";
+import { StatCard } from "@/app/components/stat-card";
 import { SystemStatusPanel } from "@/app/components/system-status";
-import { API_URL, fetchDashboard, fetchHealth, fetchSearches } from "@/lib/api";
+import {
+  fetchAccounts,
+  fetchDashboard,
+  fetchHealth,
+  fetchSearches,
+} from "@/lib/api";
 import { formatPercent, formatPrice } from "@/lib/format";
 
 const ALERT_LABELS: Record<string, string> = {
@@ -11,9 +19,10 @@ const ALERT_LABELS: Record<string, string> = {
 };
 
 export default async function Home() {
-  const [health, searches, dashboard] = await Promise.all([
+  const [health, searches, accounts, dashboard] = await Promise.all([
     fetchHealth(),
     fetchSearches(),
+    fetchAccounts(),
     fetchDashboard(),
   ]);
 
@@ -51,6 +60,8 @@ export default async function Home() {
 
       <SystemStatusPanel initial={dashboard} />
 
+      <AccountManager initial={accounts} />
+
       <ProxyPanel />
 
       <section className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
@@ -83,13 +94,19 @@ export default async function Home() {
 
       {stats.latest_alerts.length > 0 ? (
         <section className="rounded-xl border border-amber-500/25 bg-amber-500/5 p-4 sm:p-5">
-          <div className="flex items-baseline justify-between gap-3">
+          <div className="flex flex-wrap items-center justify-between gap-3">
             <h2 className="text-base font-medium text-amber-200 sm:text-lg">
               Последние алерты
             </h2>
-            {dashboard ? (
-              <span className="text-xs text-amber-300/70">{stats.alerts_new} новых</span>
-            ) : null}
+            <div className="flex items-center gap-3">
+              {dashboard ? (
+                <span className="text-xs text-amber-300/70">{stats.alerts_new} новых</span>
+              ) : null}
+              <ClearAlertsButton
+                label="Очистить все"
+                className="rounded-lg border border-amber-500/40 px-3 py-1 text-xs text-amber-200 transition hover:bg-amber-500/10"
+              />
+            </div>
           </div>
           <ul className="mt-3 flex flex-col gap-2">
             {stats.latest_alerts.map((alert) => {
@@ -137,56 +154,7 @@ export default async function Home() {
         </section>
       ) : null}
 
-      <section className="flex flex-col gap-4">
-        <div className="flex items-baseline justify-between gap-4">
-          <h2 className="text-lg font-medium">Поиски</h2>
-          <span className="text-xs text-neutral-500">{searches.length} шт.</span>
-        </div>
-
-        {searches.length === 0 ? (
-          <div className="rounded-xl border border-dashed border-neutral-800 p-6 text-sm text-neutral-400 sm:p-8">
-            <p className="text-neutral-200">Поисков пока нет.</p>
-            <p className="mt-1">
-              Массовый импорт: <code>make import-searches file=searches.json</code>{" "}
-              или Swagger —{" "}
-              <a className="text-emerald-400 underline" href={`${API_URL}/docs`}>
-                {API_URL}/docs
-              </a>{" "}
-              (раздел <code>searches</code>).
-            </p>
-            <pre className="mt-4 overflow-x-auto rounded-lg bg-neutral-900 p-4 text-xs text-neutral-400">
-{`curl -X POST ${API_URL}/api/v1/searches/import \\
-  -H 'Content-Type: application/json' \\
-  -d '{"items":[{"name":"iPhone 15","url":"https://www.avito.ru/moskva/telefony?q=iphone+15"}]}'`}
-            </pre>
-          </div>
-        ) : (
-          <ul className="grid gap-3 sm:grid-cols-2 sm:gap-4">
-            {searches.map((search) => (
-              <li key={search.id}>
-                <Link
-                  href={`/searches/${search.id}`}
-                  className="block rounded-xl border border-neutral-800 bg-neutral-900/60 p-4 transition hover:border-neutral-600 sm:p-5"
-                >
-                  <p className="font-medium">{search.name}</p>
-                  <p className="mt-1 truncate text-xs text-neutral-500">{search.url}</p>
-                  <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-xs text-neutral-500">
-                    <span>cron: {search.schedule_cron}</span>
-                    <span>приоритет: {search.priority}</span>
-                    <span
-                      className={
-                        search.is_active ? "text-emerald-400" : "text-neutral-500"
-                      }
-                    >
-                      {search.is_active ? "активен" : "на паузе"}
-                    </span>
-                  </div>
-                </Link>
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
+      <SearchManager initial={searches} accounts={accounts} />
     </main>
   );
 }

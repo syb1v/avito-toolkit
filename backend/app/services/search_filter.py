@@ -39,26 +39,41 @@ def _token_sequence_contains(title_tokens: Sequence[str], alt_tokens: Sequence[s
     return False
 
 
+def _contains_any(title: str, alternatives: Sequence[str]) -> bool:
+    title_token_variants = [tuple(variant.split()) for variant in text_variants(title)]
+    for alternative in alternatives:
+        alternative_variants = [tuple(variant.split()) for variant in text_variants(alternative)]
+        if any(
+            _token_sequence_contains(title_tokens, alt_tokens)
+            for alt_tokens in alternative_variants
+            for title_tokens in title_token_variants
+        ):
+            return True
+    return False
+
+
 def matches_keyword_groups(title: str, groups: KeywordGroups | None) -> bool:
     if not groups:
         return True
-    title_token_variants = [tuple(variant.split()) for variant in text_variants(title)]
-    for group in groups:
-        satisfied = False
-        for alternative in group:
-            alternative_variants = [
-                tuple(variant.split()) for variant in text_variants(alternative)
-            ]
-            if any(
-                _token_sequence_contains(title_tokens, alt_tokens)
-                for alt_tokens in alternative_variants
-                for title_tokens in title_token_variants
-            ):
-                satisfied = True
-                break
-        if not satisfied:
-            return False
-    return True
+    return all(_contains_any(title, group) for group in groups)
+
+
+def matches_exclude_keywords(title: str, excludes: Sequence[str] | None) -> bool:
+    """True, если заголовок попал под стоп-слово (объявление исключается)."""
+    if not excludes:
+        return False
+    return _contains_any(title, excludes)
+
+
+def matches_search(
+    title: str,
+    groups: KeywordGroups | None,
+    excludes: Sequence[str] | None = None,
+) -> bool:
+    """Итоговый фильтр поиска: include-группы (AND) и стоп-слова (NOT)."""
+    if not matches_keyword_groups(title, groups):
+        return False
+    return not matches_exclude_keywords(title, excludes)
 
 
 def keywords_from_params(params: Mapping[str, object] | None) -> list[list[str]]:
@@ -76,6 +91,17 @@ def keywords_from_params(params: Mapping[str, object] | None) -> list[list[str]]
             if alternatives:
                 groups.append(alternatives)
     return groups
+
+
+def exclude_keywords_from_params(params: Mapping[str, object] | None) -> list[str]:
+    if not isinstance(params, Mapping):
+        return []
+    raw = params.get("exclude_keywords")
+    if isinstance(raw, str):
+        raw = [chunk for chunk in re.split(r"[,\n;]+", raw)]
+    if not isinstance(raw, list):
+        return []
+    return [str(value).strip() for value in raw if str(value).strip()]
 
 
 def query_from_groups(groups: KeywordGroups, max_words: int = 4) -> str:

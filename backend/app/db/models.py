@@ -21,6 +21,25 @@ from sqlalchemy.orm import Mapped, mapped_column
 from app.db.base import Base
 
 
+class AvitoAccount(Base):
+    __tablename__ = "avito_accounts"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    name: Mapped[str] = mapped_column(String(120), unique=True)
+    profile_dir: Mapped[str] = mapped_column(Text, unique=True)
+    status: Mapped[str] = mapped_column(String(20), default="active")
+    notes: Mapped[str | None] = mapped_column(Text)
+    is_default: Mapped[bool] = mapped_column(Boolean, default=False)
+    cookies_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_check_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_check_ok: Mapped[bool | None] = mapped_column(Boolean)
+    last_error: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
 class Search(Base):
     __tablename__ = "searches"
 
@@ -31,6 +50,9 @@ class Search(Base):
     schedule_cron: Mapped[str] = mapped_column(String(64), default="*/30 * * * *")
     priority: Mapped[int] = mapped_column(Integer, default=100)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    account_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid, ForeignKey("avito_accounts.id", ondelete="SET NULL")
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
@@ -60,6 +82,7 @@ class Listing(Base):
     current_price: Mapped[float | None] = mapped_column(Numeric(12, 2))
     status: Mapped[str] = mapped_column(String(32), default="active")
     url: Mapped[str | None] = mapped_column(Text)
+    region: Mapped[str | None] = mapped_column(String(64))
     description: Mapped[str | None] = mapped_column(Text)
     description_fetched_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     is_flagged: Mapped[bool] = mapped_column(Boolean, default=False)
@@ -83,6 +106,21 @@ class SearchListing(Base):
     first_seen: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     last_seen: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     last_position: Mapped[int | None] = mapped_column(Integer)
+
+
+class ListingExclusion(Base):
+    """Ручное исключение объявления из расчёта по конкретному поиску."""
+
+    __tablename__ = "listing_exclusions"
+
+    search_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, ForeignKey("searches.id", ondelete="CASCADE"), primary_key=True
+    )
+    listing_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("listings.id", ondelete="CASCADE"), primary_key=True
+    )
+    reason: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
 class ListingSnapshot(Base):

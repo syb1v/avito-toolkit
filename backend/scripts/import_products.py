@@ -115,7 +115,7 @@ async def upsert_search(
     groups: list[list[str]],
     cron: str,
     priority: int,
-    max_pages: int = 1,
+    max_pages: int = 0,
 ) -> tuple[Search, bool]:
     url = search_url(query)
     params = {
@@ -230,7 +230,12 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Import products as Avito searches")
     parser.add_argument("--file", required=True, help="файл со списком товаров")
     parser.add_argument("--crawl", action="store_true", help="сразу обойти рынок")
-    parser.add_argument("--max-pages", type=int, default=1)
+    parser.add_argument(
+        "--max-pages",
+        type=int,
+        default=0,
+        help="0 = без лимита (все страницы до пустой выдачи)",
+    )
     parser.add_argument("--cron", default=DEFAULT_CRON)
     args = parser.parse_args()
     return asyncio.run(_run(args.file, args.crawl, args.max_pages, args.cron))

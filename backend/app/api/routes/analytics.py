@@ -29,6 +29,9 @@ class MarketSummaryOut(BaseModel):
     flagged_count: int
     flag_categories: dict[str, int]
     keyword_excluded: int
+    stopword_excluded: int
+    region_excluded: int
+    manual_excluded: int
     stats: PriceStatsOut | None
 
 
@@ -71,6 +74,9 @@ async def get_summary(search_id: uuid.UUID, session: DbSession) -> MarketSummary
         flagged_count=summary.flagged_count,
         flag_categories=summary.flag_categories,
         keyword_excluded=summary.keyword_excluded,
+        stopword_excluded=summary.stopword_excluded,
+        region_excluded=summary.region_excluded,
+        manual_excluded=summary.manual_excluded,
         stats=(
             PriceStatsOut(
                 count=stats.count,

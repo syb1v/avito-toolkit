@@ -1,4 +1,4 @@
-.PHONY: up down logs build test lint typecheck migrate revision web-dev backend-install fetch-page bump tag import-searches reset-data worker-local browser-login cookies up-dev import-skus import-profile
+.PHONY: up down logs build test lint typecheck migrate revision web-dev backend-install fetch-page bump tag import-searches reset-data worker-local browser-login cookies accounts account-add account-cookies account-check up-dev import-skus import-profile
 
 BROWSER ?= brave
 
@@ -6,6 +6,7 @@ up:
 	docker compose up -d --build
 
 up-dev:
+	HOST_UID=$$(id -u) HOST_GID=$$(id -g) \
 	PLAYWRIGHT_BROWSERS_DIR="$${PLAYWRIGHT_BROWSERS_DIR:-$$HOME/.cache/ms-playwright}" \
 	docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --build worker
 
@@ -58,6 +59,23 @@ browser-login:
 # в профиль автоматизации. Браузер должен быть закрыт.
 cookies:
 	cd backend && .venv/bin/python scripts/import_cookies.py --from-browser $(BROWSER) --fresh
+
+# --- Управление аккаунтами (несколько профилей с cookies) ---
+# make accounts                            — список аккаунтов
+# make account-add name="Аккаунт 2"        — создать профиль
+# make account-cookies name="Аккаунт 2"    — залить cookies из Brave
+# make account-check name="Аккаунт 2"      — проверить доступ
+accounts:
+	cd backend && .venv/bin/python scripts/manage_accounts.py list
+
+account-add:
+	cd backend && .venv/bin/python scripts/manage_accounts.py add --name "$(name)"
+
+account-cookies:
+	cd backend && .venv/bin/python scripts/manage_accounts.py cookies --name "$(name)" --from-browser $(BROWSER) --fresh
+
+account-check:
+	cd backend && .venv/bin/python scripts/manage_accounts.py check --name "$(name)"
 
 reset-data:
 	docker compose exec -T postgres psql -U avito -d avito -c "truncate search_listings, listing_snapshots, listings, sellers, market_analytics_daily, product_market_matches, our_listings, alerts, jobs, llm_runs, audit_log, searches cascade;"

@@ -4,12 +4,25 @@ from datetime import datetime
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
 from redis.asyncio import Redis
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from app.api.deps import DbSession
 from app.config import get_settings
-from app.db.models import Listing, Search, SearchListing
+from app.db.models import Listing, ListingExclusion, Search, SearchListing
 from app.services.progress import progress_key, read_progress
+from app.services.regions import (
+    exclude_regions_from_params,
+    matches_region,
+    normalize_region,
+    regions_from_params,
+)
+from app.services.search_filter import (
+    exclude_keywords_from_params,
+    keywords_from_params,
+    matches_exclude_keywords,
+    matches_keyword_groups,
+)
 from app.services.searches import import_searches, normalize_search_rows
 
 router = APIRouter(prefix="/searches", tags=["searches"])
@@ -21,6 +34,17 @@ class SearchCreate(BaseModel):
     params: dict = Field(default_factory=dict)
     schedule_cron: str = "*/30 * * * *"
     priority: int = 100
+    account_id: uuid.UUID | None = None
+
+
+class SearchUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=255)
+    url: str | None = Field(default=None, min_length=1)
+    params: dict | None = None
+    schedule_cron: str | None = None
+    priority: int | None = None
+    is_active: bool | None = None
+    account_id: uuid.UUID | None = None
 
 
 class SearchRead(BaseModel):
@@ -33,6 +57,7 @@ class SearchRead(BaseModel):
     schedule_cron: str
     priority: int
     is_active: bool
+    account_id: uuid.UUID | None = None
 
 
 class ListingRead(BaseModel):
@@ -47,6 +72,10 @@ class ListingRead(BaseModel):
     flag_reasons: list[str] | None = None
     relevance_score: float | None = None
     description_snippet: str | None = None
+    region: str | None = None
+    manual_excluded: bool = False
+    exclude_reason: str | None = None
+    excluded: bool = False
 
 
 @router.get("", response_model=list[SearchRead])
@@ -62,6 +91,27 @@ async def create_search(payload: SearchCreate, session: DbSession) -> Search:
     await session.commit()
     await session.refresh(search)
     return search
+
+
+@router.patch("/{search_id}", response_model=SearchRead)
+async def update_search(search_id: uuid.UUID, payload: SearchUpdate, session: DbSession) -> Search:
+    search = await session.get(Search, search_id)
+    if search is None:
+        raise HTTPException(status_code=404, detail="search not found")
+    for field, value in payload.model_dump(exclude_unset=True).items():
+        setattr(search, field, value)
+    await session.commit()
+    await session.refresh(search)
+    return search
+
+
+@router.delete("/{search_id}", status_code=204)
+async def delete_search(search_id: uuid.UUID, session: DbSession) -> None:
+    search = await session.get(Search, search_id)
+    if search is None:
+        raise HTTPException(status_code=404, detail="search not found")
+    await session.delete(search)
+    await session.commit()
 
 
 class SearchImportRequest(BaseModel):
@@ -150,14 +200,41 @@ async def get_search_progress(search_id: uuid.UUID, session: DbSession) -> Progr
     )
 
 
+SORT_OPTIONS = ("position", "price_asc", "price_desc", "new", "status")
+
+
+def _order_by(sort: str) -> list:
+    if sort == "price_asc":
+        return [Listing.current_price.asc().nulls_last(), SearchListing.last_position]
+    if sort == "price_desc":
+        return [Listing.current_price.desc().nulls_last(), SearchListing.last_position]
+    if sort == "new":
+        return [SearchListing.first_seen.desc(), SearchListing.last_position]
+    if sort == "status":
+        return [Listing.status, SearchListing.last_position]
+    return [SearchListing.last_position.nulls_last()]
+
+
 @router.get("/{search_id}/listings", response_model=list[ListingRead])
 async def list_search_listings(
     search_id: uuid.UUID,
     session: DbSession,
-    limit: int = 100,
+    limit: int = 0,
     flagged: bool | None = None,
     category: str | None = None,
+    excluded: bool | None = None,
+    region: str | None = None,
+    sort: str = "position",
 ) -> list[ListingRead]:
+    """Выдача поиска. ``limit=0`` — без лимита; ``sort`` — цена/позиция/новизна/статус."""
+    search = await session.get(Search, search_id)
+    if search is None:
+        raise HTTPException(status_code=404, detail="search not found")
+    groups = keywords_from_params(search.params)
+    excludes = exclude_keywords_from_params(search.params)
+    regions = regions_from_params(search.params)
+    exclude_regions = exclude_regions_from_params(search.params)
+
     statement = (
         select(
             Listing.id,
@@ -171,34 +248,118 @@ async def list_search_listings(
             Listing.relevance_score,
             Listing.flag_category,
             Listing.description,
+            Listing.region,
+            ListingExclusion.listing_id,
         )
         .join(SearchListing, SearchListing.listing_id == Listing.id)
+        .outerjoin(
+            ListingExclusion,
+            (ListingExclusion.listing_id == Listing.id) & (ListingExclusion.search_id == search_id),
+        )
         .where(SearchListing.search_id == search_id)
     )
     if flagged is not None:
         statement = statement.where(Listing.is_flagged.is_(flagged))
     if category:
         statement = statement.where(Listing.flag_category == category)
-    statement = statement.order_by(SearchListing.last_position.nulls_last()).limit(
-        max(1, min(limit, 500))
-    )
+    if region:
+        statement = statement.where(Listing.region == normalize_region(region))
+    statement = statement.order_by(*_order_by(sort if sort in SORT_OPTIONS else "position"))
+    if limit > 0 and excluded is None:
+        statement = statement.limit(limit)
     rows = await session.execute(statement)
-    return [
-        ListingRead(
-            id=row[0],
-            title=row[1],
-            price=float(row[2]) if row[2] is not None else None,
-            url=row[3],
-            status=row[4],
-            last_position=row[5],
-            is_flagged=bool(row[6]),
-            flag_reasons=row[7],
-            relevance_score=float(row[8]) if row[8] is not None else None,
-            flag_category=row[9],
-            description_snippet=(row[10][:400] if row[10] else None),
+
+    items: list[ListingRead] = []
+    for row in rows.all():
+        title = row[1] or ""
+        listing_region = row[11]
+        manual_excluded = row[12] is not None
+        if manual_excluded:
+            reason: str | None = "manual"
+        elif groups and not matches_keyword_groups(title, groups):
+            reason = "keyword"
+        elif matches_exclude_keywords(title, excludes):
+            reason = "stopword"
+        elif not matches_region(listing_region, regions, exclude_regions):
+            reason = "region"
+        else:
+            reason = None
+        items.append(
+            ListingRead(
+                id=row[0],
+                title=row[1],
+                price=float(row[2]) if row[2] is not None else None,
+                url=row[3],
+                status=row[4],
+                last_position=row[5],
+                is_flagged=bool(row[6]),
+                flag_reasons=row[7],
+                relevance_score=float(row[8]) if row[8] is not None else None,
+                flag_category=row[9],
+                description_snippet=(row[10][:400] if row[10] else None),
+                region=listing_region,
+                manual_excluded=manual_excluded,
+                exclude_reason=reason,
+                excluded=reason is not None,
+            )
         )
-        for row in rows.all()
-    ]
+    if excluded is not None:
+        items = [item for item in items if item.excluded == excluded]
+        if limit > 0:
+            items = items[:limit]
+    return items
+
+
+class ExclusionsRequest(BaseModel):
+    listing_ids: list[int] = Field(min_length=1, max_length=10_000)
+    excluded: bool = True
+    reason: str | None = "вручную"
+
+
+@router.post("/{search_id}/listings/exclusions")
+async def set_listing_exclusions(
+    search_id: uuid.UUID, payload: ExclusionsRequest, session: DbSession
+) -> dict[str, object]:
+    """Ручное исключение объявлений из расчёта (или возврат в расчёт)."""
+    if await session.get(Search, search_id) is None:
+        raise HTTPException(status_code=404, detail="search not found")
+    existing = set(
+        (await session.execute(select(Listing.id).where(Listing.id.in_(payload.listing_ids))))
+        .scalars()
+        .all()
+    )
+    ids = [listing_id for listing_id in payload.listing_ids if listing_id in existing]
+    if payload.excluded:
+        if ids:
+            statement = (
+                pg_insert(ListingExclusion)
+                .values(
+                    [
+                        {"search_id": search_id, "listing_id": listing_id, "reason": payload.reason}
+                        for listing_id in ids
+                    ]
+                )
+                .on_conflict_do_nothing()
+            )
+            await session.execute(statement)
+    elif ids:
+        await session.execute(
+            delete(ListingExclusion).where(
+                ListingExclusion.search_id == search_id,
+                ListingExclusion.listing_id.in_(ids),
+            )
+        )
+    await session.commit()
+    total = await session.scalar(
+        select(func.count())
+        .select_from(ListingExclusion)
+        .where(ListingExclusion.search_id == search_id)
+    )
+    return {
+        "excluded": payload.excluded,
+        "updated": len(ids),
+        "total_excluded": int(total or 0),
+    }
 
 
 class ModerateOut(BaseModel):

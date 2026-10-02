@@ -4,12 +4,44 @@ import { AlertsPanel } from "@/app/components/alerts-panel";
 import { CrawlPanel } from "@/app/components/crawl-panel";
 import { DigestPanel } from "@/app/components/digest-panel";
 import { InfoHint } from "@/app/components/info-hint";
+import { ListingActions } from "@/app/components/listing-actions";
 import { PriceChart } from "@/app/components/price-chart";
 import { StatCard } from "@/app/components/stat-card";
-import { fetchAlerts, fetchHistory, fetchListings, fetchSummary } from "@/lib/api";
+import {
+  type ListingSort,
+  fetchAlerts,
+  fetchHistory,
+  fetchListings,
+  fetchSummary,
+} from "@/lib/api";
 import { formatDays, formatPercent, formatPrice } from "@/lib/format";
 
-const LISTINGS_PREVIEW = 50;
+const SORT_OPTIONS: { value: ListingSort; label: string }[] = [
+  { value: "position", label: "По позиции" },
+  { value: "price_asc", label: "Сначала дешёвые" },
+  { value: "price_desc", label: "Сначала дорогие" },
+  { value: "new", label: "Новые" },
+  { value: "status", label: "По статусу" },
+];
+
+const EXCLUDE_REASON_META: Record<string, { label: string; className: string }> = {
+  manual: {
+    label: "скрыто вручную",
+    className: "border-amber-500/40 bg-amber-500/10 text-amber-200",
+  },
+  keyword: {
+    label: "не по теме",
+    className: "border-neutral-600 bg-neutral-800 text-neutral-300",
+  },
+  stopword: {
+    label: "стоп-слово",
+    className: "border-amber-500/40 bg-amber-500/10 text-amber-200",
+  },
+  region: {
+    label: "другой город",
+    className: "border-sky-500/40 bg-sky-500/10 text-sky-200",
+  },
+};
 
 const CATEGORY_META: Record<string, { label: string; className: string }> = {
   copy: {
@@ -102,20 +134,54 @@ export default async function SearchDetailPage({
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ flagged?: string; category?: string }>;
+  searchParams: Promise<{
+    flagged?: string;
+    category?: string;
+    excluded?: string;
+    region?: string;
+    sort?: string;
+  }>;
 }) {
   const [{ id }, query] = await Promise.all([params, searchParams]);
   const flaggedOnly = query?.flagged === "1";
   const categoryFilter = query?.category ?? null;
+  const excludedOnly = query?.excluded === "1";
+  const regionFilter = query?.region ?? null;
+  const sortParam = query?.sort ?? "position";
+  const sortOption: ListingSort = (
+    SORT_OPTIONS.some((option) => option.value === sortParam) ? sortParam : "position"
+  ) as ListingSort;
+
+  const hrefWith = (changes: Record<string, string | null>): string => {
+    const next = new URLSearchParams();
+    const current: Record<string, string | null> = {
+      flagged: flaggedOnly ? "1" : null,
+      category: categoryFilter,
+      excluded: excludedOnly ? "1" : null,
+      region: regionFilter,
+      sort: sortOption !== "position" ? sortOption : null,
+      ...changes,
+    };
+    for (const [key, value] of Object.entries(current)) {
+      if (value) {
+        next.set(key, value);
+      }
+    }
+    const suffix = next.toString();
+    return `/searches/${id}${suffix ? `?${suffix}` : ""}`;
+  };
+
   const [summary, history, alerts, listings] = await Promise.all([
     fetchSummary(id),
     fetchHistory(id),
     fetchAlerts(id),
-    flaggedOnly
-      ? fetchListings(id, 200, true)
-      : categoryFilter
-        ? fetchListings(id, 200, undefined, categoryFilter)
-        : fetchListings(id, 200),
+    fetchListings(id, {
+      flagged: flaggedOnly ? true : undefined,
+      category: categoryFilter ?? undefined,
+      excluded: excludedOnly ? true : undefined,
+      region: regionFilter ?? undefined,
+      sort: sortOption,
+    }),
   ]);
 
   if (summary === null) {
@@ -133,7 +199,16 @@ export default async function SearchDetailPage({
   }
 
   const stats = summary.stats;
-  const preview = listings.slice(0, LISTINGS_PREVIEW);
+  const excludedCount = listings.filter((listing) => listing.excluded).length;
+  const regionCounts = listings.reduce<Record<string, number>>((acc, listing) => {
+    if (listing.region) {
+      acc[listing.region] = (acc[listing.region] ?? 0) + 1;
+    }
+    return acc;
+  }, {});
+  const topRegions = Object.entries(regionCounts)
+    .sort((left, right) => right[1] - left[1])
+    .slice(0, 6);
 
   return (
     <main className="mx-auto flex max-w-6xl flex-col gap-6 px-4 py-8 sm:gap-8 sm:px-6 sm:py-12">
@@ -202,7 +277,7 @@ export default async function SearchDetailPage({
         />
       </section>
 
-      <AlertsPanel alerts={alerts.filter((alert) => alert.status === "new")} />
+      <AlertsPanel alerts={alerts.filter((alert) => alert.status === "new")} searchId={id} />
 
       <DigestPanel searchId={id} />
 
@@ -221,7 +296,22 @@ export default async function SearchDetailPage({
         ) : null}
         {stats !== null && summary.keyword_excluded > 0 ? (
           <p className="mt-1 text-xs text-neutral-500">
-            Не по теме товара (по ключам): {summary.keyword_excluded}
+            Не по теме товара (include-фильтр): {summary.keyword_excluded}
+          </p>
+        ) : null}
+        {stats !== null && summary.stopword_excluded > 0 ? (
+          <p className="mt-1 text-xs text-amber-300/80">
+            Исключено стоп-словами: {summary.stopword_excluded}
+          </p>
+        ) : null}
+        {stats !== null && summary.region_excluded > 0 ? (
+          <p className="mt-1 text-xs text-sky-300/80">
+            Отсеяно по городам: {summary.region_excluded}
+          </p>
+        ) : null}
+        {stats !== null && summary.manual_excluded > 0 ? (
+          <p className="mt-1 text-xs text-amber-300/80">
+            Скрыто вручную из расчёта: {summary.manual_excluded}
           </p>
         ) : null}
         {stats === null ? (
@@ -284,28 +374,48 @@ export default async function SearchDetailPage({
             </h2>
             <InfoHint
               title="Как выявляем подозрительные"
-              text="Категории: копия/реплика — слова «копия», «реплика», «1:1»; приманка — цена ниже 35% медианы или фразы-приманки; нерелевант — запчасти, неисправности, «под восстановление»; дубль — одинаковые название+цена у 5+ продавцов. Для кандидатов догружаются описания объявлений (до 10 за обход), затем DeepSeek оценивает карточки батчами (до 40) и возвращает категорию и причину."
+              text="Категории: копия/реплика — слова «копия», «реплика», «1:1»; приманка — цена ниже 35% медианы или фразы-приманки; нерелевант — запчасти, неисправности, «под восстановление»; дубль — одинаковые название+цена у 5+ продавцов. Для кандидатов догружаются описания объявлений (до 10 за обход), затем DeepSeek оценивает карточки батчами (до 40) и возвращает категорию и причину. Исключающие фильтры поиска (стоп-слова) убирают лот из статистики цен, но он остаётся здесь с пометкой «фильтр»."
             />
           </div>
-          <span className="text-xs text-neutral-500">
-            показано {preview.length} из {listings.length}
-          </span>
+          <span className="text-xs text-neutral-500">всего {listings.length}</span>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2 px-4 pb-3 pt-1 sm:px-5">
+        <div className="flex flex-wrap items-center gap-2 px-4 pb-2 pt-1 sm:px-5">
           <Link
-            href={`/searches/${id}`}
+            href={hrefWith({ flagged: null, category: null, excluded: null, region: null })}
             className={`rounded-full border px-2.5 py-1 text-xs transition ${
-              !flaggedOnly && !categoryFilter
+              !flaggedOnly && !categoryFilter && !excludedOnly && !regionFilter
                 ? "border-neutral-500 bg-neutral-800 text-neutral-100"
                 : "border-neutral-800 text-neutral-400 hover:border-neutral-600"
             }`}
           >
             Все
           </Link>
+          {excludedCount > 0 ? (
+            <Link
+              href={hrefWith({
+                excluded: "1",
+                flagged: null,
+                category: null,
+                region: null,
+              })}
+              className={`rounded-full border px-2.5 py-1 text-xs transition ${
+                excludedOnly
+                  ? "border-amber-500/60 bg-amber-500/15 text-amber-100"
+                  : "border-neutral-800 text-neutral-400 hover:border-neutral-600"
+              }`}
+            >
+              Вне расчёта ({excludedCount})
+            </Link>
+          ) : null}
           {summary.flagged_count > 0 ? (
             <Link
-              href={`/searches/${id}?flagged=1`}
+              href={hrefWith({
+                flagged: "1",
+                category: null,
+                excluded: null,
+                region: null,
+              })}
               className={`rounded-full border px-2.5 py-1 text-xs transition ${
                 flaggedOnly
                   ? "border-amber-500/60 bg-amber-500/15 text-amber-100"
@@ -324,7 +434,12 @@ export default async function SearchDetailPage({
             return (
               <Link
                 key={key}
-                href={`/searches/${id}?category=${key}`}
+                href={hrefWith({
+                  category: key,
+                  flagged: null,
+                  excluded: null,
+                  region: null,
+                })}
                 className={`rounded-full border px-2.5 py-1 text-xs transition ${meta.className} ${
                   active ? "ring-1 ring-neutral-400/60" : "opacity-80 hover:opacity-100"
                 }`}
@@ -335,6 +450,51 @@ export default async function SearchDetailPage({
           })}
         </div>
 
+        {topRegions.length > 1 ? (
+          <div className="flex flex-wrap items-center gap-2 px-4 pb-3 sm:px-5">
+            <span className="text-[11px] uppercase tracking-wider text-neutral-600">
+              города:
+            </span>
+            {topRegions.map(([regionName, count]) => (
+              <Link
+                key={regionName}
+                href={hrefWith({
+                  region: regionFilter === regionName ? null : regionName,
+                  excluded: null,
+                })}
+                className={`rounded-full border px-2.5 py-1 text-xs transition ${
+                  regionFilter === regionName
+                    ? "border-sky-500/60 bg-sky-500/15 text-sky-100"
+                    : "border-neutral-800 text-neutral-400 hover:border-neutral-600"
+                }`}
+              >
+                {regionName} ({count})
+              </Link>
+            ))}
+          </div>
+        ) : null}
+
+        <div className="flex flex-wrap items-center gap-2 px-4 pb-3 sm:px-5">
+          <span className="text-[11px] uppercase tracking-wider text-neutral-600">
+            сортировка:
+          </span>
+          {SORT_OPTIONS.map((option) => (
+            <Link
+              key={option.value}
+              href={hrefWith({
+                sort: option.value === "position" ? null : option.value,
+              })}
+              className={`rounded-full border px-2.5 py-1 text-xs transition ${
+                sortOption === option.value
+                  ? "border-emerald-500/50 bg-emerald-500/10 text-emerald-200"
+                  : "border-neutral-800 text-neutral-400 hover:border-neutral-600"
+              }`}
+            >
+              {option.label}
+            </Link>
+          ))}
+        </div>
+
         <div className="hidden overflow-x-auto md:block">
           <table className="w-full text-sm">
             <thead>
@@ -343,10 +503,11 @@ export default async function SearchDetailPage({
                 <th className="px-5 py-3 font-medium">Объявление</th>
                 <th className="px-5 py-3 text-right font-medium">Цена</th>
                 <th className="px-5 py-3 font-medium">Статус</th>
+                <th className="px-5 py-3 text-right font-medium">Расчёт</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-neutral-800">
-              {preview.map((listing) => (
+              {listings.map((listing) => (
                 <tr key={listing.id} className="hover:bg-neutral-900/60">
                   <td className="px-5 py-3 tabular-nums text-neutral-500">
                     {listing.last_position ?? "—"}
@@ -367,7 +528,20 @@ export default async function SearchDetailPage({
                         {listing.title}
                       </span>
                     )}
-                    <span className="text-xs text-neutral-500">id {listing.id}</span>
+                    <span className="text-xs text-neutral-500">
+                      id {listing.id}
+                      {listing.region ? ` · ${listing.region}` : ""}
+                    </span>
+                    {listing.exclude_reason ? (
+                      <span
+                        className={`ml-2 rounded border px-1.5 py-0.5 text-[10px] ${
+                          EXCLUDE_REASON_META[listing.exclude_reason]?.className ?? ""
+                        }`}
+                      >
+                        {EXCLUDE_REASON_META[listing.exclude_reason]?.label ??
+                          listing.exclude_reason}
+                      </span>
+                    ) : null}
                     <ListingFlags
                       flagged={listing.is_flagged}
                       category={listing.flag_category}
@@ -381,11 +555,18 @@ export default async function SearchDetailPage({
                   <td className="px-5 py-3">
                     <StatusBadge status={listing.status} />
                   </td>
+                  <td className="px-5 py-3 text-right">
+                    <ListingActions
+                      searchId={id}
+                      listingId={listing.id}
+                      manualExcluded={listing.manual_excluded}
+                    />
+                  </td>
                 </tr>
               ))}
-              {preview.length === 0 && (
+              {listings.length === 0 && (
                 <tr>
-                  <td colSpan={4} className="px-5 py-10 text-center text-neutral-500">
+                  <td colSpan={5} className="px-5 py-10 text-center text-neutral-500">
                     Пока пусто — выполните обход поиска.
                   </td>
                 </tr>
@@ -395,11 +576,15 @@ export default async function SearchDetailPage({
         </div>
 
         <ul className="flex flex-col divide-y divide-neutral-800 md:hidden">
-          {preview.map((listing) => (
+          {listings.map((listing) => (
             <li key={listing.id} className="flex items-start justify-between gap-3 px-4 py-3">
               <div className="min-w-0">
                 <p className="text-xs tabular-nums text-neutral-500">
                   #{listing.last_position ?? "—"} · id {listing.id}
+                  {listing.region ? ` · ${listing.region}` : ""}
+                  {listing.exclude_reason
+                    ? ` · ${EXCLUDE_REASON_META[listing.exclude_reason]?.label ?? listing.exclude_reason}`
+                    : ""}
                 </p>
                 {listing.url ? (
                   <a
@@ -413,8 +598,13 @@ export default async function SearchDetailPage({
                 ) : (
                   <p className="mt-0.5 line-clamp-2 text-sm">{listing.title}</p>
                 )}
-                <div className="mt-1.5">
+                <div className="mt-1.5 flex items-center gap-2">
                   <StatusBadge status={listing.status} />
+                  <ListingActions
+                    searchId={id}
+                    listingId={listing.id}
+                    manualExcluded={listing.manual_excluded}
+                  />
                 </div>
                 <ListingFlags
                   flagged={listing.is_flagged}
@@ -428,7 +618,7 @@ export default async function SearchDetailPage({
               </p>
             </li>
           ))}
-          {preview.length === 0 && (
+          {listings.length === 0 && (
             <li className="px-4 py-10 text-center text-sm text-neutral-500">
               Пока пусто — выполните обход поиска.
             </li>

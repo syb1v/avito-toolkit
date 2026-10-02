@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 
-import { ackAlert, type Alert } from "@/lib/api";
+import { ackAlert, clearAlertsClient, type Alert } from "@/lib/api";
 import { InfoHint } from "@/app/components/info-hint";
 import { formatPercent, formatPrice } from "@/lib/format";
 
@@ -13,9 +13,16 @@ function alertTitle(type: string): string {
   return type;
 }
 
-export function AlertsPanel({ alerts }: { alerts: Alert[] }) {
+export function AlertsPanel({
+  alerts,
+  searchId,
+}: {
+  alerts: Alert[];
+  searchId?: string;
+}) {
   const [items, setItems] = useState(alerts);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [clearing, setClearing] = useState(false);
 
   if (items.length === 0) {
     return null;
@@ -30,14 +37,39 @@ export function AlertsPanel({ alerts }: { alerts: Alert[] }) {
     setBusyId(null);
   }
 
+  async function clearAll() {
+    if (!window.confirm("Очистить все новые алерты? Действие необратимо.")) {
+      return;
+    }
+    setClearing(true);
+    const result = await clearAlertsClient({
+      search_id: searchId ?? null,
+      status: "new",
+    });
+    setClearing(false);
+    if (result.ok) {
+      setItems([]);
+    }
+  }
+
   return (
     <section className="rounded-xl border border-amber-500/30 bg-amber-500/5 p-5">
-      <div className="flex items-center">
-        <h2 className="text-lg font-medium text-amber-200">Алерты</h2>
-        <InfoHint
-          title="Правило алерта"
-          text="Наша цена выше медианы сматченных конкурентов больше чем на настроенный порог (по умолчанию 10%). Повторные одинаковые алерты не дублируются: пока алерт не подтверждён, новый не создаётся."
-        />
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex items-center">
+          <h2 className="text-lg font-medium text-amber-200">Алерты</h2>
+          <InfoHint
+            title="Правило алерта"
+            text="Наша цена выше медианы сматченных конкурентов больше чем на настроенный порог (по умолчанию 10%). Повторные одинаковые алерты не дублируются: пока алерт не подтверждён, новый не создаётся. Очистить можно кнопкой — алерты удаляются из базы."
+          />
+        </div>
+        <button
+          type="button"
+          onClick={clearAll}
+          disabled={clearing}
+          className="rounded-lg border border-amber-500/40 px-3 py-1 text-xs text-amber-200 transition hover:bg-amber-500/10 disabled:opacity-50"
+        >
+          {clearing ? "Очистка…" : "Очистить все"}
+        </button>
       </div>
       <ul className="mt-4 flex flex-col gap-3">
         {items.map((alert) => {

@@ -1,6 +1,9 @@
 from app.services.search_filter import (
+    exclude_keywords_from_params,
     keywords_from_params,
+    matches_exclude_keywords,
     matches_keyword_groups,
+    matches_search,
     normalize_text,
     query_from_groups,
 )
@@ -34,6 +37,24 @@ def test_keywords_from_params() -> None:
     assert keywords_from_params(params) == [["devialet"], ["mania"], ["phantom"]]
     assert keywords_from_params(None) == []
     assert keywords_from_params({"keyword_groups": "broken"}) == []
+
+
+def test_exclude_keywords_filters_titles() -> None:
+    groups = [["devialet"], ["dione"]]
+    excludes = exclude_keywords_from_params({"exclude_keywords": ["чехол", "ремонт"]})
+    assert excludes == ["чехол", "ремонт"]
+    assert matches_search("Devialet Dione саундбар", groups, excludes) is True
+    assert matches_search("Devialet Dione чехол для саундбара", groups, excludes) is False
+    assert matches_exclude_keywords("Саундбар Devialet Dione, ремонт", excludes) is True
+    assert matches_search("Samsung q990", groups, excludes) is False
+
+
+def test_exclude_keywords_string_and_case() -> None:
+    excludes = exclude_keywords_from_params({"exclude_keywords": "Копия, реплика; 1:1"})
+    assert excludes == ["Копия", "реплика", "1:1"]
+    assert matches_exclude_keywords("Копия Devialet Dione", excludes) is True
+    assert matches_exclude_keywords("Devialet Dione", excludes) is False
+    assert exclude_keywords_from_params(None) == []
 
 
 def test_query_from_groups_prefers_longest_alternative() -> None:

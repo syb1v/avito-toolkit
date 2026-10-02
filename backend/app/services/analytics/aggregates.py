@@ -25,6 +25,9 @@ class MarketSummary:
     flagged_count: int = 0
     flag_categories: dict[str, int] = field(default_factory=dict)
     keyword_excluded: int = 0
+    stopword_excluded: int = 0
+    region_excluded: int = 0
+    manual_excluded: int = 0
 
 
 def compute_daily_analytics(

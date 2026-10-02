@@ -1,4 +1,5 @@
 import asyncio
+import itertools
 import logging
 import random
 import uuid
@@ -17,6 +18,7 @@ from app.config import get_settings
 from app.db.models import Listing, ListingSnapshot, Search, SearchListing, Seller
 from app.services.normalizer import price_changed
 from app.services.progress import CrawlProgress
+from app.services.regions import region_from_url
 
 logger = logging.getLogger(__name__)
 
@@ -75,17 +77,20 @@ class SearchCollector:
         delay_range: tuple[float, float] | None = None,
         max_pages: int | None = None,
         progress: CrawlProgress | None = None,
+        url_override: str | None = None,
     ) -> None:
         settings = get_settings()
         self._session = session
         self._transport = transport
         self._limiter = limiter
         self._progress = progress
+        self._url_override = url_override
         self._delay_range = delay_range or (
             settings.crawl_delay_min_seconds,
             settings.crawl_delay_max_seconds,
         )
-        self._max_pages = max_pages or settings.crawl_max_pages_per_run
+        # max_pages <= 0 — без лимита: идём, пока Авито отдаёт страницы.
+        self._max_pages = settings.crawl_max_pages_per_run if max_pages is None else max_pages
         self._rate = settings.crawl_rate_per_minute
 
     async def collect(self, search_id: uuid.UUID) -> CrawlResult:
@@ -105,9 +110,11 @@ class SearchCollector:
         stopped_by_challenge = False
         rate_limited = False
         completed_pagination = False
+        stagnant_pages = 0
 
-        for page_number, page_url in enumerate(self._page_urls(search.url), start=1):
-            if page_number > self._max_pages:
+        base_url = self._url_override or search.url
+        for page_number, page_url in enumerate(self._page_urls(base_url), start=1):
+            if self._max_pages > 0 and page_number > self._max_pages:
                 break
             if page_number > 1:
                 await self._sleep_between_requests()
@@ -142,9 +149,23 @@ class SearchCollector:
                 completed_pagination = True
                 break
             pages_fetched += 1
+            added = 0
             for listing in parsed:
                 absolute_position = (page_number - 1) * ITEMS_PER_PAGE + listing.position
-                unique.setdefault(listing.listing_id, replace(listing, position=absolute_position))
+                if listing.listing_id not in unique:
+                    unique[listing.listing_id] = replace(listing, position=absolute_position)
+                    added += 1
+            if added == 0:
+                stagnant_pages += 1
+                if stagnant_pages >= 2:
+                    logger.info(
+                        "pagination stopped on search %s: page %s без новых объявлений",
+                        search_id,
+                        page_number,
+                    )
+                    break
+            else:
+                stagnant_pages = 0
             if self._progress is not None:
                 await self._progress.page(page_number, len(unique))
 
@@ -169,7 +190,8 @@ class SearchCollector:
     def _page_urls(self, base_url: str) -> Iterator[str]:
         yield base_url
         separator = "&" if "?" in base_url else "?"
-        for page in range(2, self._max_pages + 1):
+        pages = range(2, self._max_pages + 1) if self._max_pages > 0 else itertools.count(2)
+        for page in pages:
             yield f"{base_url}{separator}p={page}"
 
     async def _sleep_between_requests(self) -> None:
@@ -227,6 +249,7 @@ class SearchCollector:
                         "id": listing.listing_id,
                         "title": listing.title,
                         "url": listing.url,
+                        "region": region_from_url(listing.url),
                         "seller_id": listing.seller_id,
                         "current_price": listing.price,
                         "status": "active",
@@ -241,6 +264,7 @@ class SearchCollector:
                 set_={
                     "title": listing_stmt.excluded.title,
                     "url": listing_stmt.excluded.url,
+                    "region": listing_stmt.excluded.region,
                     "seller_id": func.coalesce(listing_stmt.excluded.seller_id, Listing.seller_id),
                     "current_price": func.coalesce(
                         listing_stmt.excluded.current_price, Listing.current_price

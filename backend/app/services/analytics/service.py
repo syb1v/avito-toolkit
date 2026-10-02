@@ -1,15 +1,25 @@
 import uuid
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from datetime import UTC, date, datetime, time, timedelta
 
 from sqlalchemy import Select, func, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models import Listing, MarketAnalyticsDaily, Search, SearchListing
+from app.db.models import Listing, ListingExclusion, MarketAnalyticsDaily, Search, SearchListing
 from app.services.analytics.aggregates import MarketSummary, build_market_summary
 from app.services.analytics.iqr import compute_price_stats
-from app.services.search_filter import keywords_from_params, matches_keyword_groups
+from app.services.regions import (
+    exclude_regions_from_params,
+    matches_region,
+    regions_from_params,
+)
+from app.services.search_filter import (
+    exclude_keywords_from_params,
+    keywords_from_params,
+    matches_exclude_keywords,
+    matches_keyword_groups,
+)
 
 LIFETIME_WINDOW_DAYS = 30
 SUMMARY_HISTORY_DAYS = 30
@@ -20,13 +30,36 @@ def _day_bounds(day: date) -> tuple[datetime, datetime]:
     return start, start + timedelta(days=1)
 
 
-async def _active_listings(session: AsyncSession, search_id: uuid.UUID) -> tuple[list[float], int]:
-    """Цены активных объявлений (без флагов), отфильтрованные по ключам товара."""
+@dataclass(frozen=True, slots=True)
+class ExclusionCounts:
+    keyword: int = 0
+    stopword: int = 0
+    region: int = 0
+    manual: int = 0
+
+
+async def _active_listings(
+    session: AsyncSession, search_id: uuid.UUID
+) -> tuple[list[float], ExclusionCounts]:
+    """Цены активных объявлений (без флагов) после всех фильтров поиска."""
     search = await session.get(Search, search_id)
-    groups = keywords_from_params(search.params if search is not None else None)
+    params = search.params if search is not None else None
+    groups = keywords_from_params(params)
+    excludes = exclude_keywords_from_params(params)
+    regions = regions_from_params(params)
+    exclude_regions = exclude_regions_from_params(params)
     rows = await session.execute(
-        select(Listing.title, Listing.current_price)
+        select(
+            Listing.title,
+            Listing.current_price,
+            Listing.region,
+            ListingExclusion.listing_id,
+        )
         .join(SearchListing, SearchListing.listing_id == Listing.id)
+        .outerjoin(
+            ListingExclusion,
+            (ListingExclusion.listing_id == Listing.id) & (ListingExclusion.search_id == search_id),
+        )
         .where(
             SearchListing.search_id == search_id,
             Listing.status == "active",
@@ -35,15 +68,24 @@ async def _active_listings(session: AsyncSession, search_id: uuid.UUID) -> tuple
         )
     )
     prices: list[float] = []
-    excluded = 0
-    for title, price in rows.all():
+    keyword = stopword = region = manual = 0
+    for title, price, listing_region, manual_id in rows.all():
         if price is None:
             continue
+        if manual_id is not None:
+            manual += 1
+            continue
         if groups and not matches_keyword_groups(title or "", groups):
-            excluded += 1
+            keyword += 1
+            continue
+        if matches_exclude_keywords(title or "", excludes):
+            stopword += 1
+            continue
+        if not matches_region(listing_region, regions, exclude_regions):
+            region += 1
             continue
         prices.append(float(price))
-    return prices, excluded
+    return prices, ExclusionCounts(keyword=keyword, stopword=stopword, region=region, manual=manual)
 
 
 async def _active_prices(session: AsyncSession, search_id: uuid.UUID) -> list[float]:
@@ -177,7 +219,7 @@ async def build_search_summary(session: AsyncSession, search_id: uuid.UUID) -> M
     week_start = day_start - timedelta(days=7)
     lifetime_start = day_start - timedelta(days=LIFETIME_WINDOW_DAYS)
 
-    prices, keyword_excluded = await _active_listings(session, search_id)
+    prices, excluded = await _active_listings(session, search_id)
     new_today = await _count_new(session, search_id, day_start, day_end)
     gone_today = await _count_gone(session, search_id, day_start, day_end)
     delisted_7d = await _count_gone(session, search_id, week_start, day_end)
@@ -187,7 +229,10 @@ async def build_search_summary(session: AsyncSession, search_id: uuid.UUID) -> M
         summary,
         flagged_count=await _flagged_count(session, search_id),
         flag_categories=await _flag_categories(session, search_id),
-        keyword_excluded=keyword_excluded,
+        keyword_excluded=excluded.keyword,
+        stopword_excluded=excluded.stopword,
+        region_excluded=excluded.region,
+        manual_excluded=excluded.manual,
     )
 
 

@@ -45,7 +45,10 @@ class ParsedListing:
 
 def _to_float(value: str) -> float | None:
     digits = re.sub(r"[^\d]", "", value)
-    return float(digits) if digits else None
+    if not digits:
+        return None
+    parsed = float(digits)
+    return parsed if parsed > 0 else None
 
 
 def extract_price(text: str) -> float | None:

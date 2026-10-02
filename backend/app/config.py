@@ -42,7 +42,8 @@ class Settings(BaseSettings):
     browser_block_resources: bool = False
 
     crawl_rate_per_minute: int = 12
-    crawl_max_pages_per_run: int = 10
+    # 0 = без лимита: идём, пока Авито отдаёт страницы (стоп по пустой выдаче)
+    crawl_max_pages_per_run: int = 0
     crawl_delay_min_seconds: float = 8.0
     crawl_delay_max_seconds: float = 20.0
     # auto | browser | hybrid | http: auto = браузер, если установлен patchright

@@ -38,6 +38,7 @@ def test_extract_price_formats() -> None:
     assert extract_price("75 000 ₽") == 75000
     assert extract_price("62\u00a0500 ₽") == 62500
     assert extract_price("без цены") is None
+    assert extract_price("0 ₽") is None
 
 
 def test_parse_dom_fixture() -> None:
