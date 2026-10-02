@@ -19,6 +19,16 @@ CHALLENGE_MARKERS = (
     "firewallcaptcha",
     "hcaptcha",
 )
+NETWORK_ERROR_MARKERS = (
+    "err_proxy_connection_failed",
+    "err_tunnel_connection_failed",
+    "err_connection",
+    "err_timed_out",
+    "err_name_not_resolved",
+    "this site can’t be reached",
+    "нет доступа к сайту",
+)
+NETWORK_ERROR_STATUS = 599
 ITEM_SELECTOR = "div[data-marker='item']"
 SELECTOR_TIMEOUT_MS = 15000
 CHALLENGE_RETRIES = 3
@@ -202,6 +212,12 @@ class BrowserTransport:
             await page.wait_for_selector(ITEM_SELECTOR, timeout=SELECTOR_TIMEOUT_MS)
         except Exception:
             body = await self._safe_content(page)
+            if self._is_network_error(body):
+                logger.warning("network/proxy error page at %s", url)
+                return _PageOutcome(
+                    page=FetchedPage(url=page.url, status_code=NETWORK_ERROR_STATUS, body=body),
+                    challenge=True,
+                )
             return _PageOutcome(
                 page=FetchedPage(url=page.url, status_code=status_code, body=body),
                 challenge=self._is_challenge(body),
@@ -248,6 +264,11 @@ class BrowserTransport:
     def _is_challenge(body: str) -> bool:
         lowered = body.lower()
         return any(marker in lowered for marker in CHALLENGE_MARKERS)
+
+    @staticmethod
+    def _is_network_error(body: str) -> bool:
+        lowered = body.lower()
+        return any(marker in lowered for marker in NETWORK_ERROR_MARKERS)
 
     async def _close_context(self) -> None:
         if self._context is not None:

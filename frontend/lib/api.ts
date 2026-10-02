@@ -41,6 +41,7 @@ export type MarketSummary = {
   avg_lifetime_days: number | null;
   flagged_count: number;
   flag_categories: Record<string, number>;
+  keyword_excluded: number;
   stats: PriceStats | null;
 };
 

@@ -219,6 +219,11 @@ export default async function SearchDetailPage({
             Исключено подозрительных из статистики: {summary.flagged_count}
           </p>
         ) : null}
+        {stats !== null && summary.keyword_excluded > 0 ? (
+          <p className="mt-1 text-xs text-neutral-500">
+            Не по теме товара (по ключам): {summary.keyword_excluded}
+          </p>
+        ) : null}
         {stats === null ? (
           <p className="mt-3 text-sm text-neutral-500">
             Нет активных объявлений с ценой — выполните обход поиска.

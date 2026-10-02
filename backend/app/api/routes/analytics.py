@@ -28,6 +28,7 @@ class MarketSummaryOut(BaseModel):
     avg_lifetime_days: float | None
     flagged_count: int
     flag_categories: dict[str, int]
+    keyword_excluded: int
     stats: PriceStatsOut | None
 
 
@@ -69,6 +70,7 @@ async def get_summary(search_id: uuid.UUID, session: DbSession) -> MarketSummary
         avg_lifetime_days=summary.avg_lifetime_days,
         flagged_count=summary.flagged_count,
         flag_categories=summary.flag_categories,
+        keyword_excluded=summary.keyword_excluded,
         stats=(
             PriceStatsOut(
                 count=stats.count,

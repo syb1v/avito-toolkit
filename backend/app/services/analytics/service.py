@@ -6,9 +6,10 @@ from sqlalchemy import Select, func, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models import Listing, MarketAnalyticsDaily, SearchListing
+from app.db.models import Listing, MarketAnalyticsDaily, Search, SearchListing
 from app.services.analytics.aggregates import MarketSummary, build_market_summary
 from app.services.analytics.iqr import compute_price_stats
+from app.services.search_filter import keywords_from_params, matches_keyword_groups
 
 LIFETIME_WINDOW_DAYS = 30
 SUMMARY_HISTORY_DAYS = 30
@@ -19,9 +20,12 @@ def _day_bounds(day: date) -> tuple[datetime, datetime]:
     return start, start + timedelta(days=1)
 
 
-async def _active_prices(session: AsyncSession, search_id: uuid.UUID) -> list[float]:
+async def _active_listings(session: AsyncSession, search_id: uuid.UUID) -> tuple[list[float], int]:
+    """Цены активных объявлений (без флагов), отфильтрованные по ключам товара."""
+    search = await session.get(Search, search_id)
+    groups = keywords_from_params(search.params if search is not None else None)
     rows = await session.execute(
-        select(Listing.current_price)
+        select(Listing.title, Listing.current_price)
         .join(SearchListing, SearchListing.listing_id == Listing.id)
         .where(
             SearchListing.search_id == search_id,
@@ -30,7 +34,21 @@ async def _active_prices(session: AsyncSession, search_id: uuid.UUID) -> list[fl
             Listing.current_price.is_not(None),
         )
     )
-    return [float(row[0]) for row in rows.all() if row[0] is not None]
+    prices: list[float] = []
+    excluded = 0
+    for title, price in rows.all():
+        if price is None:
+            continue
+        if groups and not matches_keyword_groups(title or "", groups):
+            excluded += 1
+            continue
+        prices.append(float(price))
+    return prices, excluded
+
+
+async def _active_prices(session: AsyncSession, search_id: uuid.UUID) -> list[float]:
+    prices, _ = await _active_listings(session, search_id)
+    return prices
 
 
 async def _flagged_count(session: AsyncSession, search_id: uuid.UUID) -> int:
@@ -159,7 +177,7 @@ async def build_search_summary(session: AsyncSession, search_id: uuid.UUID) -> M
     week_start = day_start - timedelta(days=7)
     lifetime_start = day_start - timedelta(days=LIFETIME_WINDOW_DAYS)
 
-    prices = await _active_prices(session, search_id)
+    prices, keyword_excluded = await _active_listings(session, search_id)
     new_today = await _count_new(session, search_id, day_start, day_end)
     gone_today = await _count_gone(session, search_id, day_start, day_end)
     delisted_7d = await _count_gone(session, search_id, week_start, day_end)
@@ -169,6 +187,7 @@ async def build_search_summary(session: AsyncSession, search_id: uuid.UUID) -> M
         summary,
         flagged_count=await _flagged_count(session, search_id),
         flag_categories=await _flag_categories(session, search_id),
+        keyword_excluded=keyword_excluded,
     )
 
 

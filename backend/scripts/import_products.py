@@ -1,13 +1,17 @@
 """Заводит список товаров как поиски Авито и (опционально) собирает рынок.
 
-Одна строка = один товар. Для каждого создаётся поиск по стране
-(`https://www.avito.ru/all?q=<товар>`) с расписанием; с флагом --crawl сразу
-выполняется обход и печатается медиана рынка.
+Формат строки:
+
+    <Название товара> [| <группа1: alt1, alt2>; <группа2: alt1>; ...]
+
+Группы ключей — фильтр точности: все группы должны встретиться в названии
+объявления (AND), внутри группы достаточно одного варианта (OR). Если фильтр
+не задан, он выводится автоматически из названия (бренд + модель без цветов
+и комплектаций).
 
 Запуск из каталога backend/:
 
     .venv/bin/python scripts/import_products.py --file products.txt --crawl
-    .venv/bin/python scripts/import_products.py --file products.txt --crawl --max-pages 1
 """
 
 import argparse
@@ -28,38 +32,103 @@ from app.db.models import Listing, Search, SearchListing
 from app.db.session import dispose_engine, get_session_factory
 from app.services.analytics.iqr import compute_price_stats
 from app.services.collector import SearchCollector
+from app.services.search_filter import normalize_text, query_from_groups
 
 DEFAULT_CRON = "0 */6 * * *"
 PAUSE_BETWEEN_PRODUCTS_SECONDS = 8.0
+AUTO_KEYWORDS_LIMIT = 4
+
+STOPWORDS = {
+    "and",
+    "the",
+    "with",
+    "case",
+    "band",
+    "one",
+    "size",
+    "gps",
+    "cellular",
+    "wi-fi",
+    "wifi",
+    "natural",
+    "aluminium",
+    "aluminum",
+    "matte",
+    "black",
+    "white",
+    "silver",
+    "gold",
+    "gray",
+    "grey",
+    "titanium",
+    "translucent",
+    "ocean",
+    "rose",
+    "bloom",
+    "cocoon",
+    "exclusive",
+    "edition",
+    "deep",
+    "forest",
+    "mm",
+    "db",
+    "new",
+    "original",
+}
 
 
-def search_url(product: str) -> str:
-    return f"https://www.avito.ru/all?q={quote(product)}"
+def parse_product_line(line: str) -> tuple[str, list[list[str]]]:
+    name, _, filter_part = line.partition("|")
+    name = name.strip()
+    groups: list[list[str]] = []
+    for group in filter_part.split(";"):
+        alternatives = [value.strip() for value in group.split(",") if value.strip()]
+        if alternatives:
+            groups.append(alternatives)
+    if not groups:
+        tokens = [token for token in normalize_text(name).split() if token not in STOPWORDS][
+            :AUTO_KEYWORDS_LIMIT
+        ]
+        groups = [[token] for token in tokens]
+    return name, groups
 
 
-def read_products(path: str) -> list[str]:
-    products: list[str] = []
+def read_products(path: str) -> list[tuple[str, list[list[str]]]]:
+    products: list[tuple[str, list[list[str]]]] = []
     for line in Path(path).read_text(encoding="utf-8").splitlines():
         value = line.strip()
         if not value or value.startswith("#"):
             continue
-        products.append(value)
+        products.append(parse_product_line(value))
     return products
 
 
+def search_url(query: str) -> str:
+    return f"https://www.avito.ru/all?q={quote(query)}"
+
+
 async def upsert_search(
-    session: AsyncSession, name: str, url: str, cron: str, priority: int
+    session: AsyncSession,
+    name: str,
+    query: str,
+    groups: list[list[str]],
+    cron: str,
+    priority: int,
 ) -> tuple[Search, bool]:
+    url = search_url(query)
+    params = {"product": name, "query": query, "keyword_groups": groups}
     existing = await session.scalar(select(Search).where(Search.url == url))
     if existing is not None:
         existing.name = name
         existing.schedule_cron = cron
         existing.priority = priority
+        existing.params = params
         await session.commit()
         return existing, False
     search = Search(
         name=name,
         url=url,
+        params=params,
         schedule_cron=cron,
         priority=priority,
         is_active=True,
@@ -70,9 +139,13 @@ async def upsert_search(
     return search, True
 
 
-async def market_median(session: AsyncSession, search_id: uuid.UUID) -> float | None:
+async def market_median(session: AsyncSession, search_id: uuid.UUID) -> tuple[float | None, int]:
+    from app.services.search_filter import keywords_from_params, matches_keyword_groups
+
+    search = await session.get(Search, search_id)
+    groups = keywords_from_params(search.params if search is not None else None)
     rows = await session.execute(
-        select(Listing.current_price)
+        select(Listing.title, Listing.current_price)
         .join(SearchListing, SearchListing.listing_id == Listing.id)
         .where(
             SearchListing.search_id == search_id,
@@ -81,10 +154,18 @@ async def market_median(session: AsyncSession, search_id: uuid.UUID) -> float | 
             Listing.current_price.is_not(None),
         )
     )
-    prices = [float(row[0]) for row in rows.all() if row[0] is not None]
+    prices: list[float] = []
+    excluded = 0
+    for title, price in rows.all():
+        if price is None:
+            continue
+        if groups and not matches_keyword_groups(title or "", groups):
+            excluded += 1
+            continue
+        prices.append(float(price))
     if not prices:
-        return None
-    return float(compute_price_stats(prices).median)
+        return None, excluded
+    return float(compute_price_stats(prices).median), excluded
 
 
 async def _run(file_path: str, crawl: bool, max_pages: int, cron: str) -> int:
@@ -99,13 +180,13 @@ async def _run(file_path: str, crawl: bool, max_pages: int, cron: str) -> int:
     transport = BrowserTransport() if crawl else None
     try:
         created = 0
-        for index, product in enumerate(products):
-            url = search_url(product)
+        for index, (name, groups) in enumerate(products):
+            query = query_from_groups(groups)
             async with factory() as session:
-                search, is_new = await upsert_search(session, product, url, cron, 50)
+                search, is_new = await upsert_search(session, name, query, groups, cron, 50)
                 created += 1 if is_new else 0
                 search_id = search.id
-            line = f"[{'new' if is_new else 'upd'}] {product}"
+            line = f"[{'new' if is_new else 'upd'}] {name[:60]} | query: {query}"
             if crawl and transport is not None:
                 async with factory() as session:
                     collector = SearchCollector(
@@ -116,10 +197,11 @@ async def _run(file_path: str, crawl: bool, max_pages: int, cron: str) -> int:
                     )
                     result = await collector.collect(search_id)
                 async with factory() as session:
-                    median = await market_median(session, search_id)
+                    median, excluded = await market_median(session, search_id)
                 line += (
                     f" | лотов: {result.listings_seen}, новых: {result.new_listings}"
                     f", медиана: {median if median is None else round(median)} ₽"
+                    f", не по теме: {excluded}"
                 )
                 if index < len(products) - 1:
                     await asyncio.sleep(

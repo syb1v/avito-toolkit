@@ -24,6 +24,7 @@ class MarketSummary:
     stats: PriceStats | None
     flagged_count: int = 0
     flag_categories: dict[str, int] = field(default_factory=dict)
+    keyword_excluded: int = 0
 
 
 def compute_daily_analytics(

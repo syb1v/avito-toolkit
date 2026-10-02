@@ -7,11 +7,22 @@
 
 ## [Unreleased]
 
+## [0.12.0] - 2026-10-02
+
 ### Добавлено
 
 - `backend/scripts/import_products.py`: список товаров (одна строка = товар) заводится
   как поиски Авито (`/all?q=...`), опционально сразу собирается рынок и печатается
   медиана; `products.txt` в `.gitignore`.
+- Точный поиск по товарам: `searches.params.keyword_groups` — все группы должны
+  совпасть (AND), внутри группы альтернативы (OR); нормализация ё/диакритики/`&`.
+  Запрос строится по бренду и модели, а не по полному названию с цветом/комплектацией.
+- Метрики считаются только по совпавшим товарам: в summary добавлен
+  `keyword_excluded` («не по теме»), строка в UI.
+- `scripts/import_products.py`: поддержка фильтра в строке товара
+  (`Название | b&o,bang olufsen; beplay; eleven`), авто-ключи без фильтра.
+- Browser-транспорт: сетевые ошибки прокси (ERR_PROXY_CONNECTION_FAILED и др.)
+  возвращаются как 599 и не считаются «пустой выдачей» (не портят статусы).
 
 ## [0.11.0] - 2026-10-02
 
@@ -262,7 +273,8 @@
 - Дашборд Next.js 16 + Tailwind 4 со статусом API и дорожной картой.
 - Документация: README, `docs/plan.md`, `.env.example`, MIT-лицензия.
 
-[Unreleased]: https://github.com/syb1v/avito-toolkit/compare/v0.11.0...HEAD
+[Unreleased]: https://github.com/syb1v/avito-toolkit/compare/v0.12.0...HEAD
+[0.12.0]: https://github.com/syb1v/avito-toolkit/compare/v0.11.0...v0.12.0
 [0.11.0]: https://github.com/syb1v/avito-toolkit/compare/v0.10.0...v0.11.0
 [0.10.0]: https://github.com/syb1v/avito-toolkit/compare/v0.9.0...v0.10.0
 [0.9.0]: https://github.com/syb1v/avito-toolkit/compare/v0.8.0...v0.9.0
