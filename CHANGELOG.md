@@ -7,6 +7,8 @@
 
 ## [Unreleased]
 
+## [0.13.0] - 2026-10-02
+
 ### Добавлено
 
 - `make cookies`: автоматический перенос доверенных cookies `avito.ru` из вашего
@@ -307,7 +309,8 @@
 - Дашборд Next.js 16 + Tailwind 4 со статусом API и дорожной картой.
 - Документация: README, `docs/plan.md`, `.env.example`, MIT-лицензия.
 
-[Unreleased]: https://github.com/syb1v/avito-toolkit/compare/v0.12.0...HEAD
+[Unreleased]: https://github.com/syb1v/avito-toolkit/compare/v0.13.0...HEAD
+[0.13.0]: https://github.com/syb1v/avito-toolkit/compare/v0.12.0...v0.13.0
 [0.12.0]: https://github.com/syb1v/avito-toolkit/compare/v0.11.0...v0.12.0
 [0.11.0]: https://github.com/syb1v/avito-toolkit/compare/v0.10.0...v0.11.0
 [0.10.0]: https://github.com/syb1v/avito-toolkit/compare/v0.9.0...v0.10.0
