@@ -27,6 +27,7 @@ dependencies = [
     "lxml>=5.3",
     "tenacity>=9.0",
     "structlog>=24.4",
+    "browser-cookie3>=0.20",
 ]
 
 [project.optional-dependencies]

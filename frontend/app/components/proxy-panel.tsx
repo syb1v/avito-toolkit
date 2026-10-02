@@ -47,7 +47,7 @@ export function ProxyPanel() {
     return null;
   }
 
-  if (!status.enabled) {
+  if (!status.configured) {
     return (
       <section className="rounded-xl border border-neutral-800 bg-neutral-900/60 p-4 sm:p-5">
         <div className="flex items-center">
@@ -79,6 +79,9 @@ export function ProxyPanel() {
           <span className="text-neutral-400">
             режим: {status.mode} · живых {status.alive}/{status.count}
             {status.in_cooldown > 0 ? ` · в кулдауне ${status.in_cooldown}` : ""}
+            {status.antibot_blocked > 0
+              ? ` · Авито блокирует ${status.antibot_blocked}`
+              : ""}
           </span>
           <button
             type="button"
@@ -91,6 +94,14 @@ export function ProxyPanel() {
         </div>
       </div>
 
+      {!status.enabled ? (
+        <p className="mt-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-200/90">
+          Прокси настроены, но выключены для движка (PROXY_ENABLED=false): обход идёт
+          с вашего IP и cookies браузера. Включите, когда прокси начнут проходить
+          Авито без челленджа.
+        </p>
+      ) : null}
+
       <ul className="mt-3 flex flex-col gap-2">
         {status.entries.map((entry) => (
           <li
@@ -100,7 +111,11 @@ export function ProxyPanel() {
             <div className="flex min-w-0 items-center gap-2">
               <span
                 className={`inline-block h-2 w-2 shrink-0 rounded-full ${
-                  entry.healthy ? "bg-emerald-400" : "bg-red-500"
+                  entry.healthy
+                    ? "bg-emerald-400"
+                    : entry.antibot_blocked
+                      ? "bg-amber-400"
+                      : "bg-red-500"
                 }`}
               />
               <span className="truncate font-mono text-neutral-300">{entry.label}</span>
@@ -108,7 +123,11 @@ export function ProxyPanel() {
             <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-neutral-500">
               {entry.exit_ip ? <span>IP: {entry.exit_ip}</span> : null}
               {entry.latency_ms ? <span>{entry.latency_ms} мс</span> : null}
-              {!entry.healthy ? (
+              {entry.antibot_blocked ? (
+                <span className="text-amber-300">
+                  Авито блокирует · {Math.ceil(entry.antibot_seconds_left / 60)} мин
+                </span>
+              ) : !entry.healthy ? (
                 <span className="text-red-300">
                   кулдаун {entry.cooldown_seconds_left} с
                 </span>

@@ -4,13 +4,12 @@
 но не «чистой» автоматизированной сессии. Импорт cookies переносит эту доверенность
 в профиль, который использует воркер (BROWSER_USER_DATA_DIR).
 
-Как получить cookies:
-- расширение Cookie-Editor (Brave/Chrome/Firefox): открыть avito.ru → Export → JSON;
-- или DevTools → Application → Cookies → скопировать вручную.
-
-Запуск из каталога backend/:
-
+Способы:
+- автоматически из установленного браузера (Brave/Chrome/Chromium/Firefox/...):
+    .venv/bin/python scripts/import_cookies.py --from-browser brave --fresh
+- расширение Cookie-Editor: открыть avito.ru → Export → JSON, затем:
     .venv/bin/python scripts/import_cookies.py --file ~/cookies.json
+- DevTools → Application → Cookies → скопировать строкой:
     .venv/bin/python scripts/import_cookies.py --cookie "v=...; u=...; ft=..."
 
 Скрипт открывает браузер, добавляет cookies, проверяет страницу поиска и закрывается.
@@ -20,6 +19,7 @@ import argparse
 import asyncio
 import json
 import re
+import shutil
 import sys
 from pathlib import Path
 from typing import Any
@@ -37,6 +37,16 @@ SAMESITE_MAP = {
     "strict": "Strict",
     "none": "None",
 }
+BROWSER_LOADERS = (
+    "brave",
+    "chrome",
+    "chromium",
+    "edge",
+    "firefox",
+    "librewolf",
+    "opera",
+    "vivaldi",
+)
 ITEM_SELECTOR = "div[data-marker='item']"
 
 
@@ -63,6 +73,41 @@ def _cookie_entry(raw: dict[str, Any]) -> dict[str, Any] | None:
         if mapped:
             entry["sameSite"] = mapped
     return entry
+
+
+def cookies_from_browser(browser: str) -> list[dict[str, Any]]:
+    """Читает cookies avito.ru из установленного браузера через browser_cookie3."""
+    try:
+        import browser_cookie3
+    except ImportError as error:
+        raise RuntimeError(
+            "нужен пакет browser-cookie3: .venv/bin/pip install browser-cookie3"
+        ) from error
+    loader = getattr(browser_cookie3, browser, None)
+    if loader is None:
+        raise RuntimeError(f"browser_cookie3 не умеет читать {browser!r}")
+    try:
+        jar = loader(domain_name=DOMAIN_FILTER)
+    except Exception as error:  # noqa: BLE001 — у браузеров разные причины отказа
+        raise RuntimeError(f"не удалось прочитать cookies из {browser}: {error}") from error
+    entries: list[dict[str, Any]] = []
+    for cookie in jar:
+        domain = str(cookie.domain or "")
+        if DOMAIN_FILTER not in domain:
+            continue
+        entry: dict[str, Any] = {
+            "name": cookie.name,
+            "value": cookie.value,
+            "domain": domain,
+            "path": cookie.path or "/",
+            "secure": bool(cookie.secure),
+            "httpOnly": bool(cookie.has_nonstandard_attr("httponly")),
+            "sameSite": "Lax",
+        }
+        if cookie.expires:
+            entry["expires"] = float(cookie.expires)
+        entries.append(entry)
+    return entries
 
 
 def parse_cookie_input(text: str) -> list[dict[str, Any]]:
@@ -94,13 +139,23 @@ def parse_cookie_input(text: str) -> list[dict[str, Any]]:
     return cookies
 
 
-async def _run(cookies: list[dict[str, Any]], profile_dir: str, verify_url: str) -> int:
+async def _run(
+    cookies: list[dict[str, Any]],
+    profile_dir: str,
+    verify_url: str,
+    *,
+    fresh: bool = False,
+) -> int:
     from patchright.async_api import async_playwright
 
     settings = get_settings()
     channel = settings.browser_channel or "chromium"
-    Path(profile_dir).mkdir(parents=True, exist_ok=True)
-    print(f"Профиль: {Path(profile_dir).resolve()}")
+    profile_path = Path(profile_dir)
+    if fresh and profile_path.exists():
+        print(f"Сброс профиля: {profile_path.resolve()}")
+        shutil.rmtree(profile_path, ignore_errors=True)
+    profile_path.mkdir(parents=True, exist_ok=True)
+    print(f"Профиль: {profile_path.resolve()}")
     print(f"Cookies к импорту: {len(cookies)}")
 
     async with async_playwright() as playwright:
@@ -134,26 +189,43 @@ def main() -> int:
     source = parser.add_mutually_exclusive_group(required=True)
     source.add_argument("--file", help="JSON-файл выгрузки Cookie-Editor или текстовый")
     source.add_argument("--cookie", help="строка Cookie из DevTools")
+    source.add_argument(
+        "--from-browser",
+        choices=BROWSER_LOADERS,
+        help="прочитать cookies avito.ru прямо из установленного браузера",
+    )
     parser.add_argument("--profile", default=None, help="каталог профиля")
     parser.add_argument("--url", default=VERIFY_URL, help="URL для проверки доступа")
+    parser.add_argument(
+        "--fresh",
+        action="store_true",
+        help="сбросить профиль перед импортом (лечит сожжённые cookies)",
+    )
     args = parser.parse_args()
 
-    if args.file:
-        raw_text = Path(args.file).expanduser().read_text(encoding="utf-8")
+    if args.from_browser:
+        try:
+            cookies = cookies_from_browser(args.from_browser)
+        except RuntimeError as error:
+            print(f"FAIL: {error}", file=sys.stderr)
+            return 2
     else:
-        raw_text = args.cookie or ""
-    try:
-        cookies = parse_cookie_input(raw_text)
-    except (ValueError, TypeError) as error:
-        print(f"FAIL: не удалось разобрать cookies: {error}", file=sys.stderr)
-        return 2
+        if args.file:
+            raw_text = Path(args.file).expanduser().read_text(encoding="utf-8")
+        else:
+            raw_text = args.cookie or ""
+        try:
+            cookies = parse_cookie_input(raw_text)
+        except (ValueError, TypeError) as error:
+            print(f"FAIL: не удалось разобрать cookies: {error}", file=sys.stderr)
+            return 2
     if not cookies:
         print("FAIL: cookies не найдены (нужны домены avito.ru)", file=sys.stderr)
         return 2
 
     settings = get_settings()
     profile_dir = args.profile or settings.browser_user_data_dir or DEFAULT_PROFILE_DIR
-    return asyncio.run(_run(cookies, profile_dir, args.url))
+    return asyncio.run(_run(cookies, profile_dir, args.url, fresh=args.fresh))
 
 
 if __name__ == "__main__":

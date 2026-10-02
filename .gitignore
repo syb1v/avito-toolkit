@@ -40,7 +40,7 @@ products.txt
 .patchright/
 .camoufox/
 cookies/
-.browser-profile/
+.browser-profile*/
 
 # IDE / OS
 .idea/

@@ -218,6 +218,8 @@ export type ProxyEntryStatus = {
   healthy: boolean;
   failures: number;
   cooldown_seconds_left: number;
+  antibot_blocked: boolean;
+  antibot_seconds_left: number;
   last_ok: string | null;
   last_error: string | null;
   latency_ms: number | null;
@@ -226,10 +228,12 @@ export type ProxyEntryStatus = {
 
 export type ProxyStatus = {
   enabled: boolean;
+  configured: boolean;
   mode: string | null;
   count: number;
   alive: number;
   in_cooldown: number;
+  antibot_blocked: number;
   entries: ProxyEntryStatus[];
 };
 
@@ -247,7 +251,9 @@ export async function fetchProxiesClient(): Promise<ProxyStatus | null> {
 
 export async function checkProxiesClient(): Promise<boolean> {
   try {
-    const response = await fetch(`${API_URL}/api/v1/proxies/check`, { method: "POST" });
+    const response = await fetch(`${API_URL}/api/v1/proxies/check?avito=true`, {
+      method: "POST",
+    });
     return response.ok;
   } catch {
     return false;

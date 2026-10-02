@@ -33,10 +33,13 @@ class Settings(BaseSettings):
     proxy_healthcheck_url: str = "https://api.ipify.org?format=json"
     proxy_healthcheck_timeout: float = 10.0
     proxy_healthcheck_interval_minutes: int = 15
+    proxy_antibot_cooldown_seconds: int = 1800
     browser_no_sandbox: bool = False
     browser_headless: bool = True
     browser_channel: str | None = "chromium"
     browser_user_data_dir: str | None = None
+    # Картинки/шрифты нельзя резать: для антибот-фаервола Авито это признак бота
+    browser_block_resources: bool = False
 
     crawl_rate_per_minute: int = 12
     crawl_max_pages_per_run: int = 10
@@ -44,6 +47,14 @@ class Settings(BaseSettings):
     crawl_delay_max_seconds: float = 20.0
     # auto | browser | hybrid | http: auto = браузер, если установлен patchright
     crawl_transport: str = "auto"
+    crawl_min_interval_minutes: int = 30
+    crawl_challenge_cooldown_minutes: int = 60
+    crawl_rate_limit_cooldown_minutes: int = 90
+    crawl_breaker_failures: int = 3
+    crawl_breaker_minutes: int = 120
+    worker_pause_min_seconds: float = 10.0
+    worker_pause_max_seconds: float = 30.0
+    browser_humanize: bool = True
 
     reprice_hitl_threshold_pct: float = 10.0
     reprice_max_step_pct: float = 5.0

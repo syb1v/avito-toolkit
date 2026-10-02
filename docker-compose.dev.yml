@@ -12,6 +12,10 @@ services:
     build:
       args:
         INSTALL_BROWSER: "0"
+    # Тот же профиль, что у scripts/browser_login.py и scripts/import_cookies.py
+    # на хосте: cookies из вашего браузера подхватываются воркером автоматически.
+    environment:
+      BROWSER_USER_DATA_DIR: /srv/.browser-profile
     volumes:
       - ${PLAYWRIGHT_BROWSERS_DIR:?Укажите PLAYWRIGHT_BROWSERS_DIR (кэш ms-playwright)}:/ms-playwright:ro
       - ./backend:/srv

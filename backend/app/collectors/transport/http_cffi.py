@@ -75,7 +75,7 @@ class HttpCffiTransport:
             await self._report_failure("HTTP 429")
             raise RateLimitedError(f"rate limited at {url}")
         if self._proxy_pool is not None and self._last_entry is not None:
-            await self._proxy_pool.report_success(self._last_entry)
+            await self._proxy_pool.report_success(self._last_entry, avito=True)
         return FetchedPage(
             url=str(response.url),
             status_code=response.status_code,

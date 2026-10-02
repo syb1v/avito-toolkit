@@ -87,6 +87,29 @@ async def test_pool_round_robin_and_cooldown(redis) -> None:
     assert status["entries"][0]["latency_ms"] == 120
 
 
+async def test_antibot_does_not_kill_proxy(redis) -> None:
+    pool = ProxyPool(await _entries(), redis, max_failures=2, antibot_cooldown_seconds=600)
+    first = pool.entries[0]
+    await pool.report_antibot(first, "avito challenge")
+    status = await pool.status()
+    assert status["entries"][0]["failures"] == 0
+    assert status["entries"][0]["antibot_blocked"] is True
+    assert status["entries"][0]["healthy"] is False
+    assert status["antibot_blocked"] == 1
+
+    picks = [(await pool.next()).host for _ in range(2)]
+    assert "10.0.0.1" not in picks
+
+    await pool.report_success(first)
+    status = await pool.status()
+    assert status["entries"][0]["antibot_blocked"] is True  # generic-успех метку не снимает
+
+    await pool.report_success(first, avito=True)
+    status = await pool.status()
+    assert status["entries"][0]["antibot_blocked"] is False
+    assert status["entries"][0]["healthy"] is True
+
+
 async def test_pool_random_mode(redis) -> None:
     pool = ProxyPool(await _entries(), redis, mode="random")
     picks = {(await pool.next()).host for _ in range(20)}
@@ -109,7 +132,7 @@ async def test_check_all_with_fake_http(redis) -> None:
         return httpx.AsyncClient(transport=httpx.MockTransport(handler))
 
     result = await pool.check_all(url="https://check.test/ip", client_factory=factory)
-    assert result == {"checked": 3, "ok": 2, "failed": 1}
+    assert result == {"checked": 3, "ok": 2, "failed": 1, "avito_checked": False}
 
     status = await pool.status()
     assert status["entries"][1]["healthy"] is True  # одна ошибка — кулдауна ещё нет

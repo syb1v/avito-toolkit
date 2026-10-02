@@ -10,7 +10,7 @@ from sqlalchemy import func, insert, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.collectors.base import BotChallengeError, SourceAdapter
+from app.collectors.base import BotChallengeError, RateLimitedError, SourceAdapter
 from app.collectors.ratelimit import RedisRateLimiter
 from app.collectors.web.parsing import ParsedListing, parse_search_page
 from app.config import get_settings
@@ -30,6 +30,22 @@ REQUEST_HEADERS = {
 }
 
 
+def should_mark_gone(
+    *,
+    completed_pagination: bool,
+    pages_ok: int,
+    stopped_by_challenge: bool,
+    rate_limited: bool,
+) -> bool:
+    """Помечать объявления пропавшими можно только после реально успешной выдачи.
+
+    Блокировка/челлендж/сетевой сбой не должны превращать весь поиск в «всё пропало».
+    """
+    if stopped_by_challenge or rate_limited:
+        return False
+    return completed_pagination and pages_ok > 0
+
+
 @dataclass(slots=True)
 class CrawlResult:
     search_id: uuid.UUID
@@ -40,6 +56,7 @@ class CrawlResult:
     price_changes: int
     gone_listings: int
     stopped_by_challenge: bool = False
+    rate_limited: bool = False
 
     def to_dict(self) -> dict[str, object]:
         payload = asdict(self)
@@ -83,8 +100,10 @@ class SearchCollector:
         now = datetime.now(UTC)
         unique: dict[int, ParsedListing] = {}
         pages_fetched = 0
+        pages_ok = 0
         pages_failed = 0
         stopped_by_challenge = False
+        rate_limited = False
         completed_pagination = False
 
         for page_number, page_url in enumerate(self._page_urls(search.url), start=1):
@@ -96,6 +115,10 @@ class SearchCollector:
                 await self._limiter.acquire(AVITO_DOMAIN, self._rate)
             try:
                 page = await self._transport.fetch(page_url, headers=REQUEST_HEADERS)
+            except RateLimitedError:
+                logger.warning("rate limited on page %s of search %s", page_number, search_id)
+                rate_limited = True
+                break
             except BotChallengeError:
                 logger.warning("bot challenge on page %s of search %s", page_number, search_id)
                 stopped_by_challenge = True
@@ -113,6 +136,7 @@ class SearchCollector:
                 )
                 pages_failed += 1
                 break
+            pages_ok += 1
             parsed = parse_search_page(page.body, base_url=page.url)
             if not parsed:
                 completed_pagination = True
@@ -128,11 +152,17 @@ class SearchCollector:
             search,
             list(unique.values()),
             now,
-            mark_gone=completed_pagination,
+            mark_gone=should_mark_gone(
+                completed_pagination=completed_pagination,
+                pages_ok=pages_ok,
+                stopped_by_challenge=stopped_by_challenge,
+                rate_limited=rate_limited,
+            ),
         )
         result.pages_fetched = pages_fetched
         result.pages_failed = pages_failed
         result.stopped_by_challenge = stopped_by_challenge
+        result.rate_limited = rate_limited
         await self._session.commit()
         return result
 

@@ -23,6 +23,8 @@ STATE_PREFIX = "proxy:state:"
 RR_INDEX_KEY = "proxy:rr_index"
 HEALTHCHECK_CONCURRENCY = 5
 MASK_VISIBLE = 4
+AVITO_PROBE_URL = "https://www.avito.ru/all?q=iphone"
+AVITO_PROBE_MARKERS = ("доступ ограничен", "проблема с ip", "hcaptcha", "firewallcaptcha")
 
 
 class ProxyParseError(ValueError):
@@ -149,6 +151,7 @@ class ProxyPool:
         mode: str = "round_robin",
         cooldown_seconds: int = 300,
         max_failures: int = 3,
+        antibot_cooldown_seconds: int = 1800,
     ) -> None:
         if not entries:
             raise ValueError("пустой пул прокси")
@@ -157,6 +160,7 @@ class ProxyPool:
         self._mode = mode if mode in ("round_robin", "random") else "round_robin"
         self._cooldown = cooldown_seconds
         self._max_failures = max(1, max_failures)
+        self._antibot_cooldown = max(0, antibot_cooldown_seconds)
 
     @property
     def entries(self) -> list[ProxyEntry]:
@@ -177,8 +181,10 @@ class ProxyPool:
 
     async def _healthy(self, entry: ProxyEntry) -> bool:
         state = await self._state(entry)
+        now = time.time()
         cooldown_until = float(state.get("cooldown_until") or 0)
-        return cooldown_until <= time.time()
+        antibot_until = float(state.get("antibot_until") or 0)
+        return cooldown_until <= now and antibot_until <= now
 
     async def next(self) -> ProxyEntry:
         healthy: list[ProxyEntry] = []
@@ -191,13 +197,22 @@ class ProxyPool:
         index = await self._redis.incr(RR_INDEX_KEY)
         return candidates[(index - 1) % len(candidates)]
 
-    async def report_success(self, entry: ProxyEntry, *, latency_ms: int | None = None) -> None:
+    async def report_success(
+        self,
+        entry: ProxyEntry,
+        *,
+        latency_ms: int | None = None,
+        avito: bool = False,
+    ) -> None:
+        """Успех канала. Метку антибота снимает только успех именно через Авито."""
         mapping: dict[str, Any] = {
             "failures": 0,
             "cooldown_until": 0,
             "last_ok": datetime.now(UTC).isoformat(),
             "last_error": "",
         }
+        if avito:
+            mapping["antibot_until"] = 0
         if latency_ms is not None:
             mapping["latency_ms"] = latency_ms
         await self._redis.hset(entry.key, mapping=mapping)  # type: ignore[arg-type]
@@ -209,20 +224,39 @@ class ProxyPool:
             mapping["cooldown_until"] = int(time.time()) + self._cooldown
         await self._redis.hset(entry.key, mapping=mapping)  # type: ignore[arg-type]
 
+    async def report_antibot(self, entry: ProxyEntry, error: str = "avito challenge") -> None:
+        """Антибот-заглушка Авито: прокси живой, но сайт его не пускает.
+
+        Не наращивает failures (канал работает), но помечает маршрут
+        ``antibot_until`` — ротация предпочтёт другой прокси, а панель
+        покажет реальную причину.
+        """
+        mapping: dict[str, Any] = {
+            "last_error": error[:200],
+            "antibot_until": int(time.time()) + self._antibot_cooldown,
+        }
+        await self._redis.hset(entry.key, mapping=mapping)  # type: ignore[arg-type]
+
     async def status(self) -> dict[str, Any]:
         now = time.time()
         rows: list[dict[str, Any]] = []
         alive = 0
         cooling = 0
+        antibot_blocked = 0
         for entry in self._entries:
             state = await self._state(entry)
             failures = int(state.get("failures") or 0)
             cooldown_until = float(state.get("cooldown_until") or 0)
-            healthy = cooldown_until <= now
+            antibot_until = float(state.get("antibot_until") or 0)
+            in_cooldown = cooldown_until > now
+            is_antibot = antibot_until > now
+            healthy = not in_cooldown and not is_antibot
             if healthy:
                 alive += 1
-            else:
+            if in_cooldown:
                 cooling += 1
+            if is_antibot:
+                antibot_blocked += 1
             rows.append(
                 {
                     "label": entry.label,
@@ -230,6 +264,8 @@ class ProxyPool:
                     "healthy": healthy,
                     "failures": failures,
                     "cooldown_seconds_left": max(0, int(cooldown_until - now)),
+                    "antibot_blocked": is_antibot,
+                    "antibot_seconds_left": max(0, int(antibot_until - now)),
                     "last_ok": state.get("last_ok") or None,
                     "last_error": state.get("last_error") or None,
                     "latency_ms": int(state["latency_ms"]) if state.get("latency_ms") else None,
@@ -242,6 +278,7 @@ class ProxyPool:
             "count": len(rows),
             "alive": alive,
             "in_cooldown": cooling,
+            "antibot_blocked": antibot_blocked,
             "entries": rows,
         }
 
@@ -275,12 +312,40 @@ class ProxyPool:
     def _default_client(entry: ProxyEntry) -> httpx.AsyncClient:
         return httpx.AsyncClient(proxy=entry.url, trust_env=False)
 
+    async def check_avito(
+        self,
+        entry: ProxyEntry,
+        *,
+        url: str = AVITO_PROBE_URL,
+        timeout: float = 20.0,
+        client_factory: Callable[[ProxyEntry], httpx.AsyncClient] | None = None,
+    ) -> bool:
+        """Проверяет, пускает ли Авито трафик через этот прокси."""
+        factory = client_factory or self._default_client
+        try:
+            async with factory(entry) as client:
+                response = await client.get(
+                    url,
+                    timeout=timeout,
+                    headers={"Accept-Language": "ru-RU,ru;q=0.9"},
+                )
+            body = response.text.lower()
+            if response.status_code >= 400 or any(m in body for m in AVITO_PROBE_MARKERS):
+                await self.report_antibot(entry, f"avito HTTP {response.status_code}")
+                return False
+            await self.report_success(entry, avito=True)
+            return True
+        except Exception as error:
+            await self.report_failure(entry, f"{type(error).__name__}: {error}")
+            return False
+
     async def check_all(
         self,
         *,
         url: str | None = None,
         timeout: float | None = None,
         client_factory: Callable[[ProxyEntry], httpx.AsyncClient] | None = None,
+        avito: bool = False,
     ) -> dict[str, Any]:
         settings = get_settings()
         check_url = url or settings.proxy_healthcheck_url
@@ -289,10 +354,17 @@ class ProxyPool:
 
         async def _one(entry: ProxyEntry) -> bool:
             async with semaphore:
-                return await self.check(
+                ok = await self.check(
                     entry,
                     url=check_url,
                     timeout=check_timeout,
+                    client_factory=client_factory,
+                )
+                if not avito or not ok:
+                    return ok
+                return await self.check_avito(
+                    entry,
+                    timeout=max(check_timeout, 20.0),
                     client_factory=client_factory,
                 )
 
@@ -301,6 +373,7 @@ class ProxyPool:
             "checked": len(results),
             "ok": sum(1 for result in results if result),
             "failed": sum(1 for result in results if not result),
+            "avito_checked": avito,
         }
 
 
@@ -315,13 +388,19 @@ def _extract_exit_ip(response: httpx.Response) -> str | None:
     return text if text and len(text) <= 64 else None
 
 
-def build_proxy_pool(redis: Redis) -> ProxyPool | None:
-    """Собирает пул из PROXY_LIST; для совместимости учитывает PROXY_URL."""
+def build_proxy_pool(redis: Redis, *, force: bool = False) -> ProxyPool | None:
+    """Собирает пул из PROXY_LIST; для совместимости учитывает PROXY_URL.
+
+    ``force=True`` (панель/healthcheck) собирает пул даже при PROXY_ENABLED=false,
+    чтобы прокси можно было проверить и включить позже.
+    """
     settings = get_settings()
     entries = parse_proxy_list(settings.proxy_list)
     if not entries and settings.proxy_enabled and settings.proxy_url:
         entries = parse_proxy_list(settings.proxy_url)
     if not entries:
+        return None
+    if not settings.proxy_enabled and not force:
         return None
     return ProxyPool(
         entries,
@@ -329,4 +408,5 @@ def build_proxy_pool(redis: Redis) -> ProxyPool | None:
         mode=settings.proxy_rotation,
         cooldown_seconds=settings.proxy_cooldown_seconds,
         max_failures=settings.proxy_max_failures,
+        antibot_cooldown_seconds=settings.proxy_antibot_cooldown_seconds,
     )

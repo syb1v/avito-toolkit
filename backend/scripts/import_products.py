@@ -32,6 +32,7 @@ from app.db.models import Listing, Search, SearchListing
 from app.db.session import dispose_engine, get_session_factory
 from app.services.analytics.iqr import compute_price_stats
 from app.services.collector import SearchCollector
+from app.services.proxy_pool import build_proxy_pool
 from app.services.search_filter import normalize_text, query_from_groups
 
 DEFAULT_CRON = "0 */6 * * *"
@@ -114,9 +115,15 @@ async def upsert_search(
     groups: list[list[str]],
     cron: str,
     priority: int,
+    max_pages: int = 1,
 ) -> tuple[Search, bool]:
     url = search_url(query)
-    params = {"product": name, "query": query, "keyword_groups": groups}
+    params = {
+        "product": name,
+        "query": query,
+        "keyword_groups": groups,
+        "max_pages": max_pages,
+    }
     existing = await session.scalar(select(Search).where(Search.url == url))
     if existing is not None:
         existing.name = name
@@ -177,7 +184,7 @@ async def _run(file_path: str, crawl: bool, max_pages: int, cron: str) -> int:
     factory = get_session_factory()
     settings = get_settings()
     redis = Redis.from_url(settings.redis_url)
-    transport = BrowserTransport() if crawl else None
+    transport = BrowserTransport(proxy_pool=build_proxy_pool(redis)) if crawl else None
     try:
         created = 0
         for index, (name, groups) in enumerate(products):

@@ -1,12 +1,18 @@
 import asyncio
 import contextlib
 import logging
+import random
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
-from app.collectors.base import FetchedPage
+from app.collectors.base import (
+    BotChallengeError,
+    CollectorError,
+    FetchedPage,
+    RateLimitedError,
+)
 from app.config import get_settings
 from app.services.proxy_pool import ProxyEntry, ProxyPool
 
@@ -35,7 +41,8 @@ CHALLENGE_RETRIES = 3
 CHALLENGE_WAIT_SECONDS = 8.0
 BLOCKED_RESOURCE_TYPES = {"image", "media", "font"}
 WARMUP_URL = "https://www.avito.ru/"
-WARMUP_WAIT_SECONDS = 1.5
+WARMUP_WAIT_SECONDS = 2.5
+RATE_LIMIT_STATUSES = (429, 439)
 SINGLETON_FILES = ("SingletonLock", "SingletonCookie", "SingletonSocket")
 
 
@@ -57,6 +64,8 @@ def _clear_singleton_files(user_data_dir: str) -> None:
 class _PageOutcome:
     page: FetchedPage
     challenge: bool
+    rate_limited: bool = False
+    network_error: bool = False
 
 
 def proxy_settings(proxy_url: str) -> dict[str, str]:
@@ -91,7 +100,7 @@ class BrowserTransport:
         headless: bool | None = None,
         locale: str = "ru-RU",
         timeout_ms: int = 45000,
-        block_resources: bool = True,
+        block_resources: bool | None = None,
         user_data_dir: str | None = None,
         channel: str | None = None,
         proxy_pool: ProxyPool | None = None,
@@ -105,7 +114,9 @@ class BrowserTransport:
         self._channel = channel or settings.browser_channel or None
         self._locale = locale
         self._timeout_ms = timeout_ms
-        self._block_resources = block_resources
+        self._block_resources = (
+            settings.browser_block_resources if block_resources is None else block_resources
+        )
         self._playwright: Any | None = None
         self._browser: Any | None = None
         self._context: Any | None = None
@@ -169,7 +180,6 @@ class BrowserTransport:
         self._warmed_up = True
 
     async def fetch(self, url: str, headers: dict[str, str] | None = None) -> FetchedPage:
-        last: _PageOutcome | None = None
         for attempt in range(1, CHALLENGE_RETRIES + 1):
             context = await self._ensure_context()
             page = await context.new_page()
@@ -180,10 +190,19 @@ class BrowserTransport:
             finally:
                 with contextlib.suppress(Exception):
                     await page.close()
-            last = outcome
+            if outcome.rate_limited:
+                await self._report_antibot("rate limited")
+                raise RateLimitedError(f"rate limited at {url} ({outcome.page.status_code})")
+            if outcome.network_error:
+                await self._report_failure("network error")
+                if self._proxy_pool is not None and attempt < CHALLENGE_RETRIES:
+                    await self._rotate_proxy()
+                    continue
+                raise CollectorError(f"network error at {url}")
             if not outcome.challenge:
                 await self._report_success()
                 return outcome.page
+            await self._report_antibot("antibot challenge")
             logger.info(
                 "antibot challenge at %s (attempt %s/%s)",
                 url,
@@ -191,14 +210,12 @@ class BrowserTransport:
                 CHALLENGE_RETRIES,
             )
             if attempt == CHALLENGE_RETRIES:
-                await self._report_failure("antibot challenge")
-                return outcome.page
+                raise BotChallengeError(f"antibot challenge at {url}")
             if self._proxy_pool is not None:
                 await self._rotate_proxy()
             else:
                 await asyncio.sleep(CHALLENGE_WAIT_SECONDS)
-        assert last is not None
-        return last.page
+        raise BotChallengeError(f"antibot challenge at {url}")
 
     async def _load_once(self, page: Any, url: str) -> "_PageOutcome":
         status_code = 200
@@ -208,6 +225,14 @@ class BrowserTransport:
                 status_code = response.status
         except Exception as error:
             logger.warning("navigation issue at %s: %s", url, error)
+        if status_code in RATE_LIMIT_STATUSES:
+            body = await self._safe_content(page)
+            logger.warning("rate limited at %s: HTTP %s", url, status_code)
+            return _PageOutcome(
+                page=FetchedPage(url=page.url, status_code=status_code, body=body),
+                challenge=True,
+                rate_limited=True,
+            )
         try:
             await page.wait_for_selector(ITEM_SELECTOR, timeout=SELECTOR_TIMEOUT_MS)
         except Exception:
@@ -216,18 +241,34 @@ class BrowserTransport:
                 logger.warning("network/proxy error page at %s", url)
                 return _PageOutcome(
                     page=FetchedPage(url=page.url, status_code=NETWORK_ERROR_STATUS, body=body),
-                    challenge=True,
+                    challenge=False,
+                    network_error=True,
                 )
             return _PageOutcome(
                 page=FetchedPage(url=page.url, status_code=status_code, body=body),
                 challenge=self._is_challenge(body),
             )
         await asyncio.sleep(0.5)
+        if get_settings().browser_humanize:
+            await self._humanize(page)
         body = await self._safe_content(page)
         return _PageOutcome(
             page=FetchedPage(url=page.url, status_code=status_code, body=body),
             challenge=self._is_challenge(body),
         )
+
+    @staticmethod
+    async def _humanize(page: Any) -> None:
+        """Лёгкая имитация человека: движение мыши и прокрутка перед чтением."""
+        with contextlib.suppress(Exception):
+            await page.mouse.move(
+                random.uniform(150, 1200),
+                random.uniform(150, 600),
+                steps=random.randint(5, 15),
+            )
+            await page.mouse.wheel(0, random.randint(200, 700))
+            await asyncio.sleep(random.uniform(0.4, 1.2))
+            await page.mouse.wheel(0, -random.randint(50, 200))
 
     async def _rotate_proxy(self) -> bool:
         if self._proxy_pool is None:
@@ -239,11 +280,16 @@ class BrowserTransport:
 
     async def _report_success(self) -> None:
         if self._proxy_pool is not None and self._current_entry is not None:
-            await self._proxy_pool.report_success(self._current_entry)
+            await self._proxy_pool.report_success(self._current_entry, avito=True)
 
     async def _report_failure(self, error: str) -> None:
         if self._proxy_pool is not None and self._current_entry is not None:
             await self._proxy_pool.report_failure(self._current_entry, error)
+
+    async def _report_antibot(self, error: str) -> None:
+        """Челлендж Авито — не поломка прокси: не отправляем его в кулдаун."""
+        if self._proxy_pool is not None and self._current_entry is not None:
+            await self._proxy_pool.report_antibot(self._current_entry, error)
 
     async def _safe_content(self, page: Any) -> str:
         for _ in range(2):

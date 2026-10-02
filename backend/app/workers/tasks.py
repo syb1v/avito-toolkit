@@ -1,6 +1,7 @@
 import asyncio
 import importlib.util
 import logging
+import random
 import uuid
 from datetime import date
 
@@ -18,6 +19,7 @@ from app.db.session import dispose_engine, get_engine
 from app.services.alerts import evaluate_search_alerts
 from app.services.analytics.service import recalc_daily_analytics
 from app.services.collector import CrawlResult, SearchCollector
+from app.services.crawl_guard import CrawlGuard, classify_failure
 from app.services.matching import match_all_our_listings
 from app.services.moderation import moderate_search
 from app.services.progress import CrawlProgress
@@ -43,7 +45,10 @@ def _build_transport(redis: Redis) -> SourceAdapter:
     from app.collectors.transport.browser_patchright import BrowserTransport
     from app.collectors.transport.hybrid import HybridTransport
 
-    browser = BrowserTransport(proxy_pool=pool)
+    browser = BrowserTransport(
+        proxy_pool=pool,
+        block_resources=settings.browser_block_resources,
+    )
     if mode == "hybrid":
         return HybridTransport(http, browser)
     return browser
@@ -63,18 +68,77 @@ async def _collect(search_id: str) -> CrawlResult:
     redis = Redis.from_url(settings.redis_url)
     transport = _build_transport(redis)
     progress = CrawlProgress(redis, search_id)
+    guard = CrawlGuard(
+        redis,
+        min_interval_minutes=settings.crawl_min_interval_minutes,
+        challenge_cooldown_minutes=settings.crawl_challenge_cooldown_minutes,
+        rate_limit_cooldown_minutes=settings.crawl_rate_limit_cooldown_minutes,
+        breaker_failures=settings.crawl_breaker_failures,
+        breaker_minutes=settings.crawl_breaker_minutes,
+    )
     try:
         session_factory = async_sessionmaker(get_engine(), expire_on_commit=False)
         async with session_factory() as session:
             search = await session.get(Search, uuid.UUID(search_id))
+            if search is None:
+                logger.warning("crawl skipped: search %s deleted", search_id)
+                return CrawlResult(
+                    search_id=uuid.UUID(search_id),
+                    pages_fetched=0,
+                    pages_failed=0,
+                    listings_seen=0,
+                    new_listings=0,
+                    price_changes=0,
+                    gone_listings=0,
+                )
+            block_reason = await guard.block_reason(search_id)
+            if block_reason is not None:
+                logger.warning("crawl skipped for %s: %s", search_id, block_reason)
+                await progress.stage("cooldown")
+                await progress.finish({"skipped": True, "reason": block_reason})
+                return CrawlResult(
+                    search_id=uuid.UUID(search_id),
+                    pages_fetched=0,
+                    pages_failed=0,
+                    listings_seen=0,
+                    new_listings=0,
+                    price_changes=0,
+                    gone_listings=0,
+                )
+            if settings.worker_pause_max_seconds > 0:
+                await asyncio.sleep(
+                    random.uniform(
+                        settings.worker_pause_min_seconds,
+                        max(settings.worker_pause_min_seconds, settings.worker_pause_max_seconds),
+                    )
+                )
+            max_pages = settings.crawl_max_pages_per_run
+            if search is not None and isinstance(search.params, dict):
+                override = search.params.get("max_pages")
+                if isinstance(override, int) and 0 < override <= 50:
+                    max_pages = override
             await progress.start(
-                settings.crawl_max_pages_per_run,
+                max_pages,
                 search.name if search is not None else None,
             )
             collector = SearchCollector(
-                session, transport, RedisRateLimiter(redis), progress=progress
+                session,
+                transport,
+                RedisRateLimiter(redis),
+                max_pages=max_pages,
+                progress=progress,
             )
             result = await collector.collect(uuid.UUID(search_id))
+            failure_reason = classify_failure(
+                stopped_by_challenge=result.stopped_by_challenge,
+                rate_limited=result.rate_limited,
+                pages_failed=result.pages_failed,
+                pages_fetched=result.pages_fetched,
+            )
+            if failure_reason is not None:
+                await guard.note_failure(search_id, failure_reason)
+            else:
+                await guard.note_success(search_id)
             await progress.stage("moderation")
             moderation = await moderate_search(
                 session,
@@ -114,6 +178,9 @@ async def _recalc(search_id: str, day_iso: str | None = None) -> date:
     session_factory = async_sessionmaker(get_engine(), expire_on_commit=False)
     try:
         async with session_factory() as session:
+            if await session.get(Search, uuid.UUID(search_id)) is None:
+                logger.warning("analytics skipped: search %s deleted", search_id)
+                return day or date.today()
             calc_day = await recalc_daily_analytics(session, uuid.UUID(search_id), day)
             await session.commit()
             return calc_day
@@ -139,7 +206,7 @@ async def _check_proxies() -> dict[str, int]:
     settings = get_settings()
     redis = Redis.from_url(settings.redis_url)
     try:
-        pool = build_proxy_pool(redis)
+        pool = build_proxy_pool(redis, force=True)
         if pool is None:
             return {"checked": 0, "ok": 0, "failed": 0}
         return await pool.check_all()

@@ -1,11 +1,13 @@
-.PHONY: up down logs build test lint typecheck migrate revision web-dev backend-install fetch-page bump tag import-searches reset-data worker-local browser-login up-dev import-skus import-profile
+.PHONY: up down logs build test lint typecheck migrate revision web-dev backend-install fetch-page bump tag import-searches reset-data worker-local browser-login cookies up-dev import-skus import-profile
+
+BROWSER ?= brave
 
 up:
 	docker compose up -d --build
 
 up-dev:
 	PLAYWRIGHT_BROWSERS_DIR="$${PLAYWRIGHT_BROWSERS_DIR:-$$HOME/.cache/ms-playwright}" \
-	docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d worker
+	docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --build worker
 
 down:
 	docker compose down
@@ -51,6 +53,11 @@ import-profile:
 
 browser-login:
 	cd backend && .venv/bin/python scripts/browser_login.py --url "https://www.avito.ru/"
+
+# Автоматический перенос доверенных cookies из вашего браузера (по умолчанию Brave)
+# в профиль автоматизации. Браузер должен быть закрыт.
+cookies:
+	cd backend && .venv/bin/python scripts/import_cookies.py --from-browser $(BROWSER) --fresh
 
 reset-data:
 	docker compose exec -T postgres psql -U avito -d avito -c "truncate search_listings, listing_snapshots, listings, sellers, market_analytics_daily, product_market_matches, our_listings, alerts, jobs, llm_runs, audit_log, searches cascade;"

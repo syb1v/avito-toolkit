@@ -11,14 +11,19 @@ import argparse
 import asyncio
 import uuid
 
+from redis.asyncio import Redis
+
 from app.collectors.transport.browser_patchright import BrowserTransport
+from app.config import get_settings
 from app.db.session import dispose_engine, get_session_factory
 from app.services.moderation import moderate_search
+from app.services.proxy_pool import build_proxy_pool
 
 
 async def _run(search_id: str, with_descriptions: bool, with_ai: bool) -> int:
     factory = get_session_factory()
-    transport = BrowserTransport() if with_descriptions else None
+    redis = Redis.from_url(get_settings().redis_url)
+    transport = BrowserTransport(proxy_pool=build_proxy_pool(redis)) if with_descriptions else None
     try:
         async with factory() as session:
             result = await moderate_search(
@@ -38,6 +43,7 @@ async def _run(search_id: str, with_descriptions: bool, with_ai: bool) -> int:
     finally:
         if transport is not None:
             await transport.close()
+        await redis.aclose()
         await dispose_engine()
 
 
