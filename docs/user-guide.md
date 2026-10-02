@@ -88,11 +88,12 @@ make import-searches file=searches.json
 - Нет рекомендаций — мало матчей: выполните `match-all` и убедитесь, что названия
   наших SKU похожи на рыночные.
 - `npm run build` падает с `libsimdjson.so.33` — системное обновление сломало Node
-  (нужна версия 33, установлена 34). Временный обход:
+  (нужна версия 33, установлена 34). Постоянный обход:
 
   ```bash
-  mkdir -p /tmp/simdjson && ln -sf /usr/lib/libsimdjson.so.34 /tmp/simdjson/libsimdjson.so.33
-  LD_LIBRARY_PATH=/tmp/simdjson npm run build
+  mkdir -p ~/.local/lib/node-compat
+  ln -sf /usr/lib/libsimdjson.so.34 ~/.local/lib/node-compat/libsimdjson.so.33
+  LD_LIBRARY_PATH=~/.local/lib/node-compat npm run dev   # или npm run build
   ```
 
   Надёжное решение — переустановить Node или пакет `libsimdjson33` из репозитория
