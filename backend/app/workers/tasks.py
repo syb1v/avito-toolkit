@@ -74,7 +74,12 @@ async def _collect(search_id: str) -> CrawlResult:
             )
             result = await collector.collect(uuid.UUID(search_id))
             await progress.stage("moderation")
-            moderation = await moderate_search(session, result.search_id)
+            moderation = await moderate_search(
+                session,
+                result.search_id,
+                transport=transport,
+                with_descriptions=settings.moderation_descriptions_enabled,
+            )
             await progress.stage("analytics")
             await recalc_daily_analytics(session, result.search_id)
             await progress.stage("matching")
@@ -84,9 +89,12 @@ async def _collect(search_id: str) -> CrawlResult:
             await session.commit()
             await progress.finish(result.to_dict())
             logger.info(
-                "crawl pipeline: matched %s our SKUs, flagged %s listings, ai-scored %s",
+                "crawl pipeline: matched %s our SKUs, flagged %s listings "
+                "(categories %s, descriptions %s), ai-scored %s",
                 matched,
                 moderation.flagged,
+                moderation.categories,
+                moderation.described,
                 moderation.ai_scored,
             )
             return result

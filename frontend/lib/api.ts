@@ -40,6 +40,7 @@ export type MarketSummary = {
   delisting_velocity: number;
   avg_lifetime_days: number | null;
   flagged_count: number;
+  flag_categories: Record<string, number>;
   stats: PriceStats | null;
 };
 
@@ -64,8 +65,10 @@ export type Listing = {
   status: string;
   last_position: number | null;
   is_flagged: boolean;
+  flag_category: string | null;
   flag_reasons: string[] | null;
   relevance_score: number | null;
+  description_snippet: string | null;
 };
 
 export type Alert = {
@@ -186,11 +189,13 @@ export const fetchListings = async (
   searchId: string,
   limit = 100,
   flagged?: boolean,
+  category?: string,
 ): Promise<Listing[]> => {
   const flaggedParam = flagged === undefined ? "" : `&flagged=${flagged}`;
+  const categoryParam = category ? `&category=${encodeURIComponent(category)}` : "";
   return (
     (await getJson<Listing[]>(
-      `/api/v1/searches/${searchId}/listings?limit=${limit}${flaggedParam}`,
+      `/api/v1/searches/${searchId}/listings?limit=${limit}${flaggedParam}${categoryParam}`,
     )) ?? []
   );
 };

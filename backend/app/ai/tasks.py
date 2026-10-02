@@ -80,7 +80,7 @@ async def moderate_listings_batch(
     *,
     query: str,
     median: float | None,
-    items: list[tuple[int, str, float | None]],
+    items: list[tuple[int, str, float | None, str | None]],
 ) -> LlmResult[ModerationBatch]:
     return await complete_structured(
         ModerationBatch,

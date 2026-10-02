@@ -1,5 +1,5 @@
 from collections.abc import Iterable, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from app.services.analytics.iqr import PriceStats, compute_price_stats
 
@@ -23,6 +23,7 @@ class MarketSummary:
     avg_lifetime_days: float | None
     stats: PriceStats | None
     flagged_count: int = 0
+    flag_categories: dict[str, int] = field(default_factory=dict)
 
 
 def compute_daily_analytics(

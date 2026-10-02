@@ -43,8 +43,10 @@ class ListingRead(BaseModel):
     status: str
     last_position: int | None
     is_flagged: bool = False
+    flag_category: str | None = None
     flag_reasons: list[str] | None = None
     relevance_score: float | None = None
+    description_snippet: str | None = None
 
 
 @router.get("", response_model=list[SearchRead])
@@ -154,6 +156,7 @@ async def list_search_listings(
     session: DbSession,
     limit: int = 100,
     flagged: bool | None = None,
+    category: str | None = None,
 ) -> list[ListingRead]:
     statement = (
         select(
@@ -166,12 +169,16 @@ async def list_search_listings(
             Listing.is_flagged,
             Listing.flag_reasons,
             Listing.relevance_score,
+            Listing.flag_category,
+            Listing.description,
         )
         .join(SearchListing, SearchListing.listing_id == Listing.id)
         .where(SearchListing.search_id == search_id)
     )
     if flagged is not None:
         statement = statement.where(Listing.is_flagged.is_(flagged))
+    if category:
+        statement = statement.where(Listing.flag_category == category)
     statement = statement.order_by(SearchListing.last_position.nulls_last()).limit(
         max(1, min(limit, 500))
     )
@@ -187,6 +194,8 @@ async def list_search_listings(
             is_flagged=bool(row[6]),
             flag_reasons=row[7],
             relevance_score=float(row[8]) if row[8] is not None else None,
+            flag_category=row[9],
+            description_snippet=(row[10][:400] if row[10] else None),
         )
         for row in rows.all()
     ]
@@ -196,7 +205,9 @@ class ModerateOut(BaseModel):
     total: int
     flagged: int
     ai_scored: int
+    described: int
     median: float | None
+    categories: dict[str, int]
 
 
 @router.post("/{search_id}/moderate", response_model=ModerateOut)
@@ -211,5 +222,7 @@ async def run_moderation(search_id: uuid.UUID, session: DbSession) -> ModerateOu
         total=result.total,
         flagged=result.flagged,
         ai_scored=result.ai_scored,
+        described=result.described,
         median=result.median,
+        categories=result.categories,
     )

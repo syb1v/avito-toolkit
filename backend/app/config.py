@@ -52,6 +52,10 @@ class Settings(BaseSettings):
     moderation_duplicate_min_cluster: int = 5
     moderation_ai_batch_size: int = 10
     moderation_max_ai_items: int = 40
+    moderation_descriptions_enabled: bool = True
+    moderation_description_max_items: int = 10
+    moderation_description_delay_min_seconds: float = 3.0
+    moderation_description_delay_max_seconds: float = 6.0
 
 
 @lru_cache

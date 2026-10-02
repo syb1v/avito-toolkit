@@ -11,6 +11,17 @@ from lxml import html as lxml_html
 AVITO_WEB_BASE = "https://www.avito.ru"
 
 PRICE_PATTERN = re.compile(r"(\d[\d\s\u00a0]*)\s*₽")
+DESCRIPTION_JSON_PATTERN = re.compile(r'"description"\s*:\s*"((?:[^"\\]|\\.)*)"')
+MAX_DESCRIPTION_CHARS = 4000
+ITEM_DESCRIPTION_XPATHS = (
+    "//*[@data-marker='item-view/itemDescription']",
+    "//div[@itemprop='description']",
+    "//*[contains(@class,'item-description')]",
+)
+META_DESCRIPTION_XPATHS = (
+    "//meta[@name='description']/@content",
+    "//meta[@property='og:description']/@content",
+)
 LISTING_ID_PATTERNS = (
     re.compile(r"/[^/]*?_(\d{6,})(?:\?|$)"),
     re.compile(r"[?&]id=(\d+)"),
@@ -222,3 +233,41 @@ def _first_node(node: Any, xpaths: tuple[str, ...]) -> Any | None:
         if found:
             return found[0]
     return None
+
+
+def _normalize_text(value: str) -> str:
+    return " ".join(value.split()).strip()
+
+
+def extract_description(html_text: str) -> str | None:
+    """Текст описания объявления: JSON-стейт, DOM-селекторы, meta — по убыванию точности."""
+    best: str | None = None
+    for match in DESCRIPTION_JSON_PATTERN.finditer(html_text):
+        try:
+            value = json.loads(f'"{match.group(1)}"')
+        except (TypeError, ValueError):
+            value = match.group(1)
+        normalized = _normalize_text(str(value))
+        if normalized and (best is None or len(normalized) > len(best)):
+            best = normalized
+    if best is not None and len(best) > 40:
+        return best[:MAX_DESCRIPTION_CHARS]
+
+    try:
+        tree = lxml_html.fromstring(html_text)
+    except (etree.ParserError, ValueError):
+        tree = None
+    if tree is not None:
+        for xpath in ITEM_DESCRIPTION_XPATHS:
+            nodes = tree.xpath(xpath)
+            if nodes:
+                text = _normalize_text(" ".join(node.text_content() for node in nodes))
+                if text:
+                    return text[:MAX_DESCRIPTION_CHARS]
+        for xpath in META_DESCRIPTION_XPATHS:
+            values = tree.xpath(xpath)
+            if values:
+                text = _normalize_text(str(values[0]))
+                if text:
+                    return text[:MAX_DESCRIPTION_CHARS]
+    return best[:MAX_DESCRIPTION_CHARS] if best else None

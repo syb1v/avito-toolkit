@@ -11,6 +11,25 @@ import { formatDays, formatPercent, formatPrice } from "@/lib/format";
 
 const LISTINGS_PREVIEW = 50;
 
+const CATEGORY_META: Record<string, { label: string; className: string }> = {
+  copy: {
+    label: "копия/реплика",
+    className: "border-violet-500/40 bg-violet-500/10 text-violet-200",
+  },
+  fake_bait: {
+    label: "приманка",
+    className: "border-amber-500/40 bg-amber-500/10 text-amber-200",
+  },
+  irrelevant: {
+    label: "нерелевант",
+    className: "border-red-500/40 bg-red-500/10 text-red-200",
+  },
+  duplicate: {
+    label: "дубль",
+    className: "border-sky-500/40 bg-sky-500/10 text-sky-200",
+  },
+};
+
 function StatusBadge({ status }: { status: string }) {
   const styles: Record<string, string> = {
     active: "border-emerald-500/30 bg-emerald-500/15 text-emerald-300",
@@ -33,30 +52,47 @@ function StatusBadge({ status }: { status: string }) {
 
 function ListingFlags({
   flagged,
+  category,
   reasons,
+  description,
 }: {
   flagged: boolean;
+  category: string | null;
   reasons: string[] | null;
+  description: string | null;
 }) {
   if (!flagged && (!reasons || reasons.length === 0)) {
     return null;
   }
-  const title = (reasons ?? []).join("; ");
+  const meta = category ? CATEGORY_META[category] : undefined;
+  const tooltipParts: string[] = [...(reasons ?? [])];
+  if (description) {
+    tooltipParts.push(`Описание: ${description.slice(0, 300)}`);
+  }
   return (
-    <div className="mt-1 flex flex-wrap gap-1" title={title}>
-      {flagged ? (
-        <span className="rounded border border-amber-500/40 bg-amber-500/10 px-1.5 py-0.5 text-[10px] text-amber-200">
-          подозрительное
-        </span>
+    <div className="mt-1 flex flex-col gap-1" title={tooltipParts.join("\n")}>
+      <div className="flex flex-wrap gap-1">
+        {flagged ? (
+          <span
+            className={`rounded border px-1.5 py-0.5 text-[10px] ${
+              meta?.className ?? "border-amber-500/40 bg-amber-500/10 text-amber-200"
+            }`}
+          >
+            {meta?.label ?? "подозрительное"}
+          </span>
+        ) : null}
+        {(reasons ?? []).slice(0, 2).map((reason) => (
+          <span
+            key={reason}
+            className="rounded border border-neutral-700 bg-neutral-800 px-1.5 py-0.5 text-[10px] text-neutral-400"
+          >
+            {reason}
+          </span>
+        ))}
+      </div>
+      {flagged && description ? (
+        <span className="line-clamp-2 text-[11px] text-neutral-500">{description}</span>
       ) : null}
-      {(reasons ?? []).slice(0, 2).map((reason) => (
-        <span
-          key={reason}
-          className="rounded border border-neutral-700 bg-neutral-800 px-1.5 py-0.5 text-[10px] text-neutral-400"
-        >
-          {reason}
-        </span>
-      ))}
     </div>
   );
 }
@@ -66,15 +102,20 @@ export default async function SearchDetailPage({
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ flagged?: string }>;
+  searchParams: Promise<{ flagged?: string; category?: string }>;
 }) {
   const [{ id }, query] = await Promise.all([params, searchParams]);
   const flaggedOnly = query?.flagged === "1";
+  const categoryFilter = query?.category ?? null;
   const [summary, history, alerts, listings] = await Promise.all([
     fetchSummary(id),
     fetchHistory(id),
     fetchAlerts(id),
-    flaggedOnly ? fetchListings(id, 200, true) : fetchListings(id, 200),
+    flaggedOnly
+      ? fetchListings(id, 200, true)
+      : categoryFilter
+        ? fetchListings(id, 200, undefined, categoryFilter)
+        : fetchListings(id, 200),
   ]);
 
   if (summary === null) {
@@ -231,32 +272,62 @@ export default async function SearchDetailPage({
       </section>
 
       <section className="rounded-xl border border-neutral-800">
-        <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-4 sm:px-5">
-          <h2 className="text-base font-medium sm:text-lg">
-            {flaggedOnly ? "Подозрительные" : "Выдача"}
-          </h2>
-          <div className="flex flex-wrap items-center gap-3 text-xs">
-            <span className="text-neutral-500">
-              показано {preview.length} из {listings.length}
-            </span>
-            {summary.flagged_count > 0 ? (
-              flaggedOnly ? (
-                <Link
-                  href={`/searches/${id}`}
-                  className="text-sky-300 underline decoration-sky-500/40 underline-offset-4 hover:text-sky-200"
-                >
-                  ← показать все
-                </Link>
-              ) : (
-                <Link
-                  href={`/searches/${id}?flagged=1`}
-                  className="text-amber-300 underline decoration-amber-500/40 underline-offset-4 hover:text-amber-200"
-                >
-                  показать подозрительные ({summary.flagged_count})
-                </Link>
-              )
-            ) : null}
+        <div className="flex flex-wrap items-center justify-between gap-3 px-4 pt-4 sm:px-5">
+          <div className="flex items-center">
+            <h2 className="text-base font-medium sm:text-lg">
+              {flaggedOnly || categoryFilter ? "Подозрительные" : "Выдача"}
+            </h2>
+            <InfoHint
+              title="Как выявляем подозрительные"
+              text="Категории: копия/реплика — слова «копия», «реплика», «1:1»; приманка — цена ниже 35% медианы или фразы-приманки; нерелевант — запчасти, неисправности, «под восстановление»; дубль — одинаковые название+цена у 5+ продавцов. Для кандидатов догружаются описания объявлений (до 10 за обход), затем DeepSeek оценивает карточки батчами (до 40) и возвращает категорию и причину."
+            />
           </div>
+          <span className="text-xs text-neutral-500">
+            показано {preview.length} из {listings.length}
+          </span>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2 px-4 pb-3 pt-1 sm:px-5">
+          <Link
+            href={`/searches/${id}`}
+            className={`rounded-full border px-2.5 py-1 text-xs transition ${
+              !flaggedOnly && !categoryFilter
+                ? "border-neutral-500 bg-neutral-800 text-neutral-100"
+                : "border-neutral-800 text-neutral-400 hover:border-neutral-600"
+            }`}
+          >
+            Все
+          </Link>
+          {summary.flagged_count > 0 ? (
+            <Link
+              href={`/searches/${id}?flagged=1`}
+              className={`rounded-full border px-2.5 py-1 text-xs transition ${
+                flaggedOnly
+                  ? "border-amber-500/60 bg-amber-500/15 text-amber-100"
+                  : "border-neutral-800 text-neutral-400 hover:border-neutral-600"
+              }`}
+            >
+              Подозрительные ({summary.flagged_count})
+            </Link>
+          ) : null}
+          {Object.entries(summary.flag_categories).map(([key, count]) => {
+            const meta = CATEGORY_META[key];
+            if (!meta) {
+              return null;
+            }
+            const active = categoryFilter === key;
+            return (
+              <Link
+                key={key}
+                href={`/searches/${id}?category=${key}`}
+                className={`rounded-full border px-2.5 py-1 text-xs transition ${meta.className} ${
+                  active ? "ring-1 ring-neutral-400/60" : "opacity-80 hover:opacity-100"
+                }`}
+              >
+                {meta.label} ({count})
+              </Link>
+            );
+          })}
         </div>
 
         <div className="hidden overflow-x-auto md:block">
@@ -294,7 +365,9 @@ export default async function SearchDetailPage({
                     <span className="text-xs text-neutral-500">id {listing.id}</span>
                     <ListingFlags
                       flagged={listing.is_flagged}
+                      category={listing.flag_category}
                       reasons={listing.flag_reasons}
+                      description={listing.description_snippet}
                     />
                   </td>
                   <td className="px-5 py-3 text-right tabular-nums">
@@ -340,7 +413,9 @@ export default async function SearchDetailPage({
                 </div>
                 <ListingFlags
                   flagged={listing.is_flagged}
+                  category={listing.flag_category}
                   reasons={listing.flag_reasons}
+                  description={listing.description_snippet}
                 />
               </div>
               <p className="whitespace-nowrap text-sm font-medium tabular-nums">

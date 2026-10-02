@@ -7,6 +7,26 @@
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-10-02
+
+### Добавлено
+
+- Описания объявлений: догрузка для кандидатов (до 10 за обход, паузы 3–6 с),
+  парсер (JSON-стейт → DOM → meta), поле `description` (миграция 0006).
+- Категории флагов модерации: `copy`, `fake_bait`, `irrelevant`, `duplicate`;
+  правила учитывают описания (реплики, «под восстановление», приманки, контакты);
+  AI возвращает категорию вместе с причиной.
+- API: фильтр `?category=` в выдаче, `flag_categories` в summary,
+  `description_snippet` у карточек; `described`/`categories` в ответе модерации.
+- UI: чипы-фильтры по категориям с количеством, цветные бейджи, сниппет описания
+  у подозрительных, обновлённые пояснения.
+- CLI `backend/scripts/moderate_search.py` (`--no-descriptions`, `--no-ai`).
+
+### Исправлено
+
+- Кандидаты на догрузку описаний сортируются по подозрительности; страницы без
+  описания не считаются успешной загрузкой и будут повторены.
+
 ## [0.9.0] - 2026-10-02
 
 ### Добавлено
@@ -222,7 +242,8 @@
 - Дашборд Next.js 16 + Tailwind 4 со статусом API и дорожной картой.
 - Документация: README, `docs/plan.md`, `.env.example`, MIT-лицензия.
 
-[Unreleased]: https://github.com/syb1v/avito-toolkit/compare/v0.9.0...HEAD
+[Unreleased]: https://github.com/syb1v/avito-toolkit/compare/v0.10.0...HEAD
+[0.10.0]: https://github.com/syb1v/avito-toolkit/compare/v0.9.0...v0.10.0
 [0.9.0]: https://github.com/syb1v/avito-toolkit/compare/v0.8.0...v0.9.0
 [0.8.0]: https://github.com/syb1v/avito-toolkit/compare/v0.7.1...v0.8.0
 [0.7.1]: https://github.com/syb1v/avito-toolkit/compare/v0.7.0...v0.7.1

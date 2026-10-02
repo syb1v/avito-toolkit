@@ -47,6 +47,21 @@ async def _flagged_count(session: AsyncSession, search_id: uuid.UUID) -> int:
     return int(rows.scalar_one() or 0)
 
 
+async def _flag_categories(session: AsyncSession, search_id: uuid.UUID) -> dict[str, int]:
+    rows = await session.execute(
+        select(Listing.flag_category, func.count())
+        .join(SearchListing, SearchListing.listing_id == Listing.id)
+        .where(
+            SearchListing.search_id == search_id,
+            Listing.status == "active",
+            Listing.is_flagged.is_(True),
+            Listing.flag_category.is_not(None),
+        )
+        .group_by(Listing.flag_category)
+    )
+    return {row[0]: int(row[1]) for row in rows.all() if row[0]}
+
+
 async def _count_new(
     session: AsyncSession, search_id: uuid.UUID, start: datetime, end: datetime
 ) -> int:
@@ -150,7 +165,11 @@ async def build_search_summary(session: AsyncSession, search_id: uuid.UUID) -> M
     delisted_7d = await _count_gone(session, search_id, week_start, day_end)
     lifetimes = await _gone_lifetimes(session, search_id, lifetime_start, day_end)
     summary = build_market_summary(prices, new_today, gone_today, delisted_7d, lifetimes)
-    return replace(summary, flagged_count=await _flagged_count(session, search_id))
+    return replace(
+        summary,
+        flagged_count=await _flagged_count(session, search_id),
+        flag_categories=await _flag_categories(session, search_id),
+    )
 
 
 async def fetch_daily_history(

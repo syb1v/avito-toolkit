@@ -22,9 +22,11 @@ MODERATION_SYSTEM_PROMPT = """Ты модератор выдачи Авито. �
   аксессуар, запчасть, услуга — это нерелевантно);
 - likely_fake_or_copy: признаки подделки, реплики, приманки или обмана
   (аномально низкая цена, "копия/реплика/аналог", продажа на запчасти);
+- category: copy (копия/реплика), fake_bait (приманка/обман), irrelevant
+  (нерелевант/запчасти/неисправность), duplicate (дубли), none (нормальное);
 - confidence: уверенность 0..1;
 - reason: краткая причина на русском.
-Оценивай только по названию и цене относительно медианы. Отвечай строго JSON по схеме."""
+Оценивай по названию, описанию и цене относительно медианы. Отвечай строго JSON по схеме."""
 
 
 def build_price_prompt(
@@ -103,16 +105,19 @@ def build_moderation_prompt(
     *,
     query: str,
     median: float | None,
-    items: list[tuple[int, str, float | None]],
+    items: list[tuple[int, str, float | None, str | None]],
 ) -> str:
-    lines = [
-        f'{{"listing_id": {item_id}, "title": {title!r}, "price": {price}}}'
-        for item_id, title, price in items
-    ]
+    lines = []
+    for item_id, title, price, description in items:
+        snippet = (description or "")[:300].replace('"', "'")
+        lines.append(
+            f'{{"listing_id": {item_id}, "title": {title!r}, "price": {price}, '
+            f'"description": {snippet!r}}}'
+        )
     return f"""Запрос: {query}
 Медиана рынка: {median if median is not None else "—"} руб.
 
 Объявления (JSON):
 [{",\n ".join(lines)}]
 
-Верни решение по каждому listing_id."""
+Верни решение по каждому listing_id, включая категорию."""

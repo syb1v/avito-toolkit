@@ -23,6 +23,7 @@ class ModerationItem(BaseModel):
     listing_id: int
     relevant: bool
     likely_fake_or_copy: bool
+    category: Literal["copy", "fake_bait", "irrelevant", "duplicate", "none"]
     confidence: float = Field(..., ge=0.0, le=1.0)
     reason: str
 
