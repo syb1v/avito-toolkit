@@ -1,0 +1,20 @@
+[
+  {
+    "name": "iPhone 15 Москва",
+    "url": "https://www.avito.ru/moskva/telefony?q=iphone+15",
+    "schedule_cron": "*/30 * * * *",
+    "priority": 100
+  },
+  {
+    "name": "Конкурент — Магазин техники",
+    "url": "https://www.avito.ru/user/0000000000/profile",
+    "schedule_cron": "0 */2 * * *",
+    "priority": 80
+  },
+  {
+    "name": "Ноутбуки до 50к (свой профиль)",
+    "url": "https://www.avito.ru/moskva/noutbuki?q=macbook&pmin=30000&pmax=50000",
+    "schedule_cron": "0 */4 * * *",
+    "priority": 60
+  }
+]

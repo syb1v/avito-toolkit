@@ -1,4 +1,4 @@
-.PHONY: up down logs build test lint typecheck migrate revision web-dev backend-install fetch-page bump tag import-searches reset-data worker-local browser-login up-dev
+.PHONY: up down logs build test lint typecheck migrate revision web-dev backend-install fetch-page bump tag import-searches reset-data worker-local browser-login up-dev import-skus import-profile
 
 up:
 	docker compose up -d --build
@@ -42,6 +42,12 @@ fetch-page:
 
 import-searches:
 	cd backend && .venv/bin/python scripts/import_searches.py --file "$(file)"
+
+import-skus:
+	cd backend && .venv/bin/python scripts/import_our_listings.py --file "$(file)"
+
+import-profile:
+	cd backend && .venv/bin/python scripts/import_own_profile.py --url "$(url)"
 
 browser-login:
 	cd backend && .venv/bin/python scripts/browser_login.py --url "https://www.avito.ru/"

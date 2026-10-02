@@ -1,0 +1,17 @@
+[
+  {
+    "sku": "IP15-128-GRAY",
+    "title": "iPhone 15 128GB серый",
+    "price": "90 000 ₽",
+    "cost_price": 60000,
+    "category": "Телефоны",
+    "avito_url": "https://www.avito.ru/moskva/telefony/iphone_15_128gb_0000000000"
+  },
+  {
+    "sku": "MBA-M2-13",
+    "title": "MacBook Air M2 13\"",
+    "price": 89990,
+    "cost_price": 70000,
+    "category": "Ноутбуки"
+  }
+]

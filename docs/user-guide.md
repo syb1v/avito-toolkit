@@ -10,6 +10,38 @@
 - Локально без Docker: `docker compose up -d postgres redis`, затем
   `uvicorn` (backend) и `npm run dev` (frontend); воркер — `make worker-local`.
 
+## Быстрое наполнение реальными данными
+
+1. **Поиски конкурентов** (фильтры, запросы, профили). Скопируйте шаблон и вставьте
+   свои URL:
+
+   ```bash
+   cp searches.example.json searches.json   # отредактируйте под себя
+   make import-searches file=searches.json
+   ```
+
+2. **Свои SKU** — любым из способов:
+   - JSON: `cp skus.example.json skus.json`, заполните и загрузите:
+     `make import-skus file=skus.json`;
+   - из своего публичного профиля (соберёт объявления и перенесёт их):
+     `make import-profile url="https://www.avito.ru/user/XXXX/profile"`
+     (флаг `--activate` включит обход профиля по расписанию каждые 2 часа).
+
+3. **Сопоставить с рынком и получить рекомендации:**
+
+   ```bash
+   curl -X POST localhost:8000/api/v1/our-listings/match-all
+   ```
+
+4. **Ручной обход конкретного поиска** (если не хотите ждать планировщик):
+
+   ```bash
+   curl -X POST localhost:8000/api/v1/searches/<id>/crawl
+   ```
+
+Файлы `searches.json` и `skus.json` — ваши реальные данные, они в `.gitignore`
+и не попадают в репозиторий.
+
 ## Главная
 
 Карточки сверху — быстрый пульс:

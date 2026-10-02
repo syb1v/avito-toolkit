@@ -105,9 +105,16 @@ make browser-login            # один раз: окно, пройдите пр
 
 3. Загрузите реальные поиски (фильтры, названия, ссылки на профили конкурентов):
    ```bash
+   cp searches.example.json searches.json   # вставьте свои URL
    make import-searches file=searches.json
    # или POST /api/v1/searches/import с тем же JSON
    ```
+
+   Свои SKU для сравнения цен: `make import-skus file=skus.json` (шаблон
+   `skus.example.json`) или одной командой из своего профиля:
+   `make import-profile url="https://www.avito.ru/user/XXXX/profile"`,
+   затем `POST /api/v1/our-listings/match-all`. Подробнее —
+   [docs/user-guide.md](docs/user-guide.md).
 
 4. Дальше автоматически: планировщик по cron (по умолчанию каждые 30 минут) ставит обход →
    воркер собирает выдачу (HTTP, при блокировке — браузер) → снапшоты цен → дневные агрегаты →
