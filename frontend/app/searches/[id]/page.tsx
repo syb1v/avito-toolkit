@@ -3,6 +3,7 @@ import Link from "next/link";
 import { AlertsPanel } from "@/app/components/alerts-panel";
 import { CrawlPanel } from "@/app/components/crawl-panel";
 import { DigestPanel } from "@/app/components/digest-panel";
+import { InfoHint } from "@/app/components/info-hint";
 import { PriceChart } from "@/app/components/price-chart";
 import { StatCard } from "@/app/components/stat-card";
 import { fetchAlerts, fetchHistory, fetchListings, fetchSummary } from "@/lib/api";
@@ -93,19 +94,37 @@ export default async function SearchDetailPage({
       <CrawlPanel searchId={id} />
 
       <section className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-6">
-        <StatCard label="Активных" value={String(summary.active_count)} />
-        <StatCard label="Новых сегодня" value={String(summary.new_today_count)} />
-        <StatCard label="Снято сегодня" value={String(summary.delisted_today_count)} />
-        <StatCard label="Снято за 7 дней" value={String(summary.delisted_7d)} />
+        <StatCard
+          label="Активных"
+          value={String(summary.active_count)}
+          info="Сколько объявлений сейчас в активной выдаче поиска по последнему обходу."
+        />
+        <StatCard
+          label="Новых сегодня"
+          value={String(summary.new_today_count)}
+          info="Объявления, впервые появившиеся в этой выдаче за сегодня."
+        />
+        <StatCard
+          label="Снято сегодня"
+          value={String(summary.delisted_today_count)}
+          info="Объявления из выдачи, которые исчезли сегодня (сняты или проданы)."
+        />
+        <StatCard
+          label="Снято за 7 дней"
+          value={String(summary.delisted_7d)}
+          info="Сколько объявлений исчезло из выдачи за последние 7 дней."
+        />
         <StatCard
           label="Вымывание"
           value={formatPercent(summary.delisting_velocity)}
           hint="снято/активные за 7д"
+          info="Прокси-спрос: снято за 7 дней ÷ активные. Больше 35% — рынок горячий (держим цену у P75), меньше 17.5% — вялый (уходим к P25)."
         />
         <StatCard
           label="Срок жизни"
           value={formatDays(summary.avg_lifetime_days)}
           hint="средний по снятым"
+          info="Среднее время от первого появления объявления в выдаче до его исчезновения."
         />
       </section>
 
@@ -114,7 +133,13 @@ export default async function SearchDetailPage({
       <DigestPanel searchId={id} />
 
       <section className="rounded-xl border border-neutral-800 bg-neutral-900/60 p-4 sm:p-5">
-        <h2 className="text-base font-medium sm:text-lg">Цены рынка</h2>
+        <div className="flex items-center">
+          <h2 className="text-base font-medium sm:text-lg">Цены рынка</h2>
+          <InfoHint
+            title="Как считаем цены"
+            text="Берём цены активных объявлений и отсекаем выбросы методом IQR: IQR = P75 − P25, всё вне [P25 − 1.5·IQR; P75 + 1.5·IQR] отбрасывается. Метрики считаются по очищенной выборке."
+          />
+        </div>
         {stats === null ? (
           <p className="mt-3 text-sm text-neutral-500">
             Нет активных объявлений с ценой — выполните обход поиска.
@@ -126,15 +151,35 @@ export default async function SearchDetailPage({
               value={formatPrice(stats.median)}
               accent="info"
               hint="середина рынка"
+              info="Середина рынка: ровно половина цен ниже, половина выше. Устойчива к выбросам."
             />
-            <StatCard label="Средняя" value={formatPrice(stats.mean)} />
-            <StatCard label="P25" value={formatPrice(stats.p25)} hint="25% лотов дешевле" />
-            <StatCard label="P75" value={formatPrice(stats.p75)} hint="25% лотов дороже" />
-            <StatCard label="Минимум" value={formatPrice(stats.price_min)} />
+            <StatCard
+              label="Средняя"
+              value={formatPrice(stats.mean)}
+              info="Арифметическое среднее по очищенной выборке. Сильнее реагирует на дорогие лоты, чем медиана."
+            />
+            <StatCard
+              label="P25"
+              value={formatPrice(stats.p25)}
+              hint="25% лотов дешевле"
+              info="25-й перцентиль: 25% объявлений дешевле этой цены. Нижняя граница «среднего» рынка."
+            />
+            <StatCard
+              label="P75"
+              value={formatPrice(stats.p75)}
+              hint="25% лотов дороже"
+              info="75-й перцентиль: 25% объявлений дороже этой цены. Верхняя граница «среднего» рынка."
+            />
+            <StatCard
+              label="Минимум"
+              value={formatPrice(stats.price_min)}
+              info="Самая низкая цена после IQR-фильтрации выбросов."
+            />
             <StatCard
               label="Максимум"
               value={formatPrice(stats.price_max)}
               hint={`выборка: ${stats.count}`}
+              info="Самая высокая цена после IQR-фильтрации. В подписи — сколько цен осталось в выборке."
             />
           </div>
         )}

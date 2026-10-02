@@ -1,5 +1,6 @@
 import Link from "next/link";
 
+import { InfoHint } from "@/app/components/info-hint";
 import { fetchOurListingsOverview, fetchRecommendations } from "@/lib/api";
 import { formatPercent, formatPrice } from "@/lib/format";
 
@@ -62,7 +63,13 @@ export default async function OurListingsPage() {
         <>
           <section className="flex flex-col gap-4">
             <div className="flex items-baseline justify-between gap-3">
-              <h2 className="text-lg font-medium">Рекомендации по ценам</h2>
+              <div className="flex items-center">
+                <h2 className="text-lg font-medium">Рекомендации по ценам</h2>
+                <InfoHint
+                  title="Как выбирается стратегия"
+                  text="По вымыванию спроса: горячий рынок (>35%) — премиум P75; вялый (<17.5%) — демпинг P25−1%; иначе медиана. Цена не опускается ниже себестоимости, шаг за раз ≤5%, при изменении больше 10% нужно подтверждение."
+                />
+              </div>
               <span className="text-xs text-neutral-500">
                 {recommendations.length} шт. с матчами
               </span>
@@ -119,7 +126,13 @@ export default async function OurListingsPage() {
 
           <section className="rounded-xl border border-neutral-800">
             <div className="flex items-baseline justify-between gap-3 px-4 py-4 sm:px-5">
-              <h2 className="text-lg font-medium">SKU</h2>
+              <div className="flex items-center">
+                <h2 className="text-lg font-medium">SKU</h2>
+                <InfoHint
+                  title="Колонки таблицы"
+                  text="Наша цена — из импорта/профиля. Медиана рынка — по сматченным конкурентам после IQR-фильтрации. Дельта = (наша − медиана) ÷ медиана: плюс означает, что мы дороже рынка. Матчей — сколько объявлений сопоставлено по названию (rapidfuzz)."
+                />
+              </div>
               <span className="text-xs text-neutral-500">{rows.length} шт.</span>
             </div>
 

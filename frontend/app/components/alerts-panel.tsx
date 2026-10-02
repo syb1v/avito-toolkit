@@ -3,6 +3,7 @@
 import { useState } from "react";
 
 import { ackAlert, type Alert } from "@/lib/api";
+import { InfoHint } from "@/app/components/info-hint";
 import { formatPercent, formatPrice } from "@/lib/format";
 
 function alertTitle(type: string): string {
@@ -31,7 +32,13 @@ export function AlertsPanel({ alerts }: { alerts: Alert[] }) {
 
   return (
     <section className="rounded-xl border border-amber-500/30 bg-amber-500/5 p-5">
-      <h2 className="text-lg font-medium text-amber-200">Алерты</h2>
+      <div className="flex items-center">
+        <h2 className="text-lg font-medium text-amber-200">Алерты</h2>
+        <InfoHint
+          title="Правило алерта"
+          text="Наша цена выше медианы сматченных конкурентов больше чем на настроенный порог (по умолчанию 10%). Повторные одинаковые алерты не дублируются: пока алерт не подтверждён, новый не создаётся."
+        />
+      </div>
       <ul className="mt-4 flex flex-col gap-3">
         {items.map((alert) => {
           const payload = alert.payload ?? {};

@@ -1,3 +1,5 @@
+import { InfoHint } from "@/app/components/info-hint";
+
 const ACCENTS = {
   default: {
     card: "border-neutral-800 bg-neutral-900/60",
@@ -27,17 +29,22 @@ export function StatCard({
   label,
   value,
   hint,
+  info,
   accent = "default",
 }: {
   label: string;
   value: string;
   hint?: string;
+  info?: string;
   accent?: StatCardAccent;
 }) {
   const styles = ACCENTS[accent];
   return (
     <div className={`rounded-xl border p-4 ${styles.card}`}>
-      <p className={`text-xs uppercase tracking-wider ${styles.label}`}>{label}</p>
+      <div className="flex items-center">
+        <p className={`text-xs uppercase tracking-wider ${styles.label}`}>{label}</p>
+        {info ? <InfoHint title={label} text={info} /> : null}
+      </div>
       <p className={`mt-2 text-xl font-medium tabular-nums ${styles.value}`}>{value}</p>
       {hint ? <p className="mt-1 text-xs text-neutral-500">{hint}</p> : null}
     </div>

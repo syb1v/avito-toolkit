@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 
 import { createDigest, type Digest } from "@/lib/api";
+import { InfoHint } from "@/app/components/info-hint";
 
 const DEMAND_LABELS: Record<string, string> = {
   weak: "слабый спрос",
@@ -47,7 +48,13 @@ export function DigestPanel({ searchId }: { searchId: string }) {
     <div className="rounded-xl border border-neutral-800 bg-neutral-900/60 p-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h2 className="text-lg font-medium">AI-дайджест рынка</h2>
+          <div className="flex items-center">
+            <h2 className="text-lg font-medium">AI-дайджест рынка</h2>
+            <InfoHint
+              title="Что внутри"
+              text="LLM (DeepSeek) получает метрики поиска: цены после IQR-фильтрации, вымывание, активность и топ выдачи, и возвращает сводку строго по этим данным. Модель, токены и стоимость видны под ответом. Нужен ключ DEEPSEEK_API_KEY."
+            />
+          </div>
           <p className="mt-1 text-xs text-neutral-500">
             Сводка через LLM (litellm): цены, спрос, рекомендации действий
           </p>

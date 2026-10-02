@@ -55,22 +55,26 @@ export default async function Home() {
           label="Поиски"
           value={`${stats.searches_active} / ${stats.searches_total}`}
           hint="активных / всего"
+          info="Активные поиски планировщик обходит по расписанию (cron). Второе число — включая поставленные на паузу."
         />
         <StatCard
           label="Лотов на рынке"
           value={String(stats.listings_active)}
           hint="активных в базе"
+          info="Уникальные активные объявления во всех поисках (дедупликация по avito_id)."
         />
         <StatCard
           label="Наши SKU"
           value={String(stats.our_listings_active)}
           hint="с матчингом и рекомендациями"
+          info="Ваши позиции для сравнения цен с рынком: импорт JSON или перенос из публичного профиля."
         />
         <StatCard
           label="Новые алерты"
           value={String(stats.alerts_new)}
           hint={stats.alerts_new > 0 ? "требуют внимания" : "всё спокойно"}
           accent={stats.alerts_new > 0 ? "warn" : "good"}
+          info="Сработавшие правила, которые ещё не подтверждены. Например: наша цена выше медианы рынка больше чем на настроенный процент."
         />
       </section>
 

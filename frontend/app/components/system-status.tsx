@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 
+import { InfoHint } from "@/app/components/info-hint";
 import { fetchDashboardClient, type Dashboard } from "@/lib/api";
 
 const POLL_INTERVAL_MS = 5000;
@@ -39,7 +40,13 @@ export function SystemStatusPanel({ initial }: { initial: Dashboard | null }) {
   return (
     <section className="rounded-xl border border-neutral-800 bg-neutral-900/60 p-4 sm:p-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <h2 className="text-base font-medium sm:text-lg">Статус системы</h2>
+        <div className="flex items-center">
+          <h2 className="text-base font-medium sm:text-lg">Статус системы</h2>
+          <InfoHint
+            title="Что здесь видно"
+            text="Воркер — процесс, который выполняет обходы и аналитику (зелёная точка = heartbeat свежий). Очереди — сколько задач ждёт выполнения. Активные обходы показывают стадию и страницу прямо сейчас."
+          />
+        </div>
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs">
           <span className="flex items-center gap-1.5">
             <span

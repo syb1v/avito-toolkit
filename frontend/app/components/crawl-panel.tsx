@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 
 import { fetchProgressClient, triggerCrawl, type SearchProgress } from "@/lib/api";
+import { InfoHint } from "@/app/components/info-hint";
 import { formatRelativeTime } from "@/lib/format";
 
 const POLL_INTERVAL_MS = 3000;
@@ -83,6 +84,10 @@ export function CrawlPanel({ searchId }: { searchId: string }) {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-3">
           <h2 className="text-base font-medium sm:text-lg">Обход</h2>
+          <InfoHint
+            title="Пайплайн обхода"
+            text="Сбор страниц (браузер-first, при блокировке — HTTP) → аналитика (IQR, медиана и перцентили) → матчинг ваших SKU → алерты. Прогресс обновляется автоматически; страницы идут с паузами 8–20 секунд."
+          />
           <span
             className={`rounded-full border px-2.5 py-0.5 text-xs ${
               STATUS_STYLES[status] ?? STATUS_STYLES.idle
