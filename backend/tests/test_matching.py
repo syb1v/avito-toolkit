@@ -31,6 +31,27 @@ def test_rank_candidates_empty() -> None:
     assert rank_candidates("iPhone", [], min_score=60) == []
 
 
+def test_rank_candidates_rejects_model_and_capacity_variants() -> None:
+    problem = [
+        MatchCandidate(10, "iPhone 15 Pro, 256 ГБ", 49000.0),
+        MatchCandidate(11, "iPhone 15 Plus, 256 ГБ", 41000.0),
+        MatchCandidate(12, "iPhone 15, 512 ГБ", 47000.0),
+        MatchCandidate(13, "iPhone 15, 256 ГБ", 38000.0),
+        MatchCandidate(14, "iPhone 15 Pro Max, 256 ГБ", 57000.0),
+    ]
+    ranked = rank_candidates("iPhone 15 256 ГБ", problem, min_score=60, limit=10)
+    assert [item.candidate.listing_id for item in ranked] == [13]
+
+
+def test_rank_candidates_rejects_other_series() -> None:
+    candidates = [
+        MatchCandidate(20, "Apple Watch Ultra 2 49mm", 50000.0),
+        MatchCandidate(21, "Apple Watch Ultra 4 49mm", 70000.0),
+    ]
+    ranked = rank_candidates("Apple Watch Ultra 4", candidates, min_score=60, limit=10)
+    assert [item.candidate.listing_id for item in ranked] == [21]
+
+
 def test_market_position_with_outlier() -> None:
     position = compute_market_position(70000.0, [50000, 60000, 65000, 70000, 1000000])
     assert position.stats is not None

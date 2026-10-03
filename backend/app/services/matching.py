@@ -3,15 +3,61 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 
 from rapidfuzz import fuzz, process
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
-from app.db.models import Listing, OurListing, ProductMarketMatch
+from app.db.models import Listing, OurListing, ProductMarketMatch, Search, SearchListing
 from app.services.analytics.iqr import PriceStats, compute_price_stats
+from app.services.search_filter import normalize_text
 
 MATCH_STATUSES = ("auto_matched", "confirmed", "rejected")
+
+# Слова-модификаторы модели: если у одной стороны есть, а у другой нет — это другой товар.
+MODEL_MODIFIERS = {"pro", "plus", "max", "mini", "ultra", "se"}
+CAPACITY_UNITS = {"gb": "гб", "гб": "гб", "tb": "тб", "тб": "тб"}
+
+
+def _tokens(value: str) -> list[str]:
+    return normalize_text(value).split()
+
+
+def _capacities(tokens: Sequence[str]) -> set[str]:
+    """Ёмкости вида «256 гб» → {256гб}; единицы приводятся к гб/тб."""
+    result: set[str] = set()
+    for index, token in enumerate(tokens):
+        unit = CAPACITY_UNITS.get(token)
+        if unit is not None and index > 0 and tokens[index - 1].isdigit():
+            result.add(f"{tokens[index - 1]}{unit}")
+    return result
+
+
+def _numbers(tokens: Sequence[str]) -> set[str]:
+    return {token for token in tokens if token.isdigit()}
+
+
+def _capacity_numbers(tokens: Sequence[str]) -> set[str]:
+    return {
+        tokens[index - 1]
+        for index, token in enumerate(tokens)
+        if token in CAPACITY_UNITS and index > 0 and tokens[index - 1].isdigit()
+    }
+
+
+def _variant_compatible(query_tokens: Sequence[str], candidate_tokens: Sequence[str]) -> bool:
+    """Отсекает чужие модели: Pro/Plus/Max, ёмкости и серии не должны расходиться."""
+    query_set = set(query_tokens)
+    candidate_set = set(candidate_tokens)
+    if (query_set & MODEL_MODIFIERS) != (candidate_set & MODEL_MODIFIERS):
+        return False
+    query_caps = _capacities(query_tokens)
+    candidate_caps = _capacities(candidate_tokens)
+    if query_caps and candidate_caps and query_caps != candidate_caps:
+        return False
+    query_numbers = _numbers(query_tokens) - _capacity_numbers(query_tokens)
+    candidate_numbers = _numbers(candidate_tokens) - _capacity_numbers(candidate_tokens)
+    return not (query_numbers and candidate_numbers and not (query_numbers & candidate_numbers))
 
 
 @dataclass(frozen=True, slots=True)
@@ -70,8 +116,18 @@ def rank_candidates(
     min_score: float = 75.0,
     limit: int = 10,
 ) -> list[RankedCandidate]:
-    """Нечёткий матчинг заголовков через rapidfuzz (token_set_ratio)."""
-    choices = {candidate.listing_id: candidate.title for candidate in candidates}
+    """Нечёткий матчинг заголовков через rapidfuzz (token_set_ratio).
+
+    Перед скорингом отсекаются варианты чужих моделей: Pro/Plus/Max/Mini/Ultra,
+    другая ёмкость (256 ГБ vs 512 ГБ) или другой номер серии.
+    """
+    query_tokens = _tokens(query)
+    compatible = [
+        candidate
+        for candidate in candidates
+        if _variant_compatible(query_tokens, _tokens(candidate.title))
+    ]
+    choices = {candidate.listing_id: candidate.title for candidate in compatible}
     if not choices:
         return []
     results = process.extract(
@@ -81,7 +137,7 @@ def rank_candidates(
         limit=limit,
         score_cutoff=min_score,
     )
-    by_id = {candidate.listing_id: candidate for candidate in candidates}
+    by_id = {candidate.listing_id: candidate for candidate in compatible}
     return [RankedCandidate(by_id[listing_id], float(score)) for _, score, listing_id in results]
 
 
@@ -107,9 +163,18 @@ async def match_our_listing(session: AsyncSession, sku: str) -> list[RankedCandi
     if our is None:
         raise LookupError(f"our listing {sku} not found")
     settings = get_settings()
+    active_listing_ids = (
+        select(SearchListing.listing_id)
+        .join(Search, Search.id == SearchListing.search_id)
+        .where(Search.is_active.is_(True))
+    )
     rows = await session.execute(
         select(Listing.id, Listing.title, Listing.current_price)
-        .where(Listing.status == "active", Listing.current_price.is_not(None))
+        .where(
+            Listing.status == "active",
+            Listing.current_price.is_not(None),
+            Listing.id.in_(active_listing_ids),
+        )
         .order_by(Listing.last_seen.desc())
         .limit(settings.match_max_candidates)
     )
@@ -123,6 +188,7 @@ async def match_our_listing(session: AsyncSession, sku: str) -> list[RankedCandi
         min_score=float(settings.match_min_score),
         limit=settings.match_top_n,
     )
+    ranked_ids = [item.candidate.listing_id for item in ranked]
     if ranked:
         now = datetime.now(UTC)
         statement = pg_insert(ProductMarketMatch).values(
@@ -149,7 +215,16 @@ async def match_our_listing(session: AsyncSession, sku: str) -> list[RankedCandi
             where=ProductMarketMatch.match_status == "auto_matched",
         )
         await session.execute(statement)
-        await session.commit()
+    # Убираем устаревшие авто-матчи: лоты из удалённых поисков и чужие модели.
+    # Подтверждённые/отклонённые оператором матчи не трогаем.
+    prune = delete(ProductMarketMatch).where(
+        ProductMarketMatch.our_sku_id == sku,
+        ProductMarketMatch.match_status == "auto_matched",
+    )
+    if ranked_ids:
+        prune = prune.where(ProductMarketMatch.market_listing_id.not_in(ranked_ids))
+    await session.execute(prune)
+    await session.commit()
     return ranked
 
 

@@ -6,7 +6,14 @@ from sqlalchemy import ColumnElement, String, cast, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
-from app.db.models import Alert, Listing, OurListing, ProductMarketMatch, Search
+from app.db.models import (
+    Alert,
+    Listing,
+    OurListing,
+    ProductMarketMatch,
+    Search,
+    SearchListing,
+)
 from app.services.matching import compute_market_position
 
 PRICE_ABOVE_MARKET = "price_above_market"
@@ -70,21 +77,37 @@ async def _has_open_alert(
 
 
 async def evaluate_search_alerts(session: AsyncSession, search_id: uuid.UUID) -> list[Alert]:
-    """Прогон правил по нашим активным SKU; создаёт алерты без дублей."""
+    """Прогон правил по активным SKU; учитываются только лоты этого поиска.
+
+    Иначе алерт по SKU создавался бы при обходе любого другого поиска и ссылался
+    на поиск, к которому рынок не относится (и «жил» после удаления нужного поиска).
+    """
     settings = get_settings()
-    our_rows = await session.execute(select(OurListing).where(OurListing.is_active.is_(True)))
+    price_rows = await session.execute(
+        select(ProductMarketMatch.our_sku_id, Listing.current_price)
+        .join(Listing, Listing.id == ProductMarketMatch.market_listing_id)
+        .join(SearchListing, SearchListing.listing_id == Listing.id)
+        .where(
+            SearchListing.search_id == search_id,
+            ProductMarketMatch.match_status != "rejected",
+            Listing.current_price.is_not(None),
+        )
+    )
+    grouped: dict[str, list[float]] = {}
+    for sku, price in price_rows.all():
+        if price is not None:
+            grouped.setdefault(sku, []).append(float(price))
+    if not grouped:
+        return []
+    our_rows = await session.execute(
+        select(OurListing).where(
+            OurListing.is_active.is_(True),
+            OurListing.sku.in_(list(grouped)),
+        )
+    )
     created: list[Alert] = []
     for our in our_rows.scalars().all():
-        price_rows = await session.execute(
-            select(Listing.current_price)
-            .join(ProductMarketMatch, ProductMarketMatch.market_listing_id == Listing.id)
-            .where(
-                ProductMarketMatch.our_sku_id == our.sku,
-                ProductMarketMatch.match_status != "rejected",
-                Listing.current_price.is_not(None),
-            )
-        )
-        prices = [float(row[0]) for row in price_rows.all() if row[0] is not None]
+        prices = grouped.get(our.sku, [])
         decision = evaluate_price_above_market(
             float(our.price),
             prices,
