@@ -1,6 +1,7 @@
-.PHONY: up down logs build test lint typecheck migrate revision web-dev backend-install fetch-page bump tag import-searches reset-data worker-local browser-login cookies accounts account-add account-cookies account-check up-dev import-skus import-profile
+.PHONY: start stop restart status up down logs build test lint typecheck migrate revision web-dev backend-install fetch-page bump tag import-searches reset-data worker-local browser-login cookies accounts account-add account-cookies account-check up-dev up-dev-build import-skus import-profile
 
 BROWSER ?= brave
+ROLE ?= searcher
 
 up:
 	docker compose up -d --build
@@ -8,7 +9,26 @@ up:
 up-dev:
 	HOST_UID=$$(id -u) HOST_GID=$$(id -g) \
 	PLAYWRIGHT_BROWSERS_DIR="$${PLAYWRIGHT_BROWSERS_DIR:-$$HOME/.cache/ms-playwright}" \
+	docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --no-build worker
+
+# Пересобрать dev-образ воркера (нужно после правок Dockerfile/pyproject)
+up-dev-build:
+	HOST_UID=$$(id -u) HOST_GID=$$(id -g) \
+	PLAYWRIGHT_BROWSERS_DIR="$${PLAYWRIGHT_BROWSERS_DIR:-$$HOME/.cache/ms-playwright}" \
 	docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --build worker
+
+# Полный локальный стек одной командой: docker + API + планировщик + фронт
+start:
+	scripts/dev.sh start
+
+stop:
+	scripts/dev.sh stop
+
+restart:
+	scripts/dev.sh restart
+
+status:
+	scripts/dev.sh status
 
 down:
 	docker compose down
@@ -69,7 +89,7 @@ accounts:
 	cd backend && .venv/bin/python scripts/manage_accounts.py list
 
 account-add:
-	cd backend && .venv/bin/python scripts/manage_accounts.py add --name "$(name)"
+	cd backend && .venv/bin/python scripts/manage_accounts.py add --name "$(name)" --role $(ROLE)
 
 account-cookies:
 	cd backend && .venv/bin/python scripts/manage_accounts.py cookies --name "$(name)" --from-browser $(BROWSER) --fresh

@@ -28,6 +28,8 @@
 
 ## Быстрый старт
 
+Полный серверный стек (всё в Docker):
+
 ```bash
 cp .env.example .env          # заполните DEEPSEEK_API_KEY при необходимости
 docker compose up -d --build  # поднимет TimescaleDB, Redis, api, worker, scheduler, web
@@ -37,6 +39,19 @@ docker compose exec api alembic upgrade head
 - API: http://localhost:8000/docs
 - Дашборд: http://localhost:3000
 - Healthcheck: `curl http://localhost:8000/healthz`
+
+Локальный дев-стек (как на этой машине: Docker только postgres/redis/worker,
+а API/планировщик/фронт — из venv/node) — одной командой:
+
+```bash
+make start     # docker infra + uvicorn :8000 + scheduler + next dev :3000 (tmux)
+make status    # что запущено, healthcheck, пути к логам
+make stop      # остановить
+```
+
+После перезагрузки машины достаточно `make start`: postgres/redis/worker имеют
+`restart: unless-stopped`, остальное поднимается скриптом `scripts/dev.sh`
+(логи — `/tmp/avito-*.log`).
 
 ## Локальная проверка парсера (фаза 1)
 

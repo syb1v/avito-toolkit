@@ -84,8 +84,24 @@ async def list_searches(session: DbSession) -> list[Search]:
     return list(result.scalars().all())
 
 
+async def _validate_account(session: DbSession, account_id: uuid.UUID | None) -> None:
+    if account_id is None:
+        return
+    from app.db.models import AvitoAccount
+
+    account = await session.get(AvitoAccount, account_id)
+    if account is None:
+        raise HTTPException(status_code=404, detail="account not found")
+    if account.role == "seller":
+        raise HTTPException(
+            status_code=422,
+            detail="аккаунт продавца нельзя привязать к поиску — выберите «поисковик»",
+        )
+
+
 @router.post("", response_model=SearchRead, status_code=201)
 async def create_search(payload: SearchCreate, session: DbSession) -> Search:
+    await _validate_account(session, payload.account_id)
     search = Search(**payload.model_dump())
     session.add(search)
     await session.commit()
@@ -98,7 +114,10 @@ async def update_search(search_id: uuid.UUID, payload: SearchUpdate, session: Db
     search = await session.get(Search, search_id)
     if search is None:
         raise HTTPException(status_code=404, detail="search not found")
-    for field, value in payload.model_dump(exclude_unset=True).items():
+    data = payload.model_dump(exclude_unset=True)
+    if "account_id" in data:
+        await _validate_account(session, data["account_id"])
+    for field, value in data.items():
         setattr(search, field, value)
     await session.commit()
     await session.refresh(search)

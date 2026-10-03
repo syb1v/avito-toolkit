@@ -5,10 +5,14 @@
 
 ## Как открыть
 
-- Локально из исходников: `docker compose up -d` → http://localhost:3000,
+- Локально без Docker (эта машина): `make start` — поднимет postgres/redis/worker,
+  API (:8000), планировщик и фронт (:3000) в tmux. `make status` — проверка,
+  `make stop` — остановка, логи в `/tmp/avito-*.log`.
+- Полностью в Docker: `docker compose up -d` → http://localhost:3000,
   API/Swagger — http://localhost:8000/docs.
-- Локально без Docker: `docker compose up -d postgres redis`, затем
-  `uvicorn` (backend) и `npm run dev` (frontend); воркер — `make worker-local`.
+
+Если панель пустая, а обходы «ничего не делают» — сначала проверьте `make status`:
+скорее всего, инфраструктура не поднята после перезагрузки.
 
 ## Быстрое наполнение реальными данными
 

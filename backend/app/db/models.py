@@ -27,6 +27,8 @@ class AvitoAccount(Base):
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
     name: Mapped[str] = mapped_column(String(120), unique=True)
     profile_dir: Mapped[str] = mapped_column(Text, unique=True)
+    # searcher — обход выдачи; seller — управление своими объявлениями (фаза 6)
+    role: Mapped[str] = mapped_column(String(20), default="searcher")
     status: Mapped[str] = mapped_column(String(20), default="active")
     notes: Mapped[str | None] = mapped_column(Text)
     is_default: Mapped[bool] = mapped_column(Boolean, default=False)

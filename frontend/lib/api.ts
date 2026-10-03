@@ -23,6 +23,7 @@ export type Account = {
   id: string;
   name: string;
   profile_dir: string;
+  role: "searcher" | "seller";
   status: "active" | "paused";
   notes: string | null;
   is_default: boolean;
@@ -417,12 +418,16 @@ export const updateSearchClient = (
 export const deleteSearchClient = (id: string) =>
   mutate<void>(`/api/v1/searches/${id}`, { method: "DELETE" });
 
-export const createAccountClient = (payload: { name: string; notes?: string | null }) =>
+export const createAccountClient = (payload: {
+  name: string;
+  notes?: string | null;
+  role?: "searcher" | "seller";
+}) =>
   mutate<Account>("/api/v1/accounts", { method: "POST", body: JSON.stringify(payload) });
 
 export const updateAccountClient = (
   id: string,
-  payload: { name?: string; notes?: string | null; status?: string },
+  payload: { name?: string; notes?: string | null; status?: string; role?: string },
 ) =>
   mutate<Account>(`/api/v1/accounts/${id}`, {
     method: "PATCH",

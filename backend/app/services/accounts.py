@@ -140,6 +140,7 @@ async def account_overview(session: AsyncSession) -> list[dict[str, Any]]:
                 "id": account.id,
                 "name": account.name,
                 "profile_dir": account.profile_dir,
+                "role": account.role,
                 "status": account.status,
                 "notes": account.notes,
                 "is_default": account.is_default,

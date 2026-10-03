@@ -110,6 +110,12 @@ async def _collect(search_id: str) -> CrawlResult:
                 await progress.stage("cooldown")
                 await progress.finish({"skipped": True, "reason": reason})
                 return _empty_result(search_id)
+            if account is not None and account.role == "seller":
+                reason = f"аккаунт «{account.name}» — продавец; для поиска привяжите «поисковика»"
+                logger.warning("crawl skipped for %s: %s", search_id, reason)
+                await progress.stage("cooldown")
+                await progress.finish({"skipped": True, "reason": reason})
+                return _empty_result(search_id)
             block_reason = await guard.block_reason(search_id)
             if block_reason is not None:
                 logger.warning("crawl skipped for %s: %s", search_id, block_reason)

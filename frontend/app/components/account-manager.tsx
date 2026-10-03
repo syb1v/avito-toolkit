@@ -21,6 +21,7 @@ export function AccountManager({ initial }: { initial: Account[] }) {
   const [showAdd, setShowAdd] = useState(false);
   const [name, setName] = useState("");
   const [notes, setNotes] = useState("");
+  const [role, setRole] = useState<"searcher" | "seller">("searcher");
   const [cookieFor, setCookieFor] = useState<string | null>(null);
   const [cookieText, setCookieText] = useState("");
   const [fresh, setFresh] = useState(true);
@@ -39,7 +40,11 @@ export function AccountManager({ initial }: { initial: Account[] }) {
       return;
     }
     setBusy("add");
-    const result = await createAccountClient({ name: name.trim(), notes: notes.trim() || null });
+    const result = await createAccountClient({
+      name: name.trim(),
+      notes: notes.trim() || null,
+      role,
+    });
     setBusy(null);
     if (!result.ok) {
       setError(result.error);
@@ -74,6 +79,22 @@ export function AccountManager({ initial }: { initial: Account[] }) {
       setError(result.error);
       return;
     }
+    await refresh();
+  }
+
+  async function switchRole(account: Account) {
+    setBusy(account.id);
+    const result = await updateAccountClient(account.id, {
+      role: account.role === "seller" ? "searcher" : "seller",
+    });
+    setBusy(null);
+    if (!result.ok) {
+      setError(result.error);
+      return;
+    }
+    setMessage(
+      `«${account.name}»: роль → ${account.role === "seller" ? "поисковик" : "продавец"}`,
+    );
     await refresh();
   }
 
@@ -118,7 +139,7 @@ export function AccountManager({ initial }: { initial: Account[] }) {
           <h2 className="text-lg font-medium">Аккаунты</h2>
           <InfoHint
             title="Аккаунты и cookies"
-            text="Каждый аккаунт — отдельный профиль Chromium со своими cookies. Поиск можно привязать к аккаунту: обход пойдёт под его сессией. Основной профиль (BROWSER_USER_DATA_DIR) уже заведён как «Основной» и удалению не подлежит. Cookies можно вставить сюда или залить из браузера командой make account-cookies."
+            text="Каждый аккаунт — отдельный профиль Chromium со своими cookies. Роль «поисковик» — для обхода выдачи, «продавец» — для управления своими объявлениями (свои SKU, репрайсинг). Поиск можно привязать только к «поисковику»: обход пойдёт под его сессией. Основной профиль (BROWSER_USER_DATA_DIR) уже заведён как «Основной» и удалению не подлежит. Cookies можно вставить сюда или залить из браузера командой make account-cookies."
           />
         </div>
         <button
@@ -135,13 +156,23 @@ export function AccountManager({ initial }: { initial: Account[] }) {
 
       {showAdd ? (
         <div className="rounded-xl border border-sky-500/25 bg-neutral-900/70 p-4">
-          <div className="grid gap-3 sm:grid-cols-2">
+          <div className="grid gap-3 sm:grid-cols-3">
             <input
               value={name}
               onChange={(event) => setName(event.target.value)}
               placeholder="Название (например, Продавец 2)"
               className="rounded-lg border border-neutral-800 bg-neutral-950 px-3 py-2 text-sm text-neutral-200 outline-none focus:border-sky-500/60"
             />
+            <select
+              value={role}
+              onChange={(event) =>
+                setRole(event.target.value === "seller" ? "seller" : "searcher")
+              }
+              className="rounded-lg border border-neutral-800 bg-neutral-950 px-3 py-2 text-sm text-neutral-200 outline-none focus:border-sky-500/60"
+            >
+              <option value="searcher">Поисковик (обход выдачи)</option>
+              <option value="seller">Продавец (свои объявления)</option>
+            </select>
             <input
               value={notes}
               onChange={(event) => setNotes(event.target.value)}
@@ -219,6 +250,15 @@ make account-cookies name="Продавец 2" BROWSER=brave`}
                       основной
                     </span>
                   ) : null}
+                  <span
+                    className={`rounded-full border px-2 py-0.5 text-[10px] ${
+                      account.role === "seller"
+                        ? "border-violet-500/30 bg-violet-500/10 text-violet-200"
+                        : "border-emerald-500/30 bg-emerald-500/10 text-emerald-200"
+                    }`}
+                  >
+                    {account.role === "seller" ? "продавец" : "поисковик"}
+                  </span>
                   {account.status !== "active" ? (
                     <span className="rounded-full border border-neutral-700 bg-neutral-800 px-2 py-0.5 text-[10px] text-neutral-400">
                       на паузе
@@ -276,6 +316,14 @@ make account-cookies name="Продавец 2" BROWSER=brave`}
                   className="rounded-lg border border-neutral-700 px-3 py-1 text-xs text-neutral-300 transition hover:border-neutral-500 disabled:opacity-50"
                 >
                   {account.status === "active" ? "Пауза" : "Включить"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => switchRole(account)}
+                  disabled={busy === account.id}
+                  className="rounded-lg border border-neutral-700 px-3 py-1 text-xs text-neutral-300 transition hover:border-neutral-500 disabled:opacity-50"
+                >
+                  {account.role === "seller" ? "Сделать поисковиком" : "Сделать продавцом"}
                 </button>
                 {!account.is_default ? (
                   <button

@@ -13,17 +13,20 @@ from app.services.accounts import account_overview, resolve_profile_path, unique
 router = APIRouter(prefix="/accounts", tags=["accounts"])
 
 VALID_STATUSES = ("active", "paused")
+VALID_ROLES = ("searcher", "seller")
 
 
 class AccountCreate(BaseModel):
     name: str = Field(min_length=1, max_length=120)
     notes: str | None = None
+    role: str = "searcher"
 
 
 class AccountUpdate(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=120)
     notes: str | None = None
     status: str | None = None
+    role: str | None = None
 
 
 class AccountCookiesIn(BaseModel):
@@ -35,6 +38,7 @@ class AccountOut(BaseModel):
     id: uuid.UUID
     name: str
     profile_dir: str
+    role: str
     status: str
     notes: str | None
     is_default: bool
@@ -51,6 +55,7 @@ def _account_out(account: AvitoAccount, searches_count: int) -> AccountOut:
         id=account.id,
         name=account.name,
         profile_dir=account.profile_dir,
+        role=account.role,
         status=account.status,
         notes=account.notes,
         is_default=account.is_default,
@@ -91,9 +96,12 @@ async def create_account(payload: AccountCreate, session: DbSession) -> AccountO
     exists = await session.scalar(select(AvitoAccount.id).where(AvitoAccount.name == name))
     if exists is not None:
         raise HTTPException(status_code=409, detail="account with this name already exists")
+    if payload.role not in VALID_ROLES:
+        raise HTTPException(status_code=422, detail=f"role must be {VALID_ROLES}")
     account = AvitoAccount(
         name=name,
         profile_dir=await unique_profile_dir(session, name),
+        role=payload.role,
         status="active",
         notes=payload.notes,
     )
@@ -119,6 +127,10 @@ async def update_account(
         if payload.status not in VALID_STATUSES:
             raise HTTPException(status_code=422, detail=f"status must be {VALID_STATUSES}")
         account.status = payload.status
+    if payload.role is not None:
+        if payload.role not in VALID_ROLES:
+            raise HTTPException(status_code=422, detail=f"role must be {VALID_ROLES}")
+        account.role = payload.role
     await session.commit()
     await session.refresh(account)
     return _account_out(account, await _searches_count(session, account.id))

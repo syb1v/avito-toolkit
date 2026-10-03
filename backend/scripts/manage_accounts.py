@@ -57,22 +57,25 @@ async def cmd_list() -> int:
                 .group_by(AvitoAccount.id)
                 .order_by(AvitoAccount.is_default.desc(), AvitoAccount.name)
             )
-            print(f"{'имя':<24} {'статус':<8} {'поисков':<8} cookies_at           профиль")
+            print(
+                f"{'имя':<24} {'роль':<10} {'статус':<8} {'поисков':<8} "
+                f"cookies_at           профиль"
+            )
             for account, count in rows.all():
                 cookies = (
                     account.cookies_at.strftime("%Y-%m-%d %H:%M") if account.cookies_at else "—"
                 )
                 marker = " (основной)" if account.is_default else ""
                 print(
-                    f"{account.name + marker:<24} {account.status:<8} {count:<8} "
-                    f"{cookies:<20} {account.profile_dir}"
+                    f"{account.name + marker:<24} {account.role:<10} {account.status:<8} "
+                    f"{count:<8} {cookies:<20} {account.profile_dir}"
                 )
             return 0
     finally:
         await dispose_engine()
 
 
-async def cmd_add(name: str, notes: str | None, profile_dir: str | None) -> int:
+async def cmd_add(name: str, notes: str | None, profile_dir: str | None, role: str) -> int:
     factory = get_session_factory()
     try:
         async with factory() as session:
@@ -80,7 +83,9 @@ async def cmd_add(name: str, notes: str | None, profile_dir: str | None) -> int:
             if exists is not None:
                 raise SystemExit(f"Аккаунт {name!r} уже есть")
             profile = profile_dir or await unique_profile_dir(session, name)
-            account = AvitoAccount(name=name, profile_dir=profile, notes=notes, status="active")
+            account = AvitoAccount(
+                name=name, profile_dir=profile, notes=notes, role=role, status="active"
+            )
             session.add(account)
             await session.commit()
             await session.refresh(account)
@@ -187,6 +192,12 @@ def main() -> int:
     add.add_argument("--name", required=True)
     add.add_argument("--notes")
     add.add_argument("--profile-dir")
+    add.add_argument(
+        "--role",
+        choices=("searcher", "seller"),
+        default="searcher",
+        help="searcher — обход поиска (по умолчанию), seller — управление объявлениями",
+    )
 
     cookies = sub.add_parser("cookies", help="загрузить cookies в аккаунт")
     cookies.add_argument("--name", required=True)
@@ -214,7 +225,7 @@ def main() -> int:
     if args.command == "list":
         return asyncio.run(cmd_list())
     if args.command == "add":
-        return asyncio.run(cmd_add(args.name, args.notes, args.profile_dir))
+        return asyncio.run(cmd_add(args.name, args.notes, args.profile_dir, args.role))
     if args.command == "cookies":
         return asyncio.run(cmd_cookies(args))
     if args.command == "check":
