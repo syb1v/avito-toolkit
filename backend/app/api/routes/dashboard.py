@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import DbSession
 from app.config import get_settings
 from app.db.models import Alert, Listing, OurListing, Search
+from app.services.alerts import search_alive_clause
 from app.services.progress import list_running_progress
 
 router = APIRouter(tags=["dashboard"])
@@ -121,7 +122,7 @@ async def get_dashboard(session: DbSession) -> DashboardOut:
 
     alerts_rows = await session.execute(
         select(Alert)
-        .where(Alert.status == "new")
+        .where(Alert.status == "new", search_alive_clause())
         .order_by(Alert.created_at.desc())
         .limit(LATEST_ALERTS_LIMIT)
     )
@@ -139,7 +140,7 @@ async def get_dashboard(session: DbSession) -> DashboardOut:
         searches_active=await _count(session, Search, Search.is_active.is_(True)),
         listings_active=await _count(session, Listing, Listing.status == "active"),
         our_listings_active=await _count(session, OurListing, OurListing.is_active.is_(True)),
-        alerts_new=await _count(session, Alert, Alert.status == "new"),
+        alerts_new=await _count(session, Alert, Alert.status == "new", search_alive_clause()),
         worker_alive=worker_alive,
         queues=QueueStatusOut(crawl=crawl_queue, analytics=analytics_queue),
         active_crawls=active_crawls,

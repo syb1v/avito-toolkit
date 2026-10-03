@@ -2,14 +2,23 @@ import uuid
 from collections.abc import Sequence
 from dataclasses import dataclass
 
-from sqlalchemy import select
+from sqlalchemy import ColumnElement, String, cast, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
-from app.db.models import Alert, Listing, OurListing, ProductMarketMatch
+from app.db.models import Alert, Listing, OurListing, ProductMarketMatch, Search
 from app.services.matching import compute_market_position
 
 PRICE_ABOVE_MARKET = "price_above_market"
+
+
+def search_alive_clause() -> ColumnElement[bool]:
+    """Условие «алерт ссылается на существующий поиск» (сироты не показываем)."""
+    return (
+        select(Search.id)
+        .where(cast(Search.id, String) == Alert.payload["search_id"].astext)
+        .exists()
+    )
 
 
 @dataclass(frozen=True, slots=True)

@@ -4,7 +4,7 @@ import { useState } from "react";
 
 import { ackAlert, clearAlertsClient, type Alert } from "@/lib/api";
 import { InfoHint } from "@/app/components/info-hint";
-import { formatPercent, formatPrice } from "@/lib/format";
+import { formatPercent, formatPrice, formatRelativeTime } from "@/lib/format";
 
 function alertTitle(type: string): string {
   if (type === "price_above_market") {
@@ -86,7 +86,12 @@ export function AlertsPanel({
               className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-amber-500/20 bg-neutral-900/60 px-4 py-3"
             >
               <div className="text-sm">
-                <p className="font-medium text-amber-100">{alertTitle(alert.type)}</p>
+                <p className="font-medium text-amber-100">
+                  {alertTitle(alert.type)}
+                  <span className="ml-2 text-[11px] font-normal text-neutral-500">
+                    {formatRelativeTime(alert.created_at)}
+                  </span>
+                </p>
                 <p className="mt-0.5 text-neutral-400">
                   {String(payload.title ?? payload.sku ?? "")}
                   {ourPrice !== null ? ` · наша ${formatPrice(ourPrice)}` : ""}

@@ -7,7 +7,7 @@ from sqlalchemy import delete, select
 
 from app.api.deps import DbSession
 from app.db.models import Alert, Search
-from app.services.alerts import evaluate_search_alerts
+from app.services.alerts import evaluate_search_alerts, search_alive_clause
 
 router = APIRouter(tags=["alerts"])
 
@@ -31,7 +31,12 @@ async def list_alerts(
     search_id: uuid.UUID | None = None,
     limit: int = 50,
 ) -> list[Alert]:
-    query = select(Alert).order_by(Alert.created_at.desc()).limit(max(1, min(limit, MAX_ALERTS)))
+    query = (
+        select(Alert)
+        .where(search_alive_clause())
+        .order_by(Alert.created_at.desc())
+        .limit(max(1, min(limit, MAX_ALERTS)))
+    )
     if status:
         query = query.where(Alert.status == status)
     if search_id is not None:

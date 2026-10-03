@@ -12,7 +12,7 @@ import {
   fetchHealth,
   fetchSearches,
 } from "@/lib/api";
-import { formatPercent, formatPrice } from "@/lib/format";
+import { formatPercent, formatPrice, formatRelativeTime } from "@/lib/format";
 
 const ALERT_LABELS: Record<string, string> = {
   price_above_market: "Наша цена выше рынка",
@@ -129,6 +129,9 @@ export default async function Home() {
                   <div className="min-w-0">
                     <p className="font-medium text-amber-100">
                       {ALERT_LABELS[alert.type] ?? alert.type}
+                      <span className="ml-2 text-[11px] font-normal text-neutral-500">
+                        {formatRelativeTime(alert.created_at)}
+                      </span>
                     </p>
                     <p className="truncate text-xs text-neutral-400">
                       {String(payload.title ?? payload.sku ?? "")}

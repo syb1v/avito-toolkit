@@ -9,7 +9,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from app.api.deps import DbSession
 from app.config import get_settings
-from app.db.models import Listing, ListingExclusion, Search, SearchListing
+from app.db.models import Alert, Listing, ListingExclusion, Search, SearchListing
 from app.services.progress import progress_key, read_progress
 from app.services.regions import (
     exclude_regions_from_params,
@@ -129,6 +129,9 @@ async def delete_search(search_id: uuid.UUID, session: DbSession) -> None:
     search = await session.get(Search, search_id)
     if search is None:
         raise HTTPException(status_code=404, detail="search not found")
+    # Алерты ссылаются на поиск внутри payload (JSONB) — удаляем вместе с поиском,
+    # иначе «сироты» всплывают в API/панели и ведут на удалённый поиск.
+    await session.execute(delete(Alert).where(Alert.payload["search_id"].astext == str(search_id)))
     await session.delete(search)
     await session.commit()
 
