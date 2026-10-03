@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import { InfoHint } from "@/app/components/info-hint";
 import {
@@ -10,6 +10,7 @@ import {
   createAccountClient,
   deleteAccountClient,
   fetchAccounts,
+  fetchProxiesClient,
   updateAccountClient,
   uploadAccountCookiesClient,
 } from "@/lib/api";
@@ -25,9 +26,25 @@ export function AccountManager({ initial }: { initial: Account[] }) {
   const [cookieFor, setCookieFor] = useState<string | null>(null);
   const [cookieText, setCookieText] = useState("");
   const [fresh, setFresh] = useState(true);
+  const [proxyFor, setProxyFor] = useState<string | null>(null);
+  const [proxyChoice, setProxyChoice] = useState("");
+  const [addProxy, setAddProxy] = useState("");
+  const [proxyLabels, setProxyLabels] = useState<string[]>([]);
   const [busy, setBusy] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetchProxiesClient().then((status) => {
+      if (!cancelled) {
+        setProxyLabels((status?.entries ?? []).map((entry) => entry.label));
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   async function refresh() {
     setItems(await fetchAccounts());
@@ -44,6 +61,7 @@ export function AccountManager({ initial }: { initial: Account[] }) {
       name: name.trim(),
       notes: notes.trim() || null,
       role,
+      proxy_label: addProxy || null,
     });
     setBusy(null);
     if (!result.ok) {
@@ -52,6 +70,7 @@ export function AccountManager({ initial }: { initial: Account[] }) {
     }
     setName("");
     setNotes("");
+    setAddProxy("");
     setShowAdd(false);
     setMessage("Аккаунт создан — залейте cookies");
     await refresh();
@@ -63,6 +82,13 @@ export function AccountManager({ initial }: { initial: Account[] }) {
     setBusy(null);
     if (!result.ok) {
       setError(result.error);
+      return;
+    }
+    if (result.data?.status === "cooldown") {
+      const minutes = Math.max(1, Math.ceil((result.data.seconds_left ?? 0) / 60));
+      setMessage(
+        `Проверка «${account.name}» была недавно — следующая через ~${minutes} мин (защита IP)`,
+      );
       return;
     }
     setMessage(`Проверка «${account.name}» в очереди — обновится через несколько секунд`);
@@ -112,6 +138,23 @@ export function AccountManager({ initial }: { initial: Account[] }) {
     await refresh();
   }
 
+  async function saveProxy(account: Account) {
+    setBusy(account.id);
+    const result = await updateAccountClient(account.id, {
+      proxy_label: proxyChoice || null,
+    });
+    setBusy(null);
+    if (!result.ok) {
+      setError(result.error);
+      return;
+    }
+    setProxyFor(null);
+    setMessage(
+      `«${account.name}»: прокси → ${proxyChoice || "личный IP"}`,
+    );
+    await refresh();
+  }
+
   async function submitCookies(account: Account) {
     if (!cookieText.trim()) {
       setError("Вставьте cookies (JSON Cookie-Editor или строку Cookie)");
@@ -139,7 +182,7 @@ export function AccountManager({ initial }: { initial: Account[] }) {
           <h2 className="text-lg font-medium">Аккаунты</h2>
           <InfoHint
             title="Аккаунты и cookies"
-            text="Каждый аккаунт — отдельный профиль Chromium со своими cookies. Роль «поисковик» — для обхода выдачи, «продавец» — для управления своими объявлениями (свои SKU, репрайсинг). Поиск можно привязать только к «поисковику»: обход пойдёт под его сессией. Основной профиль (BROWSER_USER_DATA_DIR) уже заведён как «Основной» и удалению не подлежит. Cookies можно вставить сюда или залить из браузера командой make account-cookies."
+            text="Каждый аккаунт — отдельный профиль Chromium со своими cookies. Роль «поисковик» — для обхода выдачи, «продавец» — для управления своими объявлениями. Поиск можно привязать только к «поисковику». Прокси можно закрепить за аккаунтом (sticky): cookies и выходной IP остаются одной связкой. Важно: Авито режет датацентр-прокси (403 «проблема с IP») даже с прогретыми cookies — личный IP или резидентные/мобильные прокси. Cookies можно вставить сюда или залить из браузера командой make account-cookies."
           />
         </div>
         <button
@@ -179,6 +222,18 @@ export function AccountManager({ initial }: { initial: Account[] }) {
               placeholder="Заметка (необязательно)"
               className="rounded-lg border border-neutral-800 bg-neutral-950 px-3 py-2 text-sm text-neutral-200 outline-none focus:border-sky-500/60"
             />
+            <select
+              value={addProxy}
+              onChange={(event) => setAddProxy(event.target.value)}
+              className="rounded-lg border border-neutral-800 bg-neutral-950 px-3 py-2 text-sm text-neutral-200 outline-none focus:border-sky-500/60 sm:col-span-3"
+            >
+              <option value="">Прокси: личный IP (рекомендуется)</option>
+              {proxyLabels.map((label) => (
+                <option key={label} value={label}>
+                  Прокси: {label}
+                </option>
+              ))}
+            </select>
           </div>
           <button
             type="button"
@@ -271,6 +326,13 @@ make account-cookies name="Продавец 2" BROWSER=brave`}
                 </p>
                 <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-neutral-500">
                   <span>поисков: {account.searches_count}</span>
+                  <span
+                    className={
+                      account.proxy_label ? "text-amber-300/80" : "text-emerald-300/80"
+                    }
+                  >
+                    прокси: {account.proxy_label ?? "личный IP"}
+                  </span>
                   <span>
                     cookies:{" "}
                     {account.cookies_at ? formatRelativeTime(account.cookies_at) : "не залиты"}
@@ -311,6 +373,17 @@ make account-cookies name="Продавец 2" BROWSER=brave`}
                 </button>
                 <button
                   type="button"
+                  onClick={() => {
+                    setProxyFor(proxyFor === account.id ? null : account.id);
+                    setProxyChoice(account.proxy_label ?? "");
+                    setError(null);
+                  }}
+                  className="rounded-lg border border-neutral-700 px-3 py-1 text-xs text-neutral-300 transition hover:border-neutral-500"
+                >
+                  Прокси
+                </button>
+                <button
+                  type="button"
                   onClick={() => toggle(account)}
                   disabled={busy === account.id}
                   className="rounded-lg border border-neutral-700 px-3 py-1 text-xs text-neutral-300 transition hover:border-neutral-500 disabled:opacity-50"
@@ -337,6 +410,37 @@ make account-cookies name="Продавец 2" BROWSER=brave`}
                 ) : null}
               </div>
             </div>
+
+            {proxyFor === account.id ? (
+              <div className="mt-3 rounded-lg border border-neutral-800 bg-neutral-950/60 p-3">
+                <p className="mb-2 text-xs text-neutral-400">
+                  Sticky-прокси: один выходной IP для cookies этого аккаунта. Датацентр
+                  Авито обычно режет (403), берите резидентные/мобильные.
+                </p>
+                <div className="flex flex-wrap items-center gap-3">
+                  <select
+                    value={proxyChoice}
+                    onChange={(event) => setProxyChoice(event.target.value)}
+                    className="min-w-[260px] rounded-lg border border-neutral-800 bg-neutral-950 px-3 py-2 text-xs text-neutral-200 outline-none focus:border-sky-500/60"
+                  >
+                    <option value="">личный IP (без прокси)</option>
+                    {proxyLabels.map((label) => (
+                      <option key={label} value={label}>
+                        {label}
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    type="button"
+                    onClick={() => saveProxy(account)}
+                    disabled={busy === account.id}
+                    className="rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-3 py-1 text-xs text-emerald-200 transition hover:bg-emerald-500/20 disabled:opacity-50"
+                  >
+                    {busy === account.id ? "Сохранение…" : "Сохранить прокси"}
+                  </button>
+                </div>
+              </div>
+            ) : null}
 
             {cookieFor === account.id ? (
               <div className="mt-3 rounded-lg border border-neutral-800 bg-neutral-950/60 p-3">

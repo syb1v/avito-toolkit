@@ -1,4 +1,4 @@
-.PHONY: start stop restart status up down logs build test lint typecheck migrate revision web-dev backend-install fetch-page bump tag import-searches reset-data worker-local browser-login cookies accounts account-add account-cookies account-check up-dev up-dev-build import-skus import-profile
+.PHONY: start stop restart status up down logs build test lint typecheck migrate revision web-dev backend-install fetch-page bump tag import-searches reset-data worker-local browser-login cookies accounts account-add account-cookies account-check account-proxy up-dev up-dev-build import-skus import-profile
 
 BROWSER ?= brave
 ROLE ?= searcher
@@ -96,6 +96,11 @@ account-cookies:
 
 account-check:
 	cd backend && .venv/bin/python scripts/manage_accounts.py check --name "$(name)"
+
+# Sticky-прокси аккаунта: make account-proxy name="..." label="http://user@host:5500"
+# Снять: make account-proxy name="..." (или label=)
+account-proxy:
+	cd backend && .venv/bin/python scripts/manage_accounts.py proxy --name "$(name)" $(if $(label),--label "$(label)",--clear)
 
 reset-data:
 	docker compose exec -T postgres psql -U avito -d avito -c "truncate search_listings, listing_snapshots, listings, sellers, market_analytics_daily, product_market_matches, our_listings, alerts, jobs, llm_runs, audit_log, searches cascade;"

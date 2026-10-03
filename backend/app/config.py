@@ -56,6 +56,8 @@ class Settings(BaseSettings):
     worker_pause_min_seconds: float = 2.0
     worker_pause_max_seconds: float = 7.0
     browser_humanize: bool = True
+    # Проверка аккаунта — не чаще раза в N минут (защита от самоизбиения IP)
+    account_check_cooldown_minutes: int = 10
 
     reprice_hitl_threshold_pct: float = 10.0
     reprice_max_step_pct: float = 5.0

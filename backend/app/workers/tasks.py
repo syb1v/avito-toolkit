@@ -38,11 +38,17 @@ ACCOUNT_CHECK_URL = "https://www.avito.ru/all?q=iphone"
 HAS_BROWSER = importlib.util.find_spec("patchright") is not None
 
 
-def _build_transport(redis: Redis, *, user_data_dir: str | None = None) -> SourceAdapter:
+def _build_transport(
+    redis: Redis,
+    *,
+    user_data_dir: str | None = None,
+    proxy_url: str | None = None,
+) -> SourceAdapter:
     settings = get_settings()
     mode = settings.crawl_transport.strip().lower()
-    pool = build_proxy_pool(redis)
-    http = HttpCffiTransport(proxy_pool=pool)
+    # Закреплённый за аккаунтом прокси важнее общего пула: cookies+IP — одна связка.
+    pool = None if proxy_url else build_proxy_pool(redis)
+    http = HttpCffiTransport(proxy=proxy_url) if proxy_url else HttpCffiTransport(proxy_pool=pool)
     if mode == "http":
         return http
     if not HAS_BROWSER:
@@ -52,6 +58,7 @@ def _build_transport(redis: Redis, *, user_data_dir: str | None = None) -> Sourc
     from app.collectors.transport.hybrid import HybridTransport
 
     browser = BrowserTransport(
+        proxy=proxy_url,
         proxy_pool=pool,
         block_resources=settings.browser_block_resources,
         user_data_dir=user_data_dir,
@@ -154,6 +161,7 @@ async def _collect(search_id: str) -> CrawlResult:
             transport = _build_transport(
                 redis,
                 user_data_dir=account.profile_dir if account is not None else None,
+                proxy_url=account.proxy_url if account is not None else None,
             )
             city = search.params.get("city") if isinstance(search.params, dict) else None
             url_override = with_city(search.url, city) if isinstance(city, str) else None
@@ -272,7 +280,18 @@ async def _check_account(account_id: str) -> dict[str, object]:
             account = await session.get(AvitoAccount, uuid.UUID(account_id))
             if account is None:
                 raise LookupError(f"account {account_id} not found")
-            transport = _build_transport(redis, user_data_dir=account.profile_dir)
+            cooldown = settings.account_check_cooldown_minutes * 60
+            if (
+                cooldown > 0
+                and account.last_check_at is not None
+                and (datetime.now(UTC) - account.last_check_at).total_seconds() < cooldown
+            ):
+                return {"account_id": account_id, "skipped": "cooldown"}
+            transport = _build_transport(
+                redis,
+                user_data_dir=account.profile_dir,
+                proxy_url=account.proxy_url,
+            )
             checked_at = datetime.now(UTC)
             try:
                 page = await transport.fetch(ACCOUNT_CHECK_URL)

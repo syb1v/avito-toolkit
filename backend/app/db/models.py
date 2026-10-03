@@ -29,6 +29,9 @@ class AvitoAccount(Base):
     profile_dir: Mapped[str] = mapped_column(Text, unique=True)
     # searcher — обход выдачи; seller — управление своими объявлениями (фаза 6)
     role: Mapped[str] = mapped_column(String(20), default="searcher")
+    # Закреплённый прокси аккаунта (sticky): cookies доверяют вместе с выходным IP.
+    # NULL — ходить с личного IP (BROWSER_* / PROXY_ENABLED=false).
+    proxy_url: Mapped[str | None] = mapped_column(Text)
     status: Mapped[str] = mapped_column(String(20), default="active")
     notes: Mapped[str | None] = mapped_column(Text)
     is_default: Mapped[bool] = mapped_column(Boolean, default=False)

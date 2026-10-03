@@ -1,5 +1,5 @@
 import uuid
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 from fastapi import APIRouter, HTTPException
@@ -7,8 +7,15 @@ from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 
 from app.api.deps import DbSession
+from app.config import get_settings
 from app.db.models import AvitoAccount, Search
-from app.services.accounts import account_overview, resolve_profile_path, unique_profile_dir
+from app.services.accounts import (
+    account_overview,
+    proxy_label_for,
+    resolve_profile_path,
+    resolve_proxy_label,
+    unique_profile_dir,
+)
 
 router = APIRouter(prefix="/accounts", tags=["accounts"])
 
@@ -20,6 +27,7 @@ class AccountCreate(BaseModel):
     name: str = Field(min_length=1, max_length=120)
     notes: str | None = None
     role: str = "searcher"
+    proxy_label: str | None = None
 
 
 class AccountUpdate(BaseModel):
@@ -27,6 +35,7 @@ class AccountUpdate(BaseModel):
     notes: str | None = None
     status: str | None = None
     role: str | None = None
+    proxy_label: str | None = None
 
 
 class AccountCookiesIn(BaseModel):
@@ -39,6 +48,7 @@ class AccountOut(BaseModel):
     name: str
     profile_dir: str
     role: str
+    proxy_label: str | None = None
     status: str
     notes: str | None
     is_default: bool
@@ -56,6 +66,7 @@ def _account_out(account: AvitoAccount, searches_count: int) -> AccountOut:
         name=account.name,
         profile_dir=account.profile_dir,
         role=account.role,
+        proxy_label=proxy_label_for(account.proxy_url),
         status=account.status,
         notes=account.notes,
         is_default=account.is_default,
@@ -98,10 +109,15 @@ async def create_account(payload: AccountCreate, session: DbSession) -> AccountO
         raise HTTPException(status_code=409, detail="account with this name already exists")
     if payload.role not in VALID_ROLES:
         raise HTTPException(status_code=422, detail=f"role must be {VALID_ROLES}")
+    try:
+        proxy_url = resolve_proxy_label(payload.proxy_label)
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
     account = AvitoAccount(
         name=name,
         profile_dir=await unique_profile_dir(session, name),
         role=payload.role,
+        proxy_url=proxy_url,
         status="active",
         notes=payload.notes,
     )
@@ -131,6 +147,11 @@ async def update_account(
         if payload.role not in VALID_ROLES:
             raise HTTPException(status_code=422, detail=f"role must be {VALID_ROLES}")
         account.role = payload.role
+    if "proxy_label" in payload.model_fields_set:
+        try:
+            account.proxy_url = resolve_proxy_label(payload.proxy_label)
+        except ValueError as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
     await session.commit()
     await session.refresh(account)
     return _account_out(account, await _searches_count(session, account.id))
@@ -159,7 +180,16 @@ async def upload_cookies(
 
 @router.post("/{account_id}/check", status_code=202)
 async def check_account(account_id: uuid.UUID, session: DbSession) -> dict[str, Any]:
-    await _load(session, account_id)
+    account = await _load(session, account_id)
+    settings = get_settings()
+    cooldown = settings.account_check_cooldown_minutes * 60
+    if (
+        cooldown > 0
+        and account.last_check_at is not None
+        and (datetime.now(UTC) - account.last_check_at).total_seconds() < cooldown
+    ):
+        left = int(cooldown - (datetime.now(UTC) - account.last_check_at).total_seconds())
+        return {"status": "cooldown", "seconds_left": left}
     from app.workers.tasks import check_account as check_account_task
 
     message = check_account_task.send(str(account_id))

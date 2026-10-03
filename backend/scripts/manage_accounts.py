@@ -29,7 +29,12 @@ from app.collectors.web.parsing import parse_search_page
 from app.config import get_settings
 from app.db.models import AvitoAccount, Search
 from app.db.session import dispose_engine, get_session_factory
-from app.services.accounts import resolve_profile_path, unique_profile_dir
+from app.services.accounts import (
+    proxy_label_for,
+    resolve_profile_path,
+    resolve_proxy_label,
+    unique_profile_dir,
+)
 from app.services.cookies import (
     BROWSER_LOADERS,
     apply_cookies_to_profile,
@@ -59,23 +64,30 @@ async def cmd_list() -> int:
             )
             print(
                 f"{'имя':<24} {'роль':<10} {'статус':<8} {'поисков':<8} "
-                f"cookies_at           профиль"
+                f"{'прокси':<28} cookies_at           профиль"
             )
             for account, count in rows.all():
                 cookies = (
                     account.cookies_at.strftime("%Y-%m-%d %H:%M") if account.cookies_at else "—"
                 )
                 marker = " (основной)" if account.is_default else ""
+                proxy = proxy_label_for(account.proxy_url) or "личный IP"
                 print(
                     f"{account.name + marker:<24} {account.role:<10} {account.status:<8} "
-                    f"{count:<8} {cookies:<20} {account.profile_dir}"
+                    f"{count:<8} {proxy:<28} {cookies:<20} {account.profile_dir}"
                 )
             return 0
     finally:
         await dispose_engine()
 
 
-async def cmd_add(name: str, notes: str | None, profile_dir: str | None, role: str) -> int:
+async def cmd_add(
+    name: str,
+    notes: str | None,
+    profile_dir: str | None,
+    role: str,
+    proxy_label: str | None,
+) -> int:
     factory = get_session_factory()
     try:
         async with factory() as session:
@@ -83,8 +95,17 @@ async def cmd_add(name: str, notes: str | None, profile_dir: str | None, role: s
             if exists is not None:
                 raise SystemExit(f"Аккаунт {name!r} уже есть")
             profile = profile_dir or await unique_profile_dir(session, name)
+            try:
+                proxy_url = resolve_proxy_label(proxy_label)
+            except ValueError as error:
+                raise SystemExit(str(error)) from error
             account = AvitoAccount(
-                name=name, profile_dir=profile, notes=notes, role=role, status="active"
+                name=name,
+                profile_dir=profile,
+                notes=notes,
+                role=role,
+                proxy_url=proxy_url,
+                status="active",
             )
             session.add(account)
             await session.commit()
@@ -137,12 +158,22 @@ async def cmd_cookies(args: argparse.Namespace) -> int:
         await dispose_engine()
 
 
-async def cmd_check(name: str) -> int:
+async def cmd_check(name: str, force: bool = False) -> int:
     factory = get_session_factory()
     transport: BrowserTransport | None = None
     try:
         async with factory() as session:
             account = await _find(session, name)
+            settings = get_settings()
+            cooldown = settings.account_check_cooldown_minutes * 60
+            if (
+                not force
+                and cooldown > 0
+                and account.last_check_at is not None
+                and (datetime.now(UTC) - account.last_check_at).total_seconds() < cooldown
+            ):
+                print("Проверка недавно была — пропускаю (--force чтобы проверить всё равно).")
+                return 0
             transport = BrowserTransport(
                 user_data_dir=str(resolve_profile_path(account.profile_dir))
             )
@@ -182,6 +213,22 @@ async def cmd_remove(name: str) -> int:
         await dispose_engine()
 
 
+async def cmd_proxy(name: str, label: str | None) -> int:
+    factory = get_session_factory()
+    try:
+        async with factory() as session:
+            account = await _find(session, name)
+            try:
+                account.proxy_url = resolve_proxy_label(label)
+            except ValueError as error:
+                raise SystemExit(str(error)) from error
+            await session.commit()
+            print(f"{name!r}: прокси → {proxy_label_for(account.proxy_url) or 'личный IP'}")
+            return 0
+    finally:
+        await dispose_engine()
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Avito account profiles & cookies")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -198,6 +245,10 @@ def main() -> int:
         default="searcher",
         help="searcher — обход поиска (по умолчанию), seller — управление объявлениями",
     )
+    add.add_argument(
+        "--proxy",
+        help="метка прокси из PROXY_LIST для sticky-привязки (см. make accounts)",
+    )
 
     cookies = sub.add_parser("cookies", help="загрузить cookies в аккаунт")
     cookies.add_argument("--name", required=True)
@@ -208,8 +259,14 @@ def main() -> int:
     cookies.add_argument("--url", default=CHECK_URL)
     cookies.add_argument("--fresh", action="store_true")
 
+    proxy = sub.add_parser("proxy", help="привязать/снять sticky-прокси аккаунта")
+    proxy.add_argument("--name", required=True)
+    proxy.add_argument("--label", help="метка прокси из PROXY_LIST; без неё — снять")
+    proxy.add_argument("--clear", action="store_true", help="ходить с личного IP")
+
     check = sub.add_parser("check", help="проверить доступ аккаунта")
     check.add_argument("--name", required=True)
+    check.add_argument("--force", action="store_true", help="игнорировать кулдаун проверки")
 
     remove = sub.add_parser("remove", help="удалить аккаунт")
     remove.add_argument("--name", required=True)
@@ -225,11 +282,13 @@ def main() -> int:
     if args.command == "list":
         return asyncio.run(cmd_list())
     if args.command == "add":
-        return asyncio.run(cmd_add(args.name, args.notes, args.profile_dir, args.role))
+        return asyncio.run(cmd_add(args.name, args.notes, args.profile_dir, args.role, args.proxy))
     if args.command == "cookies":
         return asyncio.run(cmd_cookies(args))
     if args.command == "check":
-        return asyncio.run(cmd_check(args.name))
+        return asyncio.run(cmd_check(args.name, args.force))
+    if args.command == "proxy":
+        return asyncio.run(cmd_proxy(args.name, None if args.clear else args.label))
     return asyncio.run(cmd_remove(args.name))
 
 

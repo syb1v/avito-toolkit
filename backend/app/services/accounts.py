@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
 from app.db.models import AvitoAccount, Search
+from app.services.proxy_pool import ProxyParseError, parse_proxy_entry
 
 DEFAULT_PROFILE_DIR = ".browser-profile"
 ACCOUNTS_SUBDIR = ".accounts"
@@ -93,6 +94,27 @@ def new_profile_dir(name: str) -> str:
     return f"{ACCOUNTS_SUBDIR}/{slugify(name)}"
 
 
+def proxy_label_for(proxy_url: str | None) -> str | None:
+    if not proxy_url:
+        return None
+    try:
+        return parse_proxy_entry(proxy_url).label
+    except ProxyParseError:
+        return proxy_url
+
+
+def resolve_proxy_label(label: str | None) -> str | None:
+    """Превращает метку прокси (без пароля) в полный URL из PROXY_LIST."""
+    if not label:
+        return None
+    from app.services.proxy_pool import parse_proxy_list
+
+    for entry in parse_proxy_list(get_settings().proxy_list):
+        if entry.label == label:
+            return entry.url
+    raise ValueError(f"прокси {label!r} не найден в PROXY_LIST")
+
+
 async def unique_profile_dir(session: AsyncSession, name: str) -> str:
     """Подбирает свободный каталог .accounts/<slug>(-2, -3, ...)."""
     base = slugify(name)
@@ -141,6 +163,7 @@ async def account_overview(session: AsyncSession) -> list[dict[str, Any]]:
                 "name": account.name,
                 "profile_dir": account.profile_dir,
                 "role": account.role,
+                "proxy_label": proxy_label_for(account.proxy_url),
                 "status": account.status,
                 "notes": account.notes,
                 "is_default": account.is_default,

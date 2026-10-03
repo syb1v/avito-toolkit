@@ -24,6 +24,7 @@ export type Account = {
   name: string;
   profile_dir: string;
   role: "searcher" | "seller";
+  proxy_label: string | null;
   status: "active" | "paused";
   notes: string | null;
   is_default: boolean;
@@ -428,12 +429,19 @@ export const createAccountClient = (payload: {
   name: string;
   notes?: string | null;
   role?: "searcher" | "seller";
+  proxy_label?: string | null;
 }) =>
   mutate<Account>("/api/v1/accounts", { method: "POST", body: JSON.stringify(payload) });
 
 export const updateAccountClient = (
   id: string,
-  payload: { name?: string; notes?: string | null; status?: string; role?: string },
+  payload: {
+    name?: string;
+    notes?: string | null;
+    status?: string;
+    role?: string;
+    proxy_label?: string | null;
+  },
 ) =>
   mutate<Account>(`/api/v1/accounts/${id}`, {
     method: "PATCH",
@@ -444,7 +452,9 @@ export const deleteAccountClient = (id: string) =>
   mutate<void>(`/api/v1/accounts/${id}`, { method: "DELETE" });
 
 export const checkAccountClient = (id: string) =>
-  mutate<{ status: string }>(`/api/v1/accounts/${id}/check`, { method: "POST" });
+  mutate<{ status: string; seconds_left?: number }>(`/api/v1/accounts/${id}/check`, {
+    method: "POST",
+  });
 
 export const uploadAccountCookiesClient = (id: string, cookies: string, fresh = true) =>
   mutate<{ status: string }>(`/api/v1/accounts/${id}/cookies`, {

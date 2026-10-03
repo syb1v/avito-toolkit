@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 
 import { InfoHint } from "@/app/components/info-hint";
+import { RegionPicker } from "@/app/components/region-picker";
 import {
   type Account,
   type Search,
@@ -137,40 +138,6 @@ function maxPagesOf(params: Record<string, unknown> | null): string {
 function maxAgeOf(params: Record<string, unknown> | null): string {
   const value = params?.max_age_days;
   return typeof value === "number" ? String(value) : "0";
-}
-
-function RegionMultiSelect({
-  value,
-  onChange,
-  unknownLabel,
-}: {
-  value: string[];
-  onChange: (next: string[]) => void;
-  unknownLabel: string;
-}) {
-  const unknown = value.filter((slug) => !REGIONS.some((region) => region.slug === slug));
-  return (
-    <select
-      multiple
-      size={7}
-      value={value}
-      onChange={(event) =>
-        onChange(Array.from(event.target.selectedOptions).map((option) => option.value))
-      }
-      className="rounded-lg border border-neutral-800 bg-neutral-950 px-2 py-1 text-xs text-neutral-200 outline-none focus:border-sky-500/60"
-    >
-      {unknown.map((slug) => (
-        <option key={slug} value={slug}>
-          {slug} ({unknownLabel})
-        </option>
-      ))}
-      {REGIONS.map((region) => (
-        <option key={region.slug} value={region.slug}>
-          {region.name}
-        </option>
-      ))}
-    </select>
-  );
 }
 
 export function SearchManager({
@@ -484,28 +451,28 @@ export function SearchManager({
                 ))}
               </select>
             </label>
-            <label className="flex flex-col gap-1 text-xs text-neutral-400">
+            <div className="flex flex-col gap-1 text-xs text-neutral-400">
               Города: только эти
-              <RegionMultiSelect
+              <RegionPicker
                 value={form.regions}
                 onChange={(next) => setForm({ ...form, regions: next })}
-                unknownLabel="текущий"
+                emptyLabel="Все города"
               />
               <span className="text-[10px] text-neutral-600">
-                Ctrl/Cmd — выбрать несколько; пусто = все города
+                пусто = все города; несколько — отметить галочками
               </span>
-            </label>
-            <label className="flex flex-col gap-1 text-xs text-neutral-400">
+            </div>
+            <div className="flex flex-col gap-1 text-xs text-neutral-400">
               Исключить города
-              <RegionMultiSelect
+              <RegionPicker
                 value={form.excludeRegions}
                 onChange={(next) => setForm({ ...form, excludeRegions: next })}
-                unknownLabel="текущий"
+                emptyLabel="Ничего не исключаем"
               />
               <span className="text-[10px] text-neutral-600">
                 лоты этих городов останутся в выдаче, но вне расчёта
               </span>
-            </label>
+            </div>
 
             <label className="flex flex-col gap-1 text-xs text-neutral-400">
               Включение (строка = AND-группа, альтернативы через запятую)
