@@ -7,6 +7,8 @@
 
 ## [Unreleased]
 
+## [0.15.0] - 2026-10-03
+
 ### Добавлено
 
 - Роли аккаунтов: `searcher` (обход выдачи) и `seller` (свои объявления, будущее
@@ -375,7 +377,8 @@
 - Дашборд Next.js 16 + Tailwind 4 со статусом API и дорожной картой.
 - Документация: README, `docs/plan.md`, `.env.example`, MIT-лицензия.
 
-[Unreleased]: https://github.com/syb1v/avito-toolkit/compare/v0.14.1...HEAD
+[Unreleased]: https://github.com/syb1v/avito-toolkit/compare/v0.15.0...HEAD
+[0.15.0]: https://github.com/syb1v/avito-toolkit/compare/v0.14.1...v0.15.0
 [0.14.1]: https://github.com/syb1v/avito-toolkit/compare/v0.14.0...v0.14.1
 [0.14.0]: https://github.com/syb1v/avito-toolkit/compare/v0.13.0...v0.14.0
 [0.13.0]: https://github.com/syb1v/avito-toolkit/compare/v0.12.0...v0.13.0
