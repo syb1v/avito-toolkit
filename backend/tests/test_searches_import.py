@@ -1,4 +1,9 @@
-from app.services.searches import DEFAULT_CRON, DEFAULT_PRIORITY, normalize_search_rows
+from app.services.searches import (
+    DEFAULT_CRON,
+    DEFAULT_PRIORITY,
+    merge_params,
+    normalize_search_rows,
+)
 
 
 def test_normalize_applies_defaults() -> None:
@@ -30,3 +35,11 @@ def test_normalize_skips_rows_without_name_or_url() -> None:
     )
     assert skipped == 2
     assert [row.name for row in rows] == ["Ок"]
+
+
+def test_merge_params_keeps_untouched_keys() -> None:
+    existing = {"keyword_groups": [["devialet"]], "max_pages": 5}
+    merged = merge_params(existing, {"max_age_days": 7, "max_pages": 3})
+    assert merged == {"keyword_groups": [["devialet"]], "max_pages": 3, "max_age_days": 7}
+    assert merge_params(existing, {"keyword_groups": None}) == {"max_pages": 5}
+    assert merge_params(None, {"a": 1}) == {"a": 1}

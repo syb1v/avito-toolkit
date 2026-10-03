@@ -102,6 +102,7 @@ async def _collect(search_id: str) -> CrawlResult:
             search = await session.get(Search, uuid.UUID(search_id))
             if search is None:
                 logger.warning("crawl skipped: search %s deleted", search_id)
+                await progress.fail("поиск удалён")
                 return _empty_result(search_id)
             account = await account_for_search(session, search)
             if account is not None and account.status != "active":
@@ -123,6 +124,7 @@ async def _collect(search_id: str) -> CrawlResult:
                 await progress.finish({"skipped": True, "reason": block_reason})
                 return _empty_result(search_id)
             if settings.worker_pause_max_seconds > 0:
+                await progress.stage("pausing")
                 await asyncio.sleep(
                     random.uniform(
                         settings.worker_pause_min_seconds,

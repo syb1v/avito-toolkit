@@ -54,6 +54,17 @@ def normalize_search_rows(
     return rows, skipped
 
 
+def merge_params(existing: Mapping[str, Any] | None, patch: Mapping[str, Any]) -> dict[str, Any]:
+    """Частичное обновление params: None удаляет ключ, остальное перезаписывает."""
+    merged: dict[str, Any] = dict(existing or {})
+    for key, value in patch.items():
+        if value is None:
+            merged.pop(key, None)
+        else:
+            merged[key] = value
+    return merged
+
+
 async def import_searches(
     session: AsyncSession, rows: Sequence[SearchImportRow]
 ) -> SearchImportResult:

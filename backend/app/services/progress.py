@@ -12,11 +12,12 @@ PROGRESS_TTL_SECONDS = 3600
 PROGRESS_KEY_PREFIX = "crawl:progress:"
 MAX_PAGES_KEY = "max_pages"
 
+STATUS_QUEUED = "queued"
 STATUS_RUNNING = "running"
 STATUS_DONE = "done"
 STATUS_FAILED = "failed"
 
-STAGES = ("crawl", "analytics", "matching", "alerts", "done")
+STAGES = ("queued", "pausing", "crawl", "moderation", "analytics", "matching", "alerts", "done")
 
 
 def _now_iso() -> str:
@@ -40,6 +41,20 @@ class CrawlProgress:
             return
         await self._redis.hset(self._key, mapping=values)  # type: ignore[arg-type]
         await self._redis.expire(self._key, PROGRESS_TTL_SECONDS)
+
+    async def queued(self, search_name: str | None = None) -> None:
+        """Сразу после постановки в очередь: UI видит «в очереди», а не пустоту."""
+        await self._redis.delete(self._key)
+        await self._write(
+            {
+                "status": STATUS_QUEUED,
+                "stage": "queued",
+                "search_name": search_name,
+                "queued_at": _now_iso(),
+                "started_at": _now_iso(),
+                "updated_at": _now_iso(),
+            }
+        )
 
     async def start(self, max_pages: int, search_name: str | None = None) -> None:
         await self._redis.delete(self._key)
@@ -115,7 +130,7 @@ async def list_running_progress(redis: Redis) -> list[dict[str, Any]]:
     running: list[dict[str, Any]] = []
     async for key in redis.scan_iter(f"{PROGRESS_KEY_PREFIX}*"):
         data = await read_progress(redis, key.decode().removeprefix(PROGRESS_KEY_PREFIX))
-        if data and data.get("status") == STATUS_RUNNING:
+        if data and data.get("status") in (STATUS_QUEUED, STATUS_RUNNING):
             data["search_id"] = key.decode().removeprefix(PROGRESS_KEY_PREFIX)
             running.append(data)
     return running

@@ -48,7 +48,8 @@ async def _active_listings(
     excludes = exclude_keywords_from_params(params)
     regions = regions_from_params(params)
     exclude_regions = exclude_regions_from_params(params)
-    rows = await session.execute(
+    max_age_days = params.get("max_age_days") if isinstance(params, dict) else None
+    statement = (
         select(
             Listing.title,
             Listing.current_price,
@@ -67,6 +68,11 @@ async def _active_listings(
             Listing.current_price.is_not(None),
         )
     )
+    if isinstance(max_age_days, int) and not isinstance(max_age_days, bool) and max_age_days > 0:
+        statement = statement.where(
+            SearchListing.first_seen >= datetime.now(UTC) - timedelta(days=max_age_days)
+        )
+    rows = await session.execute(statement)
     prices: list[float] = []
     keyword = stopword = region = manual = 0
     for title, price, listing_region, manual_id in rows.all():

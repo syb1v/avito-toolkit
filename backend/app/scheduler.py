@@ -4,11 +4,13 @@ from datetime import UTC, datetime
 
 from apscheduler.schedulers.blocking import BlockingScheduler
 from apscheduler.triggers.cron import CronTrigger
+from redis.asyncio import Redis
 from sqlalchemy import select
 
 from app.config import get_settings
 from app.db.models import Search
 from app.db.session import dispose_engine, get_session_factory
+from app.services.progress import CrawlProgress
 from app.workers.tasks import check_proxies, crawl_search, recalc_analytics
 
 logger = logging.getLogger(__name__)
@@ -19,8 +21,24 @@ ANALYTICS_HOUR_UTC = 1
 ANALYTICS_MINUTE_UTC = 10
 
 
+def _mark_queued(search_id: str) -> None:
+    async def _write() -> None:
+        settings = get_settings()
+        redis = Redis.from_url(settings.redis_url)
+        try:
+            await CrawlProgress(redis, search_id).queued()
+        finally:
+            await redis.aclose()
+
+    try:
+        asyncio.run(_write())
+    except Exception:
+        logger.exception("failed to mark search %s as queued", search_id)
+
+
 def _enqueue_search(search_id: str) -> None:
     crawl_search.send(search_id)
+    _mark_queued(search_id)
     logger.info("enqueued crawl for search %s", search_id)
 
 

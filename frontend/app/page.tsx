@@ -18,8 +18,13 @@ const ALERT_LABELS: Record<string, string> = {
   price_above_market: "Наша цена выше рынка",
 };
 
-export default async function Home() {
-  const [health, searches, accounts, dashboard] = await Promise.all([
+export default async function Home({
+  searchParams,
+}: {
+  searchParams: Promise<{ edit?: string }>;
+}) {
+  const [{ edit }, health, searches, accounts, dashboard] = await Promise.all([
+    searchParams,
     fetchHealth(),
     fetchSearches(),
     fetchAccounts(),
@@ -157,7 +162,7 @@ export default async function Home() {
         </section>
       ) : null}
 
-      <SearchManager initial={searches} accounts={accounts} />
+      <SearchManager initial={searches} accounts={accounts} editId={edit ?? null} />
     </main>
   );
 }

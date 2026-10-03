@@ -32,6 +32,7 @@ class MarketSummaryOut(BaseModel):
     stopword_excluded: int
     region_excluded: int
     manual_excluded: int
+    max_age_days: int
     stats: PriceStatsOut | None
 
 
@@ -60,6 +61,11 @@ async def get_summary(search_id: uuid.UUID, session: DbSession) -> MarketSummary
     search = await _load_search(session, search_id)
     summary = await build_search_summary(session, search_id)
     stats = summary.stats
+    params = search.params if isinstance(search.params, dict) else {}
+    raw_age = params.get("max_age_days")
+    max_age_days = (
+        raw_age if isinstance(raw_age, int) and not isinstance(raw_age, bool) and raw_age > 0 else 0
+    )
     return MarketSummaryOut(
         search_id=search_id,
         name=search.name,
@@ -77,6 +83,7 @@ async def get_summary(search_id: uuid.UUID, session: DbSession) -> MarketSummary
         stopword_excluded=summary.stopword_excluded,
         region_excluded=summary.region_excluded,
         manual_excluded=summary.manual_excluded,
+        max_age_days=max_age_days,
         stats=(
             PriceStatsOut(
                 count=stats.count,

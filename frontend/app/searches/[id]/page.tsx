@@ -6,6 +6,7 @@ import { DigestPanel } from "@/app/components/digest-panel";
 import { InfoHint } from "@/app/components/info-hint";
 import { ListingActions } from "@/app/components/listing-actions";
 import { PriceChart } from "@/app/components/price-chart";
+import { RegionFilter } from "@/app/components/region-filter";
 import { StatCard } from "@/app/components/stat-card";
 import {
   type ListingSort,
@@ -14,7 +15,7 @@ import {
   fetchListings,
   fetchSummary,
 } from "@/lib/api";
-import { formatDays, formatPercent, formatPrice } from "@/lib/format";
+import { formatDays, formatPercent, formatPrice, formatRelativeTime } from "@/lib/format";
 
 const SORT_OPTIONS: { value: ListingSort; label: string }[] = [
   { value: "position", label: "По позиции" },
@@ -140,6 +141,7 @@ export default async function SearchDetailPage({
     excluded?: string;
     region?: string;
     sort?: string;
+    fresh?: string;
   }>;
 }) {
   const [{ id }, query] = await Promise.all([params, searchParams]);
@@ -147,6 +149,7 @@ export default async function SearchDetailPage({
   const categoryFilter = query?.category ?? null;
   const excludedOnly = query?.excluded === "1";
   const regionFilter = query?.region ?? null;
+  const freshOnly = query?.fresh === "1";
   const sortParam = query?.sort ?? "position";
   const sortOption: ListingSort = (
     SORT_OPTIONS.some((option) => option.value === sortParam) ? sortParam : "position"
@@ -160,6 +163,7 @@ export default async function SearchDetailPage({
       excluded: excludedOnly ? "1" : null,
       region: regionFilter,
       sort: sortOption !== "position" ? sortOption : null,
+      fresh: freshOnly ? "1" : null,
       ...changes,
     };
     for (const [key, value] of Object.entries(current)) {
@@ -181,6 +185,7 @@ export default async function SearchDetailPage({
       excluded: excludedOnly ? true : undefined,
       region: regionFilter ?? undefined,
       sort: sortOption,
+      fresh: freshOnly ? true : undefined,
     }),
   ]);
 
@@ -200,15 +205,20 @@ export default async function SearchDetailPage({
 
   const stats = summary.stats;
   const excludedCount = listings.filter((listing) => listing.excluded).length;
+  const freshCutoff =
+    summary.max_age_days > 0 ? Date.now() - summary.max_age_days * 86_400_000 : 0;
+  const freshCount =
+    freshCutoff > 0
+      ? listings.filter(
+          (listing) => listing.first_seen && new Date(listing.first_seen).getTime() >= freshCutoff,
+        ).length
+      : 0;
   const regionCounts = listings.reduce<Record<string, number>>((acc, listing) => {
     if (listing.region) {
       acc[listing.region] = (acc[listing.region] ?? 0) + 1;
     }
     return acc;
   }, {});
-  const topRegions = Object.entries(regionCounts)
-    .sort((left, right) => right[1] - left[1])
-    .slice(0, 6);
 
   return (
     <main className="mx-auto flex max-w-6xl flex-col gap-6 px-4 py-8 sm:gap-8 sm:px-6 sm:py-12">
@@ -220,15 +230,23 @@ export default async function SearchDetailPage({
           <h1 className="text-xl font-semibold tracking-tight sm:text-2xl">
             {summary.name}
           </h1>
-          <span
-            className={`rounded-full border px-3 py-1 text-xs ${
-              summary.is_active
-                ? "border-emerald-500/30 bg-emerald-500/15 text-emerald-300"
-                : "border-neutral-700 bg-neutral-800 text-neutral-400"
-            }`}
-          >
-            {summary.is_active ? "активен" : "на паузе"}
-          </span>
+          <div className="flex flex-wrap items-center gap-2">
+            <span
+              className={`rounded-full border px-3 py-1 text-xs ${
+                summary.is_active
+                  ? "border-emerald-500/30 bg-emerald-500/15 text-emerald-300"
+                  : "border-neutral-700 bg-neutral-800 text-neutral-400"
+              }`}
+            >
+              {summary.is_active ? "активен" : "на паузе"}
+            </span>
+            <Link
+              href={`/?edit=${id}`}
+              className="rounded-lg border border-sky-500/40 bg-sky-500/10 px-3 py-1 text-xs text-sky-200 transition hover:bg-sky-500/20"
+            >
+              Редактировать поиск
+            </Link>
+          </div>
         </div>
         <a
           href={summary.url}
@@ -391,6 +409,20 @@ export default async function SearchDetailPage({
           >
             Все
           </Link>
+          {summary.max_age_days > 0 ? (
+            <Link
+              href={hrefWith({
+                fresh: freshOnly ? null : "1",
+              })}
+              className={`rounded-full border px-2.5 py-1 text-xs transition ${
+                freshOnly
+                  ? "border-emerald-500/60 bg-emerald-500/15 text-emerald-100"
+                  : "border-neutral-800 text-neutral-400 hover:border-neutral-600"
+              }`}
+            >
+              Свежие {summary.max_age_days} дн. ({freshCount})
+            </Link>
+          ) : null}
           {excludedCount > 0 ? (
             <Link
               href={hrefWith({
@@ -450,29 +482,9 @@ export default async function SearchDetailPage({
           })}
         </div>
 
-        {topRegions.length > 1 ? (
-          <div className="flex flex-wrap items-center gap-2 px-4 pb-3 sm:px-5">
-            <span className="text-[11px] uppercase tracking-wider text-neutral-600">
-              города:
-            </span>
-            {topRegions.map(([regionName, count]) => (
-              <Link
-                key={regionName}
-                href={hrefWith({
-                  region: regionFilter === regionName ? null : regionName,
-                  excluded: null,
-                })}
-                className={`rounded-full border px-2.5 py-1 text-xs transition ${
-                  regionFilter === regionName
-                    ? "border-sky-500/60 bg-sky-500/15 text-sky-100"
-                    : "border-neutral-800 text-neutral-400 hover:border-neutral-600"
-                }`}
-              >
-                {regionName} ({count})
-              </Link>
-            ))}
-          </div>
-        ) : null}
+        <div className="flex flex-wrap items-center gap-2 px-4 pb-3 sm:px-5">
+          <RegionFilter current={regionFilter} counts={regionCounts} />
+        </div>
 
         <div className="flex flex-wrap items-center gap-2 px-4 pb-3 sm:px-5">
           <span className="text-[11px] uppercase tracking-wider text-neutral-600">
@@ -531,6 +543,9 @@ export default async function SearchDetailPage({
                     <span className="text-xs text-neutral-500">
                       id {listing.id}
                       {listing.region ? ` · ${listing.region}` : ""}
+                      {listing.first_seen
+                        ? ` · в базе ${formatRelativeTime(listing.first_seen)}`
+                        : ""}
                     </span>
                     {listing.exclude_reason ? (
                       <span
@@ -582,6 +597,9 @@ export default async function SearchDetailPage({
                 <p className="text-xs tabular-nums text-neutral-500">
                   #{listing.last_position ?? "—"} · id {listing.id}
                   {listing.region ? ` · ${listing.region}` : ""}
+                  {listing.first_seen
+                    ? ` · в базе ${formatRelativeTime(listing.first_seen)}`
+                    : ""}
                   {listing.exclude_reason
                     ? ` · ${EXCLUDE_REASON_META[listing.exclude_reason]?.label ?? listing.exclude_reason}`
                     : ""}

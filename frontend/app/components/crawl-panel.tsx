@@ -9,6 +9,8 @@ import { formatRelativeTime } from "@/lib/format";
 const POLL_INTERVAL_MS = 3000;
 
 const STAGE_LABELS: Record<string, string> = {
+  queued: "В очереди",
+  pausing: "Подготовка",
   crawl: "Сбор страниц",
   moderation: "AI-модерация",
   analytics: "Аналитика",
@@ -19,6 +21,7 @@ const STAGE_LABELS: Record<string, string> = {
 
 const STATUS_LABELS: Record<string, string> = {
   idle: "ожидание",
+  queued: "в очереди",
   running: "выполняется",
   done: "завершён",
   failed: "ошибка",
@@ -26,6 +29,7 @@ const STATUS_LABELS: Record<string, string> = {
 
 const STATUS_STYLES: Record<string, string> = {
   idle: "border-neutral-700 bg-neutral-800 text-neutral-400",
+  queued: "border-amber-500/30 bg-amber-500/10 text-amber-200",
   running: "border-sky-500/30 bg-sky-500/10 text-sky-200",
   done: "border-emerald-500/30 bg-emerald-500/15 text-emerald-300",
   failed: "border-red-500/30 bg-red-500/10 text-red-300",
@@ -58,6 +62,19 @@ export function CrawlPanel({ searchId }: { searchId: string }) {
 
   async function start() {
     setBusy(true);
+    // Мгновенная обратная связь: сразу показываем «в очереди», не ждём воркера.
+    setProgress((current) => ({
+      search_id: searchId,
+      status: "queued",
+      stage: "queued",
+      page: 0,
+      max_pages: current?.max_pages ?? 0,
+      listings_seen: 0,
+      result: null,
+      error: null,
+      updated_at: new Date().toISOString(),
+      last_crawl_at: current?.last_crawl_at ?? null,
+    }));
     await triggerCrawl(searchId);
     await load();
     setBusy(false);
@@ -65,6 +82,7 @@ export function CrawlPanel({ searchId }: { searchId: string }) {
 
   const status = progress?.status ?? "idle";
   const running = status === "running";
+  const queued = status === "queued";
   const stage = progress?.stage ?? null;
   const page = progress?.page ?? 0;
   const maxPages = progress?.max_pages ?? 0;
@@ -72,7 +90,9 @@ export function CrawlPanel({ searchId }: { searchId: string }) {
 
   let percent = 0;
   let indeterminate = false;
-  if (running && stage === "crawl") {
+  if (queued) {
+    indeterminate = true;
+  } else if (running && stage === "crawl") {
     if (maxPages > 0) {
       percent = Math.min(100, Math.round((page / maxPages) * 100));
     } else {
@@ -108,10 +128,16 @@ export function CrawlPanel({ searchId }: { searchId: string }) {
           <button
             type="button"
             onClick={start}
-            disabled={running || busy}
+            disabled={running || queued || busy}
             className="rounded-lg border border-sky-500/40 bg-sky-500/10 px-3 py-1.5 text-xs text-sky-200 transition hover:bg-sky-500/20 disabled:opacity-50"
           >
-            {running ? "Идёт обход…" : busy ? "Запуск…" : "Запустить обход"}
+            {running
+              ? "Идёт обход…"
+              : queued
+                ? "В очереди…"
+                : busy
+                  ? "Запуск…"
+                  : "Запустить обход"}
           </button>
         </div>
       </div>
@@ -128,7 +154,11 @@ export function CrawlPanel({ searchId }: { searchId: string }) {
       </div>
 
       <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-neutral-400">
-        {running ? (
+        {queued ? (
+          <span className="text-amber-200/90">
+            Обход в очереди — воркер начнёт в течение нескольких секунд
+          </span>
+        ) : running ? (
           <>
             <span>{STAGE_LABELS[stage ?? ""] ?? stage ?? "работа"}</span>
             {stage === "crawl" ? (

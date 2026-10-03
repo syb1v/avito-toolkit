@@ -1,5 +1,5 @@
 import uuid
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
@@ -10,7 +10,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from app.api.deps import DbSession
 from app.config import get_settings
 from app.db.models import Alert, Listing, ListingExclusion, Search, SearchListing
-from app.services.progress import progress_key, read_progress
+from app.services.progress import CrawlProgress, read_progress
 from app.services.regions import (
     exclude_regions_from_params,
     matches_region,
@@ -23,7 +23,7 @@ from app.services.search_filter import (
     matches_exclude_keywords,
     matches_keyword_groups,
 )
-from app.services.searches import import_searches, normalize_search_rows
+from app.services.searches import import_searches, merge_params, normalize_search_rows
 
 router = APIRouter(prefix="/searches", tags=["searches"])
 
@@ -76,6 +76,7 @@ class ListingRead(BaseModel):
     manual_excluded: bool = False
     exclude_reason: str | None = None
     excluded: bool = False
+    first_seen: datetime | None = None
 
 
 @router.get("", response_model=list[SearchRead])
@@ -117,6 +118,9 @@ async def update_search(search_id: uuid.UUID, payload: SearchUpdate, session: Db
     data = payload.model_dump(exclude_unset=True)
     if "account_id" in data:
         await _validate_account(session, data["account_id"])
+    if isinstance(data.get("params"), dict):
+        # PATCH params — частичное обновление: не теряем фильтры, не переданные в запросе.
+        data["params"] = merge_params(search.params, data["params"])
     for field, value in data.items():
         setattr(search, field, value)
     await session.commit()
@@ -169,7 +173,7 @@ async def trigger_crawl(search_id: uuid.UUID, session: DbSession) -> dict[str, s
     settings = get_settings()
     redis = Redis.from_url(settings.redis_url)
     try:
-        await redis.delete(progress_key(search_id))
+        await CrawlProgress(redis, search_id).queued(search.name)
     finally:
         await redis.aclose()
     message = crawl_search.send(str(search_id))
@@ -247,15 +251,18 @@ async def list_search_listings(
     excluded: bool | None = None,
     region: str | None = None,
     sort: str = "position",
+    fresh: bool | None = None,
 ) -> list[ListingRead]:
     """Выдача поиска. ``limit=0`` — без лимита; ``sort`` — цена/позиция/новизна/статус."""
     search = await session.get(Search, search_id)
     if search is None:
         raise HTTPException(status_code=404, detail="search not found")
+    params = search.params if isinstance(search.params, dict) else {}
     groups = keywords_from_params(search.params)
     excludes = exclude_keywords_from_params(search.params)
     regions = regions_from_params(search.params)
     exclude_regions = exclude_regions_from_params(search.params)
+    max_age_days = params.get("max_age_days")
 
     statement = (
         select(
@@ -272,6 +279,7 @@ async def list_search_listings(
             Listing.description,
             Listing.region,
             ListingExclusion.listing_id,
+            SearchListing.first_seen,
         )
         .join(SearchListing, SearchListing.listing_id == Listing.id)
         .outerjoin(
@@ -286,6 +294,15 @@ async def list_search_listings(
         statement = statement.where(Listing.flag_category == category)
     if region:
         statement = statement.where(Listing.region == normalize_region(region))
+    if (
+        fresh
+        and isinstance(max_age_days, int)
+        and not isinstance(max_age_days, bool)
+        and max_age_days > 0
+    ):
+        statement = statement.where(
+            SearchListing.first_seen >= datetime.now(UTC) - timedelta(days=max_age_days)
+        )
     statement = statement.order_by(*_order_by(sort if sort in SORT_OPTIONS else "position"))
     if limit > 0 and excluded is None:
         statement = statement.limit(limit)
@@ -323,6 +340,7 @@ async def list_search_listings(
                 manual_excluded=manual_excluded,
                 exclude_reason=reason,
                 excluded=reason is not None,
+                first_seen=row[13],
             )
         )
     if excluded is not None:

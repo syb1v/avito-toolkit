@@ -62,6 +62,7 @@ export type MarketSummary = {
   stopword_excluded: number;
   region_excluded: number;
   manual_excluded: number;
+  max_age_days: number;
   stats: PriceStats | null;
 };
 
@@ -94,6 +95,7 @@ export type Listing = {
   manual_excluded: boolean;
   exclude_reason: "manual" | "keyword" | "stopword" | "region" | null;
   excluded: boolean;
+  first_seen: string | null;
 };
 
 export type ListingSort = "position" | "price_asc" | "price_desc" | "new" | "status";
@@ -178,7 +180,7 @@ export type Dashboard = {
 
 export type SearchProgress = {
   search_id: string;
-  status: "idle" | "running" | "done" | "failed";
+  status: "idle" | "queued" | "running" | "done" | "failed";
   stage: string | null;
   page: number | null;
   max_pages: number | null;
@@ -224,6 +226,7 @@ export const fetchListings = async (
     excluded?: boolean;
     region?: string;
     sort?: ListingSort;
+    fresh?: boolean;
   } = {},
 ): Promise<Listing[]> => {
   const parts = [`limit=${options.limit ?? 0}`];
@@ -241,6 +244,9 @@ export const fetchListings = async (
   }
   if (options.sort && options.sort !== "position") {
     parts.push(`sort=${options.sort}`);
+  }
+  if (options.fresh) {
+    parts.push("fresh=1");
   }
   return (
     (await getJson<Listing[]>(`/api/v1/searches/${searchId}/listings?${parts.join("&")}`)) ??
