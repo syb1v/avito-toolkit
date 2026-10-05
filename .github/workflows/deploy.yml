@@ -1,8 +1,11 @@
 name: Deploy
 
 on:
-  release:
-    types: [published]
+  # push тега (git push origin vX.Y.Z): надёжно срабатывает в отличие от
+  # release: published, которое не триггерит workflow-ы, созданные GITHUB_TOKEN
+  push:
+    tags:
+      - "v*"
   workflow_dispatch:
 
 concurrency:
