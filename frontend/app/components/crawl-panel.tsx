@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 
 import { fetchProgressClient, triggerCrawl, type SearchProgress } from "@/lib/api";
+import { useToast } from "@/app/components/toast";
 import { InfoHint } from "@/app/components/info-hint";
 import { formatRelativeTime } from "@/lib/format";
 
@@ -38,6 +39,7 @@ const STATUS_STYLES: Record<string, string> = {
 export function CrawlPanel({ searchId }: { searchId: string }) {
   const [progress, setProgress] = useState<SearchProgress | null>(null);
   const [busy, setBusy] = useState(false);
+  const toast = useToast();
 
   const load = useCallback(async () => {
     const data = await fetchProgressClient(searchId);
@@ -75,9 +77,14 @@ export function CrawlPanel({ searchId }: { searchId: string }) {
       updated_at: new Date().toISOString(),
       last_crawl_at: current?.last_crawl_at ?? null,
     }));
-    await triggerCrawl(searchId);
+    const ok = await triggerCrawl(searchId);
     await load();
     setBusy(false);
+    if (ok) {
+      toast.push("info", "Обход поставлен в очередь");
+    } else {
+      toast.push("error", "Не удалось запустить обход");
+    }
   }
 
   const status = progress?.status ?? "idle";

@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 
+import { useToast } from "@/app/components/toast";
 import { setListingsExcludedClient } from "@/lib/api";
 
 export function ListingActions({
@@ -15,6 +16,7 @@ export function ListingActions({
   manualExcluded: boolean;
 }) {
   const router = useRouter();
+  const toast = useToast();
   const [busy, setBusy] = useState(false);
 
   async function toggle() {
@@ -27,7 +29,13 @@ export function ListingActions({
     );
     setBusy(false);
     if (result.ok) {
+      toast.push(
+        "success",
+        manualExcluded ? "Объявление возвращено в расчёт" : "Объявление скрыто из расчёта",
+      );
       router.refresh();
+    } else {
+      toast.push("error", result.error);
     }
   }
 

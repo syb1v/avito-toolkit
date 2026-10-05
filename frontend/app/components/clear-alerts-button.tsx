@@ -3,6 +3,8 @@
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 
+import { useConfirm } from "@/app/components/confirm";
+import { useToast } from "@/app/components/toast";
 import { clearAlertsClient } from "@/lib/api";
 
 export function ClearAlertsButton({
@@ -17,10 +19,18 @@ export function ClearAlertsButton({
   className?: string;
 }) {
   const router = useRouter();
+  const toast = useToast();
+  const confirm = useConfirm();
   const [busy, setBusy] = useState(false);
 
   async function clear() {
-    if (!window.confirm("Очистить алерты? Действие необратимо.")) {
+    const ok = await confirm({
+      title: "Очистить алерты?",
+      text: "Удалить выбранные алерты? Действие необратимо.",
+      confirmLabel: "Очистить",
+      danger: true,
+    });
+    if (!ok) {
       return;
     }
     setBusy(true);
@@ -30,7 +40,10 @@ export function ClearAlertsButton({
     });
     setBusy(false);
     if (result.ok) {
+      toast.push("success", `Очищено алертов: ${result.data?.deleted ?? 0}`);
       router.refresh();
+    } else {
+      toast.push("error", result.error);
     }
   }
 

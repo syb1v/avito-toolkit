@@ -2,10 +2,13 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 
 import { InfoHint } from "@/app/components/info-hint";
+import { Modal } from "@/app/components/modal";
 import { RegionPicker } from "@/app/components/region-picker";
+import { useConfirm } from "@/app/components/confirm";
+import { useToast } from "@/app/components/toast";
 import {
   type Account,
   type Search,
@@ -150,12 +153,11 @@ export function SearchManager({
   editId?: string | null;
 }) {
   const router = useRouter();
+  const toast = useToast();
+  const confirm = useConfirm();
   const [items, setItems] = useState(initial);
   const [form, setForm] = useState<FormState | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
-  const [message, setMessage] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const formRef = useRef<HTMLDivElement | null>(null);
 
   const accountName = (id: string | null) =>
     accounts.find((account) => account.id === id)?.name ?? "—";
@@ -167,8 +169,6 @@ export function SearchManager({
 
   function openCreate() {
     setForm({ ...EMPTY_FORM, accountId: accounts[0]?.id ?? "" });
-    setError(null);
-    setMessage(null);
   }
 
   function openEdit(search: Search) {
@@ -190,12 +190,6 @@ export function SearchManager({
       excludeRegions: listFromParams(params?.exclude_regions),
       accountId: search.account_id ?? "",
     });
-    setError(null);
-    setMessage(null);
-    setTimeout(
-      () => formRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }),
-      50,
-    );
   }
 
   useEffect(() => {
@@ -217,7 +211,7 @@ export function SearchManager({
     const name = form.name.trim();
     const url = form.url.trim();
     if (!name || !url) {
-      setError("Заполните название и ссылку на выдачу");
+      toast.push("error", "Заполните название и ссылку на выдачу");
       return;
     }
     const current = items.find((item) => item.id === form.id);
@@ -245,11 +239,11 @@ export function SearchManager({
       : await createSearchClient(payload);
     setBusy(null);
     if (!result.ok) {
-      setError(result.error);
+      toast.push("error", result.error);
       return;
     }
     setForm(null);
-    setMessage(form.id ? "Поиск обновлён" : "Поиск добавлен");
+    toast.push("success", form.id ? "Поиск обновлён" : "Поиск добавлен");
     await refresh();
   }
 
@@ -258,23 +252,31 @@ export function SearchManager({
     const result = await updateSearchClient(search.id, { is_active: !search.is_active });
     setBusy(null);
     if (!result.ok) {
-      setError(result.error);
+      toast.push("error", result.error);
       return;
     }
+    toast.push("info", search.is_active ? `«${search.name}» на паузе` : `«${search.name}» включён`);
     await refresh();
   }
 
   async function remove(search: Search) {
-    if (!window.confirm(`Удалить поиск «${search.name}» со всей собранной выдачей?`)) {
+    const ok = await confirm({
+      title: "Удалить поиск?",
+      text: `«${search.name}» и вся собранная выдача будут удалены. Действие необратимо.`,
+      confirmLabel: "Удалить",
+      danger: true,
+    });
+    if (!ok) {
       return;
     }
     setBusy(search.id);
     const result = await deleteSearchClient(search.id);
     setBusy(null);
     if (!result.ok) {
-      setError(result.error);
+      toast.push("error", result.error);
       return;
     }
+    toast.push("success", `Поиск «${search.name}» удалён`);
     await refresh();
   }
 
@@ -282,9 +284,10 @@ export function SearchManager({
     setBusy(search.id);
     const ok = await triggerCrawl(search.id);
     setBusy(null);
-    setMessage(ok ? `Обход «${search.name}» поставлен в очередь` : null);
-    if (!ok) {
-      setError("Не удалось запустить обход");
+    if (ok) {
+      toast.push("info", `Обход «${search.name}» поставлен в очередь`);
+    } else {
+      toast.push("error", "Не удалось запустить обход");
     }
   }
 
@@ -313,18 +316,34 @@ export function SearchManager({
         </div>
       </div>
 
-      {message ? <p className="text-xs text-emerald-300">{message}</p> : null}
-      {error ? <p className="text-xs text-red-300">{error}</p> : null}
-
-      {form ? (
-        <div
-          ref={formRef}
-          className="rounded-xl border border-sky-500/25 bg-neutral-900/70 p-4 sm:p-5"
-        >
-          <h3 className="text-sm font-medium text-sky-100">
-            {form.id ? "Редактирование поиска" : "Новый поиск"}
-          </h3>
-          <div className="mt-3 grid gap-3 sm:grid-cols-2">
+      <Modal
+        open={form !== null}
+        onClose={() => setForm(null)}
+        title={form?.id ? "Редактирование поиска" : "Новый поиск"}
+        subtitle="URL выдачи, фильтры, расписание и аккаунт"
+        maxWidth="max-w-3xl"
+        footer={
+          <>
+            <button
+              type="button"
+              onClick={() => setForm(null)}
+              className="rounded-lg border border-neutral-700 px-4 py-1.5 text-xs text-neutral-300 transition hover:border-neutral-500"
+            >
+              Отмена
+            </button>
+            <button
+              type="button"
+              onClick={submit}
+              disabled={busy === "save"}
+              className="rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-4 py-1.5 text-xs text-emerald-200 transition hover:bg-emerald-500/20 disabled:opacity-50"
+            >
+              {busy === "save" ? "Сохранение…" : form?.id ? "Сохранить" : "Добавить"}
+            </button>
+          </>
+        }
+      >
+        {form ? (
+          <div className="grid gap-3 sm:grid-cols-2">
             <label className="flex flex-col gap-1 text-xs text-neutral-400">
               Название
               <input
@@ -462,7 +481,7 @@ export function SearchManager({
                 пусто = все города; несколько — отметить галочками
               </span>
             </div>
-            <div className="flex flex-col gap-1 text-xs text-neutral-400">
+            <div className="flex flex-col gap-1 text-xs text-neutral-400 sm:col-span-2">
               Исключить города
               <RegionPicker
                 value={form.excludeRegions}
@@ -495,25 +514,8 @@ export function SearchManager({
               />
             </label>
           </div>
-          <div className="mt-4 flex items-center gap-2">
-            <button
-              type="button"
-              onClick={submit}
-              disabled={busy === "save"}
-              className="rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-4 py-1.5 text-xs text-emerald-200 transition hover:bg-emerald-500/20 disabled:opacity-50"
-            >
-              {busy === "save" ? "Сохранение…" : form.id ? "Сохранить" : "Добавить"}
-            </button>
-            <button
-              type="button"
-              onClick={() => setForm(null)}
-              className="rounded-lg border border-neutral-700 px-4 py-1.5 text-xs text-neutral-300 transition hover:border-neutral-500"
-            >
-              Отмена
-            </button>
-          </div>
-        </div>
-      ) : null}
+        ) : null}
+      </Modal>
 
       <ul className="grid gap-3 sm:grid-cols-2 sm:gap-4">
         {items.map((search) => {

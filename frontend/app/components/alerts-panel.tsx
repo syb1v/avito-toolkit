@@ -3,7 +3,9 @@
 import { useState } from "react";
 
 import { ackAlert, clearAlertsClient, type Alert } from "@/lib/api";
+import { useConfirm } from "@/app/components/confirm";
 import { InfoHint } from "@/app/components/info-hint";
+import { useToast } from "@/app/components/toast";
 import { formatPercent, formatPrice, formatRelativeTime } from "@/lib/format";
 
 function alertTitle(type: string): string {
@@ -23,6 +25,8 @@ export function AlertsPanel({
   const [items, setItems] = useState(alerts);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [clearing, setClearing] = useState(false);
+  const toast = useToast();
+  const confirm = useConfirm();
 
   if (items.length === 0) {
     return null;
@@ -33,12 +37,21 @@ export function AlertsPanel({
     const ok = await ackAlert(id);
     if (ok) {
       setItems((current) => current.filter((alert) => alert.id !== id));
+      toast.push("success", "Алерт принят");
+    } else {
+      toast.push("error", "Не удалось принять алерт");
     }
     setBusyId(null);
   }
 
   async function clearAll() {
-    if (!window.confirm("Очистить все новые алерты? Действие необратимо.")) {
+    const ok = await confirm({
+      title: "Очистить алерты?",
+      text: "Все новые алерты этого поиска будут удалены. Действие необратимо.",
+      confirmLabel: "Очистить",
+      danger: true,
+    });
+    if (!ok) {
       return;
     }
     setClearing(true);
@@ -49,6 +62,9 @@ export function AlertsPanel({
     setClearing(false);
     if (result.ok) {
       setItems([]);
+      toast.push("success", `Очищено алертов: ${result.data?.deleted ?? 0}`);
+    } else {
+      toast.push("error", result.error);
     }
   }
 

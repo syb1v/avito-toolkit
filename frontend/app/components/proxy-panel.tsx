@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 
 import { InfoHint } from "@/app/components/info-hint";
+import { useToast } from "@/app/components/toast";
 import {
   checkProxiesClient,
   fetchProxiesClient,
@@ -15,6 +16,7 @@ const POLL_INTERVAL_MS = 20000;
 export function ProxyPanel() {
   const [status, setStatus] = useState<ProxyStatus | null>(null);
   const [checking, setChecking] = useState(false);
+  const toast = useToast();
 
   const load = useCallback(async () => {
     setStatus(await fetchProxiesClient());
@@ -38,9 +40,11 @@ export function ProxyPanel() {
 
   async function check() {
     setChecking(true);
-    await checkProxiesClient();
+    toast.push("info", "Проверяю прокси: канал + доступность Авито");
+    const ok = await checkProxiesClient();
     await load();
     setChecking(false);
+    toast.push(ok ? "success" : "error", ok ? "Проверка завершена" : "Не удалось проверить прокси");
   }
 
   if (status === null) {
