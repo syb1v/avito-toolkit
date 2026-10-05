@@ -7,6 +7,8 @@
 
 ## [Unreleased]
 
+## [0.19.0] - 2026-10-05
+
 ### Добавлено
 
 - **Telegram-бот @avitotoolkitbot**: вход по логину/паролю с сессией 30 дней,
@@ -517,7 +519,8 @@
 - Дашборд Next.js 16 + Tailwind 4 со статусом API и дорожной картой.
 - Документация: README, `docs/plan.md`, `.env.example`, MIT-лицензия.
 
-[Unreleased]: https://github.com/syb1v/avito-toolkit/compare/v0.18.1...HEAD
+[Unreleased]: https://github.com/syb1v/avito-toolkit/compare/v0.19.0...HEAD
+[0.19.0]: https://github.com/syb1v/avito-toolkit/compare/v0.18.1...v0.19.0
 [0.18.1]: https://github.com/syb1v/avito-toolkit/compare/v0.18.0...v0.18.1
 [0.18.0]: https://github.com/syb1v/avito-toolkit/compare/v0.17.0...v0.18.0
 [0.17.0]: https://github.com/syb1v/avito-toolkit/compare/v0.16.0...v0.17.0
