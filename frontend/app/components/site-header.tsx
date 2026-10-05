@@ -5,6 +5,7 @@ import { API_URL } from "@/lib/api";
 const NAV_LINKS = [
   { href: "/", label: "Поиски" },
   { href: "/our-listings", label: "Наши объявления" },
+  { href: "/edits", label: "Правки" },
 ];
 
 export function SiteHeader() {

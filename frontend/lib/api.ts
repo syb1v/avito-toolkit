@@ -95,6 +95,7 @@ export type Listing = {
   region: string | null;
   manual_excluded: boolean;
   exclude_reason: "manual" | "keyword" | "stopword" | "region" | null;
+  exclude_detail: string | null;
   excluded: boolean;
   first_seen: string | null;
 };
@@ -425,6 +426,50 @@ export async function createDigest(
   }
 }
 
+export type ListingEdit = {
+  id: string;
+  sku: string;
+  title: string | null;
+  old_price: number;
+  target_price: number;
+  delta_pct: number;
+  strategy: string;
+  status: string;
+  mode: string;
+  error: string | null;
+  screenshot_path: string | null;
+  created_at: string;
+  applied_at: string | null;
+  reverted_at: string | null;
+};
+
+export type EditsList = {
+  mode: string;
+  live_edits: boolean;
+  items: ListingEdit[];
+};
+
+export const fetchEdits = async (): Promise<EditsList> =>
+  (await getJson<EditsList>("/api/v1/our-listings/edits")) ?? {
+    mode: "dry_run",
+    live_edits: false,
+    items: [],
+  };
+
+export const fetchEditsClient = async (): Promise<EditsList | null> => {
+  try {
+    const response = await fetch(`${API_URL}/api/v1/our-listings/edits`, {
+      cache: "no-store",
+    });
+    if (!response.ok) {
+      return null;
+    }
+    return (await response.json()) as EditsList;
+  } catch {
+    return null;
+  }
+};
+
 export type MutationResult<T = unknown> =
   | { ok: true; data: T }
   | { ok: false; error: string };
@@ -475,6 +520,18 @@ export const updateSearchClient = (
 
 export const deleteSearchClient = (id: string) =>
   mutate<void>(`/api/v1/searches/${id}`, { method: "DELETE" });
+
+export const createEditsClient = (payload: { sku?: string; max_items?: number }) =>
+  mutate<{ created: number; items: ListingEdit[] }>("/api/v1/our-listings/edits", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+
+export const editActionClient = (
+  id: string,
+  action: "approve" | "reject" | "apply" | "revert",
+) =>
+  mutate<ListingEdit>(`/api/v1/our-listings/edits/${id}/${action}`, { method: "POST" });
 
 export const createAccountClient = (payload: {
   name: string;

@@ -563,9 +563,11 @@ export default async function SearchDetailPage({
                         className={`ml-2 rounded border px-1.5 py-0.5 text-[10px] ${
                           EXCLUDE_REASON_META[listing.exclude_reason]?.className ?? ""
                         }`}
+                        title={listing.exclude_detail ?? undefined}
                       >
                         {EXCLUDE_REASON_META[listing.exclude_reason]?.label ??
                           listing.exclude_reason}
+                        {listing.exclude_detail ? ` · ${listing.exclude_detail}` : ""}
                       </span>
                     ) : null}
                     <ListingFlags
@@ -612,7 +614,9 @@ export default async function SearchDetailPage({
                     ? ` · в базе ${formatRelativeTime(listing.first_seen)}`
                     : ""}
                   {listing.exclude_reason
-                    ? ` · ${EXCLUDE_REASON_META[listing.exclude_reason]?.label ?? listing.exclude_reason}`
+                    ? ` · ${EXCLUDE_REASON_META[listing.exclude_reason]?.label ?? listing.exclude_reason}${
+                        listing.exclude_detail ? ` (${listing.exclude_detail})` : ""
+                      }`
                     : ""}
                 </p>
                 {listing.url ? (

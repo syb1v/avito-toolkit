@@ -1,5 +1,7 @@
 from app.services.search_filter import (
     exclude_keywords_from_params,
+    first_matching_exclude,
+    first_missing_group,
     keywords_from_params,
     matches_exclude_keywords,
     matches_keyword_groups,
@@ -63,3 +65,12 @@ def test_query_from_groups_prefers_longest_alternative() -> None:
     assert query_from_groups([["apple watch", "apple"], ["ultra"], ["4"]]) == (
         "apple watch ultra 4"
     )
+
+
+def test_first_matching_exclude_and_missing_group() -> None:
+    text = "Bang & Olufsen Beoplay Eleven Copper Tone"
+    assert first_matching_exclude(text, ["б/у", "copper"]) == "copper"
+    assert first_matching_exclude(text, ["б/у"]) is None
+    groups = [["b&o", "bang olufsen"], ["beoplay"], ["natural aluminium"]]
+    assert first_missing_group(text, groups) == ["natural aluminium"]
+    assert first_missing_group("B&O Beoplay Eleven Natural Aluminium", groups) is None

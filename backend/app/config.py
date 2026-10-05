@@ -72,6 +72,11 @@ class Settings(BaseSettings):
 
     reprice_hitl_threshold_pct: float = 10.0
     reprice_max_step_pct: float = 5.0
+    # Фаза 6: правки объявлений через кабинет продавца
+    # dry_run — только фиксируем план (браузер не трогаем); live — реально меняем цену
+    seller_edit_mode: str = "dry_run"
+    seller_edit_max_per_run: int = 5
+    avito_edit_url_template: str = "https://www.avito.ru/profile/items/{item_id}/edit"
 
     match_min_score: int = 75
     match_max_candidates: int = 300

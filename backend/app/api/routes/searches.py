@@ -20,6 +20,8 @@ from app.services.regions import (
 from app.services.search_filter import (
     combined_text,
     exclude_keywords_from_params,
+    first_matching_exclude,
+    first_missing_group,
     keywords_from_params,
     matches_exclude_keywords,
     matches_keyword_groups,
@@ -76,6 +78,7 @@ class ListingRead(BaseModel):
     region: str | None = None
     manual_excluded: bool = False
     exclude_reason: str | None = None
+    exclude_detail: str | None = None
     excluded: bool = False
     first_seen: datetime | None = None
 
@@ -316,14 +319,19 @@ async def list_search_listings(
         text = combined_text(row[1] or "", row[10])
         listing_region = row[11]
         manual_excluded = row[12] is not None
+        detail: str | None = None
         if manual_excluded:
             reason: str | None = "manual"
-        elif groups and not matches_keyword_groups(text, groups):
+            detail = "скрыто вручную"
+        elif groups and (missing := first_missing_group(text, groups)):
             reason = "keyword"
-        elif matches_exclude_keywords(text, excludes):
+            detail = f"нет: {', '.join(missing[:3])}"
+        elif word := first_matching_exclude(text, excludes):
             reason = "stopword"
+            detail = f"стоп-слово: {word}"
         elif not matches_region(listing_region, regions, exclude_regions):
             reason = "region"
+            detail = f"город: {listing_region or '—'}"
         else:
             reason = None
         items.append(
@@ -342,6 +350,7 @@ async def list_search_listings(
                 region=listing_region,
                 manual_excluded=manual_excluded,
                 exclude_reason=reason,
+                exclude_detail=detail,
                 excluded=reason is not None,
                 first_seen=row[13],
             )

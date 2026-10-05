@@ -15,7 +15,14 @@ from app.collectors.ratelimit import RedisRateLimiter
 from app.collectors.transport.http_cffi import HttpCffiTransport
 from app.collectors.web.parsing import parse_search_page
 from app.config import get_settings
-from app.db.models import AvitoAccount, Listing, OurListing, Search, SearchListing
+from app.db.models import (
+    AvitoAccount,
+    Listing,
+    ListingEdit,
+    OurListing,
+    Search,
+    SearchListing,
+)
 from app.db.session import dispose_engine, get_engine
 from app.services.accounts import account_for_search, resolve_profile_path
 from app.services.alerts import evaluate_search_alerts
@@ -28,6 +35,7 @@ from app.services.moderation import enrich_descriptions, moderate_search
 from app.services.progress import CrawlProgress
 from app.services.proxy_pool import build_proxy_pool
 from app.services.regions import with_city
+from app.services.seller import apply_price_edit, build_edit_url, item_id_from_url
 
 logger = logging.getLogger(__name__)
 
@@ -365,6 +373,113 @@ async def _check_account(account_id: str) -> dict[str, object]:
             await transport.close()
         await redis.aclose()
         await dispose_engine()
+
+
+async def _pick_seller_account(
+    session: AsyncSession, account_id: uuid.UUID | None
+) -> AvitoAccount | None:
+    if account_id is not None:
+        account = await session.get(AvitoAccount, account_id)
+        if account is not None and account.role == "seller":
+            return account
+    return await session.scalar(
+        select(AvitoAccount)
+        .where(AvitoAccount.role == "seller", AvitoAccount.status == "active")
+        .order_by(AvitoAccount.created_at)
+        .limit(1)
+    )
+
+
+async def _apply_listing_edit(edit_id: str, revert: bool) -> dict[str, object]:
+    settings = get_settings()
+    redis = Redis.from_url(settings.redis_url)
+    session_factory = async_sessionmaker(get_engine(), expire_on_commit=False)
+    lock_key: str | None = None
+    try:
+        async with session_factory() as session:
+            edit = await session.get(ListingEdit, uuid.UUID(edit_id))
+            if edit is None:
+                return {"skipped": "edit not found"}
+            our = await session.get(OurListing, edit.sku)
+            if our is None:
+                edit.status = "failed"
+                edit.error = "наш SKU не найден"
+                await session.commit()
+                return {"ok": False, "error": edit.error}
+            target = float(edit.old_price if revert else edit.target_price)
+            if settings.seller_edit_mode != "live":
+                edit.mode = "dry_run"
+                edit.status = "reverted" if revert else "applied"
+                edit.error = None
+                now = datetime.now(UTC)
+                if revert:
+                    edit.reverted_at = now
+                else:
+                    edit.applied_at = now
+                await session.commit()
+                return {"ok": True, "mode": "dry_run", "target": target}
+
+            account = await _pick_seller_account(session, edit.account_id)
+            if account is None:
+                edit.status = "failed"
+                edit.error = "нет аккаунта продавца — добавьте его и залейте cookies"
+                await session.commit()
+                return {"ok": False, "error": edit.error}
+            item_id = our.avito_item_id or item_id_from_url(our.avito_url)
+            if item_id is None:
+                edit.status = "failed"
+                edit.error = "у SKU нет ссылки/ID объявления Авито (импортируйте свой профиль)"
+                await session.commit()
+                return {"ok": False, "error": edit.error}
+
+            lock_key = f"crawl:account-lock:{account.id}"
+            if not await redis.set(
+                lock_key, f"edit:{edit.id}", nx=True, ex=ACCOUNT_LOCK_TTL_SECONDS
+            ):
+                edit.status = "failed"
+                edit.error = "профиль продавца занят другим действием, повторите позже"
+                await session.commit()
+                return {"ok": False, "error": edit.error}
+
+            profile_dir = resolve_profile_path(account.profile_dir)
+            screenshot_dir = profile_dir.parent / "edits"
+            outcome = await apply_price_edit(
+                profile_dir=str(profile_dir),
+                proxy_url=account.proxy_url,
+                page_url=build_edit_url(item_id),
+                new_price=target,
+                screenshot_dir=str(screenshot_dir),
+                edit_id=str(edit.id),
+            )
+            edit.mode = "live"
+            edit.screenshot_path = outcome.screenshot_path
+            if outcome.ok:
+                edit.status = "reverted" if revert else "applied"
+                edit.error = None
+                now = datetime.now(UTC)
+                if revert:
+                    edit.reverted_at = now
+                else:
+                    edit.applied_at = now
+                our.price = target
+            else:
+                edit.status = "failed"
+                edit.error = outcome.message
+            await session.commit()
+            logger.info("listing edit %s: %s", edit.id, outcome.message)
+            return {"ok": outcome.ok, "mode": "live", "message": outcome.message}
+    finally:
+        if lock_key is not None:
+            await redis.delete(lock_key)
+        await redis.aclose()
+        await dispose_engine()
+
+
+@dramatiq.actor(queue_name="crawl", max_retries=1, time_limit=CRAWL_TIME_LIMIT_MS)
+def apply_listing_edit(edit_id: str, revert: bool = False) -> None:
+    """Правка цены объявления через кабинет продавца (dry-run или live)."""
+    result = asyncio.run(_apply_listing_edit(edit_id, revert))
+    logger.info("listing edit applied: %s", result)
 
 
 @dramatiq.actor(queue_name="crawl", max_retries=1, time_limit=CRAWL_TIME_LIMIT_MS)

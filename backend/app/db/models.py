@@ -199,6 +199,32 @@ class OurListing(Base):
     )
 
 
+class ListingEdit(Base):
+    """Черновик/факт правки цены своего объявления через кабинет продавца."""
+
+    __tablename__ = "listing_edits"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    sku: Mapped[str] = mapped_column(
+        String(64), ForeignKey("our_listings.sku", ondelete="CASCADE"), index=True
+    )
+    account_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid, ForeignKey("avito_accounts.id", ondelete="SET NULL")
+    )
+    old_price: Mapped[float] = mapped_column(Numeric(12, 2))
+    target_price: Mapped[float] = mapped_column(Numeric(12, 2))
+    delta_pct: Mapped[float] = mapped_column(Float, default=0.0)
+    strategy: Mapped[str] = mapped_column(String(32), default="keep_current")
+    # draft | approved | rejected | applying | applied | reverting | reverted | failed
+    status: Mapped[str] = mapped_column(String(20), default="draft", index=True)
+    mode: Mapped[str] = mapped_column(String(12), default="dry_run")
+    error: Mapped[str | None] = mapped_column(Text)
+    screenshot_path: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    applied_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    reverted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
 class Job(Base):
     __tablename__ = "jobs"
 

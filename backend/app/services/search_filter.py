@@ -80,11 +80,25 @@ def matches_keyword_groups(title: str, groups: KeywordGroups | None) -> bool:
     return all(_contains_any(title, group) for group in groups)
 
 
+def first_matching_exclude(text: str, excludes: Sequence[str] | None) -> str | None:
+    """Какое именно стоп-слово найдено в тексте (для прозрачности в UI)."""
+    for alternative in excludes or []:
+        if _contains_any(text, [alternative]):
+            return alternative
+    return None
+
+
+def first_missing_group(text: str, groups: KeywordGroups | None) -> list[str] | None:
+    """Какая include-группа не совпала (вернёт её альтернативы)."""
+    for group in groups or []:
+        if not _contains_any(text, group):
+            return list(group)
+    return None
+
+
 def matches_exclude_keywords(title: str, excludes: Sequence[str] | None) -> bool:
     """True, если заголовок попал под стоп-слово (объявление исключается)."""
-    if not excludes:
-        return False
-    return _contains_any(title, excludes)
+    return first_matching_exclude(title, excludes) is not None
 
 
 def matches_search(
