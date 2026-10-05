@@ -16,10 +16,20 @@ echo "== сборка образов =="
 "${COMPOSE[@]}" build
 
 echo "== поднимаю postgres/redis =="
-"${COMPOSE[@]}" up -d postgres redis
+"${COMPOSE[@]}" up -d --wait postgres redis
 
 echo "== миграции БД =="
-"${COMPOSE[@]}" run --rm --no-deps api alembic upgrade head
+for attempt in 1 2 3 4 5; do
+    if "${COMPOSE[@]}" run --rm --no-deps api alembic upgrade head; then
+        break
+    fi
+    if [ "$attempt" = 5 ]; then
+        echo "FAIL: миграции не применились" >&2
+        exit 1
+    fi
+    echo "миграции: БД ещё не готова, повтор $attempt"
+    sleep 5
+done
 
 echo "== запуск стека =="
 "${COMPOSE[@]}" up -d
