@@ -34,6 +34,12 @@ export type Account = {
   last_error: string | null;
   searches_count: number;
   profile_exists: boolean;
+  pages_today: number;
+  daily_limit: number;
+  last_activity: string | null;
+  warmup_last: string | null;
+  rest_until: string | null;
+  rest_reason: string | null;
 };
 
 export type PriceStats = {
@@ -563,6 +569,20 @@ export const checkAccountClient = (id: string) =>
   mutate<{ status: string; seconds_left?: number }>(`/api/v1/accounts/${id}/check`, {
     method: "POST",
   });
+
+export const warmupAccountClient = (id: string) =>
+  mutate<{ status: string; message_id?: string }>(`/api/v1/accounts/${id}/warmup`, {
+    method: "POST",
+  });
+
+export const restAccountClient = (id: string, minutes?: number) =>
+  mutate<{ status: string; until: number; minutes: number }>(`/api/v1/accounts/${id}/rest`, {
+    method: "POST",
+    body: JSON.stringify({ minutes: minutes ?? null }),
+  });
+
+export const resumeAccountClient = (id: string) =>
+  mutate<{ status: string }>(`/api/v1/accounts/${id}/resume`, { method: "POST" });
 
 export const uploadAccountCookiesClient = (id: string, cookies: string, fresh = true) =>
   mutate<{ status: string }>(`/api/v1/accounts/${id}/cookies`, {

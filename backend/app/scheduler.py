@@ -8,11 +8,12 @@ from redis.asyncio import Redis
 from sqlalchemy import select
 
 from app.config import get_settings
-from app.db.models import Search
+from app.db.models import AvitoAccount, Search
 from app.db.session import dispose_engine, get_session_factory
+from app.services.account_care import warmup_due
 from app.services.progress import CrawlProgress
 from app.services.watchdog import run_watchdog
-from app.workers.tasks import check_proxies, crawl_search, recalc_analytics
+from app.workers.tasks import check_proxies, crawl_search, recalc_analytics, warmup_account
 
 logger = logging.getLogger(__name__)
 
@@ -57,6 +58,51 @@ def _enqueue_analytics() -> None:
 def _enqueue_proxy_check() -> None:
     check_proxies.send()
     logger.info("enqueued proxy healthcheck")
+
+
+def _enqueue_warmups() -> None:
+    """Периодически «прогревает» аккаунты, которые давно не работали."""
+
+    async def _run() -> dict[str, int]:
+        settings = get_settings()
+        if not settings.account_warmup_enabled:
+            return {"enqueued": 0}
+        factory = get_session_factory()
+        redis = Redis.from_url(settings.redis_url)
+        try:
+            async with factory() as session:
+                accounts = (
+                    (
+                        await session.execute(
+                            select(AvitoAccount).where(AvitoAccount.status == "active")
+                        )
+                    )
+                    .scalars()
+                    .all()
+                )
+                due: list[AvitoAccount] = []
+                for account in accounts:
+                    if await warmup_due(
+                        redis,
+                        str(account.id),
+                        idle_hours=settings.account_warmup_idle_hours,
+                    ):
+                        due.append(account)
+                        if len(due) >= settings.account_warmup_max_per_run:
+                            break
+            for account in due:
+                warmup_account.send(str(account.id))
+            return {"enqueued": len(due)}
+        finally:
+            await redis.aclose()
+            await dispose_engine()
+
+    try:
+        result = asyncio.run(_run())
+        if result["enqueued"]:
+            logger.info("warmup scheduler: %s", result)
+    except Exception:
+        logger.exception("warmup scheduler failed")
 
 
 def _watchdog_check() -> None:
@@ -162,6 +208,18 @@ def main() -> None:
         id="watchdog",
     )
     logger.info("watchdog scheduled every %s min", settings.watchdog_interval_minutes)
+    if settings.account_warmup_enabled:
+        scheduler.add_job(
+            _enqueue_warmups,
+            "interval",
+            minutes=settings.account_warmup_interval_minutes,
+            id="account-warmup",
+        )
+        logger.info(
+            "account warmup scheduled every %s min (idle %s h)",
+            settings.account_warmup_interval_minutes,
+            settings.account_warmup_idle_hours,
+        )
     logger.info("scheduler started")
     scheduler.start()
 

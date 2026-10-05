@@ -2,6 +2,7 @@ import asyncio
 import importlib.util
 import logging
 import random
+import time
 import uuid
 from datetime import UTC, date, datetime
 
@@ -10,7 +11,7 @@ from redis.asyncio import Redis
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from app.collectors.base import SourceAdapter
+from app.collectors.base import BotChallengeError, RateLimitedError, SourceAdapter
 from app.collectors.ratelimit import RedisRateLimiter
 from app.collectors.transport.http_cffi import HttpCffiTransport
 from app.collectors.web.parsing import parse_search_page
@@ -24,6 +25,13 @@ from app.db.models import (
     SearchListing,
 )
 from app.db.session import dispose_engine, get_engine
+from app.services.account_care import (
+    can_use,
+    mark_warmed,
+    note_activity,
+    rest_until,
+    set_rest,
+)
 from app.services.accounts import account_for_search, resolve_profile_path
 from app.services.alerts import evaluate_search_alerts
 from app.services.analytics.service import recalc_daily_analytics
@@ -165,6 +173,18 @@ async def _collect(search_id: str) -> CrawlResult:
                 await progress.stage("cooldown")
                 await progress.finish({"skipped": True, "reason": reason})
                 return _empty_result(search_id)
+            account_token = str(account.id) if account is not None else "default"
+            allowed, care_reason = await can_use(
+                redis,
+                account_token,
+                daily_limit=settings.account_daily_page_limit,
+                rest_minutes=settings.account_rest_minutes,
+            )
+            if not allowed:
+                logger.warning("crawl skipped for %s: %s", search_id, care_reason)
+                await progress.stage("cooldown")
+                await progress.finish({"skipped": True, "reason": care_reason})
+                return _empty_result(search_id)
             block_reason = await guard.block_reason(search_id)
             if block_reason is not None:
                 logger.warning("crawl skipped for %s: %s", search_id, block_reason)
@@ -219,6 +239,7 @@ async def _collect(search_id: str) -> CrawlResult:
                 url_override=url_override,
             )
             result = await collector.collect(uuid.UUID(search_id))
+            await note_activity(redis, account_token, pages=max(0, result.pages_fetched))
             failure_reason = classify_failure(
                 stopped_by_challenge=result.stopped_by_challenge,
                 rate_limited=result.rate_limited,
@@ -227,6 +248,14 @@ async def _collect(search_id: str) -> CrawlResult:
             )
             if failure_reason is not None:
                 await guard.note_failure(search_id, failure_reason)
+                if failure_reason in ("challenge", "rate_limit"):
+                    minutes = settings.account_rest_minutes
+                    await set_rest(
+                        redis,
+                        account_token,
+                        minutes,
+                        "челлендж Авито" if failure_reason == "challenge" else "429",
+                    )
             else:
                 await guard.note_success(search_id)
             if settings.crawl_descriptions_per_run > 0:
@@ -363,6 +392,14 @@ async def _check_account(account_id: str) -> dict[str, object]:
                 account.last_check_ok = False
                 account.last_error = f"{type(error).__name__}: {error}"
                 result = {"account_id": account_id, "ok": False, "error": str(error)}
+            await note_activity(redis, account_id, pages=1)
+            if not account.last_check_ok and any(
+                marker in (account.last_error or "").lower()
+                for marker in ("challenge", "429", "rate")
+            ):
+                await set_rest(
+                    redis, account_id, settings.account_rest_minutes, "проверка: блокировка"
+                )
             account.last_check_at = checked_at
             if account.last_check_ok and account.status == "paused":
                 account.status = "active"
@@ -480,6 +517,81 @@ def apply_listing_edit(edit_id: str, revert: bool = False) -> None:
     """Правка цены объявления через кабинет продавца (dry-run или live)."""
     result = asyncio.run(_apply_listing_edit(edit_id, revert))
     logger.info("listing edit applied: %s", result)
+
+
+WARMUP_URL = "https://www.avito.ru/"
+
+
+async def _warmup_account(account_id: str) -> dict[str, object]:
+    """Мягкий прогрев: главная + одна выдача аккаунта, с человеческими паузами."""
+    settings = get_settings()
+    redis = Redis.from_url(settings.redis_url)
+    session_factory = async_sessionmaker(get_engine(), expire_on_commit=False)
+    transport: SourceAdapter | None = None
+    lock_key: str | None = None
+    try:
+        async with session_factory() as session:
+            account = await session.get(AvitoAccount, uuid.UUID(account_id))
+            if account is None or account.status != "active":
+                return {"skipped": "account missing or paused"}
+            if await rest_until(redis, account_id) > time.time():
+                return {"skipped": "resting"}
+            lock_key = f"crawl:account-lock:{account.id}"
+            if not await redis.set(
+                lock_key, f"warmup:{account.id}", nx=True, ex=ACCOUNT_LOCK_TTL_SECONDS
+            ):
+                return {"skipped": "busy"}
+            transport = await _build_transport(
+                redis,
+                session,
+                user_data_dir=str(resolve_profile_path(account.profile_dir)),
+                proxy_url=account.proxy_url,
+            )
+            ok = True
+            error_text: str | None = None
+            try:
+                await transport.fetch(WARMUP_URL, expect_items=False)
+                await asyncio.sleep(random.uniform(3.0, 6.0))
+                search = await session.scalar(
+                    select(Search)
+                    .where(Search.account_id == account.id, Search.is_active.is_(True))
+                    .order_by(Search.priority)
+                    .limit(1)
+                )
+                if search is not None:
+                    await transport.fetch(search.url, expect_items=False)
+                    await asyncio.sleep(random.uniform(2.0, 5.0))
+            except (BotChallengeError, RateLimitedError) as error:
+                ok = False
+                error_text = f"прогрев: {error}"
+                await set_rest(
+                    redis, account_id, settings.account_rest_minutes, "прогрев: блокировка"
+                )
+            except Exception as error:  # noqa: BLE001 — фиксируем и продолжаем жить
+                ok = False
+                error_text = f"прогрев: {type(error).__name__}: {error}"
+            if ok:
+                await note_activity(redis, account_id, pages=2)
+                await mark_warmed(redis, account_id)
+            account.last_check_at = datetime.now(UTC)
+            account.last_check_ok = ok
+            account.last_error = error_text
+            await session.commit()
+            return {"account_id": account_id, "ok": ok, "error": error_text}
+    finally:
+        if lock_key is not None:
+            await redis.delete(lock_key)
+        if transport is not None:
+            await transport.close()
+        await redis.aclose()
+        await dispose_engine()
+
+
+@dramatiq.actor(queue_name="crawl", max_retries=1, time_limit=ANALYTICS_TIME_LIMIT_MS)
+def warmup_account(account_id: str) -> None:
+    """Прогрев аккаунта: аккуратные заходы, чтобы сессия выглядела живой."""
+    result = asyncio.run(_warmup_account(account_id))
+    logger.info("account warmup: %s", result)
 
 
 @dramatiq.actor(queue_name="crawl", max_retries=1, time_limit=CRAWL_TIME_LIMIT_MS)

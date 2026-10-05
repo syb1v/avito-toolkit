@@ -4,11 +4,13 @@ from typing import Any
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
+from redis.asyncio import Redis
 from sqlalchemy import func, select
 
 from app.api.deps import DbSession
 from app.config import get_settings
 from app.db.models import AvitoAccount, Search
+from app.services.account_care import account_care_state, clear_rest, set_rest
 from app.services.accounts import (
     account_overview,
     proxy_label_for,
@@ -58,9 +60,27 @@ class AccountOut(BaseModel):
     last_error: str | None
     searches_count: int
     profile_exists: bool
+    pages_today: int = 0
+    daily_limit: int = 0
+    last_activity: datetime | None = None
+    warmup_last: datetime | None = None
+    rest_until: datetime | None = None
+    rest_reason: str | None = None
 
 
-def _account_out(account: AvitoAccount, searches_count: int) -> AccountOut:
+def _care_dt(value: str | None) -> datetime | None:
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(value)
+    except ValueError:
+        return None
+
+
+def _account_out(
+    account: AvitoAccount, searches_count: int, care: dict[str, Any] | None = None
+) -> AccountOut:
+    care = care or {}
     return AccountOut(
         id=account.id,
         name=account.name,
@@ -76,6 +96,12 @@ def _account_out(account: AvitoAccount, searches_count: int) -> AccountOut:
         last_error=account.last_error,
         searches_count=searches_count,
         profile_exists=resolve_profile_path(account.profile_dir).exists(),
+        pages_today=int(care.get("pages_today") or 0),
+        daily_limit=int(care.get("daily_limit") or 0),
+        last_activity=_care_dt(care.get("last_activity")),
+        warmup_last=_care_dt(care.get("warmup_last")),
+        rest_until=_care_dt(care.get("rest_until")),
+        rest_reason=care.get("rest_reason"),
     )
 
 
@@ -95,8 +121,31 @@ async def _searches_count(session: DbSession, account_id: uuid.UUID) -> int:
 
 @router.get("", response_model=list[AccountOut])
 async def list_accounts(session: DbSession) -> list[AccountOut]:
+    settings = get_settings()
     rows = await account_overview(session)
-    return [AccountOut(**row) for row in rows]
+    redis = Redis.from_url(settings.redis_url)
+    try:
+        result: list[AccountOut] = []
+        for row in rows:
+            care = await account_care_state(
+                redis, str(row["id"]), daily_limit=settings.account_daily_page_limit
+            )
+            result.append(
+                AccountOut(
+                    **row,
+                    **{
+                        "pages_today": care["pages_today"],
+                        "daily_limit": care["daily_limit"],
+                        "last_activity": _care_dt(care.get("last_activity")),
+                        "warmup_last": _care_dt(care.get("warmup_last")),
+                        "rest_until": _care_dt(care.get("rest_until")),
+                        "rest_reason": care.get("rest_reason"),
+                    },
+                )
+            )
+        return result
+    finally:
+        await redis.aclose()
 
 
 @router.post("", response_model=AccountOut, status_code=201)
@@ -164,6 +213,41 @@ async def delete_account(account_id: uuid.UUID, session: DbSession) -> None:
         raise HTTPException(status_code=409, detail="default account cannot be deleted")
     await session.delete(account)
     await session.commit()
+
+
+@router.post("/{account_id}/warmup", status_code=202)
+async def warmup_account_now(account_id: uuid.UUID, session: DbSession) -> dict[str, Any]:
+    """Мягкий прогрев аккаунта прямо сейчас (главная + одна выдача, паузы)."""
+    await _load(session, account_id)
+    from app.workers.tasks import warmup_account
+
+    message = warmup_account.send(str(account_id))
+    return {"status": "queued", "message_id": message.message_id}
+
+
+class RestIn(BaseModel):
+    minutes: int | None = Field(default=None, ge=1, le=24 * 60)
+
+
+@router.post("/{account_id}/rest", status_code=202)
+async def rest_account(
+    account_id: uuid.UUID, payload: RestIn, session: DbSession
+) -> dict[str, Any]:
+    """Отправить аккаунт в «отдых» вручную (например, перед сменой IP)."""
+    account = await _load(session, account_id)
+    settings = get_settings()
+    minutes = payload.minutes or settings.account_rest_minutes
+    until = await set_rest(Redis.from_url(settings.redis_url), str(account.id), minutes, "вручную")
+    return {"status": "resting", "until": until, "minutes": minutes}
+
+
+@router.post("/{account_id}/resume", status_code=202)
+async def resume_account(account_id: uuid.UUID, session: DbSession) -> dict[str, Any]:
+    """Разбудить аккаунт: снять «отдых» досрочно."""
+    account = await _load(session, account_id)
+    settings = get_settings()
+    await clear_rest(Redis.from_url(settings.redis_url), str(account.id))
+    return {"status": "active"}
 
 
 @router.post("/{account_id}/cookies", status_code=202)

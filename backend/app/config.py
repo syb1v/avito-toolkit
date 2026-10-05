@@ -60,6 +60,14 @@ class Settings(BaseSettings):
     browser_humanize: bool = True
     # Проверка аккаунта — не чаще раза в N минут (защита от самоизбиения IP)
     account_check_cooldown_minutes: int = 10
+    # Уход за аккаунтами: дневной лимит страниц и «отдых» после перегруза
+    account_daily_page_limit: int = 80
+    account_rest_minutes: int = 180
+    # Прогрев: мягкие заходы для «живости» сессии
+    account_warmup_enabled: bool = True
+    account_warmup_idle_hours: int = 12
+    account_warmup_interval_minutes: int = 60
+    account_warmup_max_per_run: int = 3
     # Telegram-бот: токен от @BotFather, доступ по логину/паролю, сессия N дней
     telegram_bot_token: str | None = None
     telegram_login: str = "admin"

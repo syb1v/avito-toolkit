@@ -14,8 +14,11 @@ import {
   deleteAccountClient,
   fetchAccounts,
   fetchProxiesClient,
+  restAccountClient,
+  resumeAccountClient,
   updateAccountClient,
   uploadAccountCookiesClient,
+  warmupAccountClient,
 } from "@/lib/api";
 import { formatRelativeTime } from "@/lib/format";
 
@@ -174,6 +177,57 @@ export function AccountManager({ initial }: { initial: Account[] }) {
       return;
     }
     toast.push("success", `Аккаунт «${account.name}» удалён`);
+    await refresh();
+  }
+
+  async function warmup(account: Account) {
+    setBusy(account.id);
+    const result = await warmupAccountClient(account.id);
+    setBusy(null);
+    if (!result.ok) {
+      toast.push("error", result.error);
+      return;
+    }
+    toast.push("info", `Прогрев «${account.name}» идёт: главная + выдача, паузы`);
+    const before = account.last_check_at;
+    for (let attempt = 0; attempt < 18; attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 5000));
+      const freshItems = await fetchAccounts();
+      setItems(freshItems);
+      const current = freshItems.find((item) => item.id === account.id);
+      if (current && current.last_check_at !== before) {
+        if (current.last_check_ok) {
+          toast.push("success", `«${current.name}»: прогрев прошёл, сессия живая`);
+        } else {
+          toast.push(
+            "error",
+            `«${current.name}»: прогрев упёрся в блокировку — ${current.last_error ?? "ошибка"}`,
+          );
+        }
+        router.refresh();
+        return;
+      }
+    }
+    toast.push("info", `Прогрев «${account.name}» ещё идёт — результат появится в статусе`);
+    await refresh();
+  }
+
+  async function toggleRest(account: Account) {
+    setBusy(account.id);
+    const result = account.rest_until
+      ? await resumeAccountClient(account.id)
+      : await restAccountClient(account.id);
+    setBusy(null);
+    if (!result.ok) {
+      toast.push("error", result.error);
+      return;
+    }
+    toast.push(
+      "success",
+      account.rest_until
+        ? `«${account.name}» разбужен`
+        : `«${account.name}» отправлен на отдых`,
+    );
     await refresh();
   }
 
@@ -346,6 +400,30 @@ make account-cookies name="Аккаунт 2" BROWSER=brave`}
                   <span>поисков: {account.searches_count}</span>
                   <span
                     className={
+                      account.rest_until
+                        ? "text-amber-300/90"
+                        : account.pages_today >= account.daily_limit && account.daily_limit > 0
+                          ? "text-amber-300/90"
+                          : "text-neutral-500"
+                    }
+                    title={account.rest_reason ?? undefined}
+                  >
+                    активность сегодня: {account.pages_today}/{account.daily_limit} стр.
+                  </span>
+                  {account.rest_until ? (
+                    <span className="text-amber-300/90">
+                      отдыхает (до {formatRelativeTime(account.rest_until)}):{" "}
+                      {account.rest_reason ?? "пауза"}
+                    </span>
+                  ) : null}
+                  <span>
+                    прогрев:{" "}
+                    {account.warmup_last
+                      ? formatRelativeTime(account.warmup_last)
+                      : "ещё не было"}
+                  </span>
+                  <span
+                    className={
                       account.proxy_label ? "text-amber-300/80" : "text-emerald-300/80"
                     }
                   >
@@ -385,6 +463,22 @@ make account-cookies name="Аккаунт 2" BROWSER=brave`}
                   className="rounded-lg border border-sky-500/40 bg-sky-500/10 px-3 py-1 text-xs text-sky-200 transition hover:bg-sky-500/20 disabled:opacity-50"
                 >
                   {busy === account.id ? "Проверка…" : "Проверить"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => warmup(account)}
+                  disabled={busy === account.id}
+                  className={btn}
+                >
+                  {busy === account.id ? "…" : "Прогреть"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => toggleRest(account)}
+                  disabled={busy === account.id}
+                  className={btn}
+                >
+                  {account.rest_until ? "Разбудить" : "Отдохнуть"}
                 </button>
                 <button
                   type="button"
