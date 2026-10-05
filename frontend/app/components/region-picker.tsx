@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 
-import { REGIONS, regionName } from "@/lib/regions";
+import { REGION_OPTIONS, regionName } from "@/lib/regions";
 
 export function RegionPicker({
   value,
@@ -43,13 +43,13 @@ export function RegionPicker({
   }, [open]);
 
   const options = useMemo(() => {
-    const known = REGIONS.map((region) => ({
+    const known = REGION_OPTIONS.map((region) => ({
       slug: region.slug,
       name: region.name,
     }));
     for (const slug of value) {
       if (!known.some((option) => option.slug === slug)) {
-        known.push({ slug, name: `${slug} (текущий)` });
+        known.push({ slug, name: `${regionName(slug)} (текущий)` });
       }
     }
     const normalized = query.trim().toLowerCase();
@@ -153,7 +153,7 @@ export function RegionPicker({
             <span className="flex gap-2">
               <button
                 type="button"
-                onClick={() => onChange(REGIONS.map((region) => region.slug))}
+                onClick={() => onChange(REGION_OPTIONS.map((region) => region.slug))}
                 className="hover:text-neutral-200"
               >
                 все

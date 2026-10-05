@@ -2,7 +2,7 @@
 
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
-import { REGIONS, regionName } from "@/lib/regions";
+import { REGION_OPTIONS, regionName } from "@/lib/regions";
 
 export function RegionFilter({
   current,
@@ -19,7 +19,7 @@ export function RegionFilter({
     .map((slug) => ({ slug, name: regionName(slug), count: counts[slug] ?? 0 }))
     .sort((left, right) => right.count - left.count);
   const knownSlugs = new Set(options.map((option) => option.slug));
-  for (const region of REGIONS) {
+  for (const region of REGION_OPTIONS) {
     if (counts[region.slug] && !knownSlugs.has(region.slug)) {
       options.push({ slug: region.slug, name: region.name, count: counts[region.slug] });
     }

@@ -18,8 +18,11 @@
 import argparse
 import asyncio
 import sys
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
+
+from sqlalchemy import select
 
 from app.config import get_settings
 from app.services.cookies import (
@@ -33,6 +36,34 @@ from app.services.cookies import (
 DEFAULT_PROFILE_DIR = ".browser-profile"
 
 
+async def _stamp_default_account(ok: bool, items: int) -> None:
+    """Отмечает в БД, что cookies основного аккаунта обновлены и проверены."""
+    from app.db.models import AvitoAccount
+    from app.db.session import dispose_engine, get_session_factory
+
+    factory = get_session_factory()
+    try:
+        async with factory() as session:
+            account = await session.scalar(
+                select(AvitoAccount).where(AvitoAccount.is_default.is_(True))
+            )
+            if account is None:
+                return
+            now = datetime.now(UTC)
+            account.last_check_at = now
+            account.last_check_ok = ok
+            if ok:
+                account.cookies_at = now
+                account.last_error = None
+            else:
+                account.last_error = f"cookies не дали доступ (объявлений: {items})"
+            await session.commit()
+    except Exception as error:  # noqa: BLE001 — не роняем импорт из-за БД
+        print(f"WARN: не удалось обновить статус аккаунта в БД: {error}")
+    finally:
+        await dispose_engine()
+
+
 async def _run(
     cookies: list[dict[str, Any]],
     profile_dir: str,
@@ -44,6 +75,7 @@ async def _run(
     print(f"Cookies к импорту: {len(cookies)}")
     check = await apply_cookies_to_profile(cookies, profile_dir, verify_url, fresh=fresh)
     print(f"Проверка: челлендж={'да' if check.challenge else 'нет'}, объявлений={check.items}")
+    await _stamp_default_account(check.ok, check.items)
     if not check.ok:
         print("FAIL: cookies не дали доступ. Обновите их (страница должна работать в браузере).")
         return 1

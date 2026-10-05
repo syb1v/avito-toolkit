@@ -4,19 +4,23 @@ import { AlertsPanel } from "@/app/components/alerts-panel";
 import { CrawlPanel } from "@/app/components/crawl-panel";
 import { DigestPanel } from "@/app/components/digest-panel";
 import { InfoHint } from "@/app/components/info-hint";
+import { EditSearchButton } from "@/app/components/edit-search-button";
 import { ListingActions } from "@/app/components/listing-actions";
 import { PriceChart } from "@/app/components/price-chart";
 import { RegionFilter } from "@/app/components/region-filter";
 import { StatCard } from "@/app/components/stat-card";
 import {
   type ListingSort,
+  fetchAccounts,
   fetchAlerts,
   fetchHistory,
   fetchListings,
   fetchSearchStats,
+  fetchSearches,
   fetchSummary,
 } from "@/lib/api";
 import { formatDays, formatPercent, formatPrice, formatRelativeTime } from "@/lib/format";
+import { regionName } from "@/lib/regions";
 
 const LISTINGS_PAGE_SIZE = 100;
 
@@ -184,7 +188,8 @@ export default async function SearchDetailPage({
     return `/searches/${id}${suffix ? `?${suffix}` : ""}`;
   };
 
-  const [summary, history, alerts, listings, listingStats] = await Promise.all([
+  const [summary, history, alerts, listings, listingStats, allSearches, accounts] =
+    await Promise.all([
     fetchSummary(id),
     fetchHistory(id),
     fetchAlerts(id),
@@ -199,7 +204,10 @@ export default async function SearchDetailPage({
       offset: (pageNumber - 1) * LISTINGS_PAGE_SIZE,
     }),
     fetchSearchStats(id),
+    fetchSearches(),
+    fetchAccounts(),
   ]);
+  const currentSearch = allSearches.find((item) => item.id === id) ?? null;
 
   if (summary === null) {
     return (
@@ -244,12 +252,9 @@ export default async function SearchDetailPage({
             >
               {summary.is_active ? "активен" : "на паузе"}
             </span>
-            <Link
-              href={`/?edit=${id}`}
-              className="rounded-lg border border-sky-500/40 bg-sky-500/10 px-3 py-1 text-xs text-sky-200 transition hover:bg-sky-500/20"
-            >
-              Редактировать поиск
-            </Link>
+            {currentSearch ? (
+              <EditSearchButton search={currentSearch} accounts={accounts} />
+            ) : null}
           </div>
         </div>
         <a
@@ -548,7 +553,7 @@ export default async function SearchDetailPage({
                     )}
                     <span className="text-xs text-neutral-500">
                       id {listing.id}
-                      {listing.region ? ` · ${listing.region}` : ""}
+                      {listing.region ? ` · ${regionName(listing.region)}` : ""}
                       {listing.first_seen
                         ? ` · в базе ${formatRelativeTime(listing.first_seen)}`
                         : ""}
@@ -602,7 +607,7 @@ export default async function SearchDetailPage({
               <div className="min-w-0">
                 <p className="text-xs tabular-nums text-neutral-500">
                   #{listing.last_position ?? "—"} · id {listing.id}
-                  {listing.region ? ` · ${listing.region}` : ""}
+                  {listing.region ? ` · ${regionName(listing.region)}` : ""}
                   {listing.first_seen
                     ? ` · в базе ${formatRelativeTime(listing.first_seen)}`
                     : ""}
