@@ -45,6 +45,18 @@ class AvitoAccount(Base):
     )
 
 
+class Proxy(Base):
+    """Прокси, управляемый из UI (env PROXY_LIST используется как сид)."""
+
+    __tablename__ = "proxies"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    url: Mapped[str] = mapped_column(Text, unique=True)
+    note: Mapped[str | None] = mapped_column(Text)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
 class Search(Base):
     __tablename__ = "searches"
 
@@ -199,6 +211,20 @@ class Job(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class AiDigest(Base):
+    """Сохранённый AI-дайджест поиска: виден всем, не нужно генерировать заново."""
+
+    __tablename__ = "ai_digests"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    search_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, ForeignKey("searches.id", ondelete="CASCADE"), index=True
+    )
+    payload: Mapped[dict] = mapped_column(JSONB)
+    model: Mapped[str] = mapped_column(String(128), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
 class LlmRun(Base):

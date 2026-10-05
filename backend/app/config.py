@@ -44,6 +44,8 @@ class Settings(BaseSettings):
     crawl_rate_per_minute: int = 12
     # 0 = без лимита; по умолчанию ограничиваем, чтобы не уходить в бесконечность
     crawl_max_pages_per_run: int = 10
+    # Сколько описаний догружать за обход (фильтры проверяют и заголовок, и описание)
+    crawl_descriptions_per_run: int = 20
     crawl_delay_min_seconds: float = 8.0
     crawl_delay_max_seconds: float = 20.0
     # auto | browser | hybrid | http: auto = браузер, если установлен patchright
@@ -58,6 +60,11 @@ class Settings(BaseSettings):
     browser_humanize: bool = True
     # Проверка аккаунта — не чаще раза в N минут (защита от самоизбиения IP)
     account_check_cooldown_minutes: int = 10
+    # Telegram-бот: токен от @BotFather, доступ по логину/паролю, сессия N дней
+    telegram_bot_token: str | None = None
+    telegram_login: str = "admin"
+    telegram_password: str | None = None
+    telegram_session_days: int = 30
     # Watchdog: воркер считается живым, если heartbeat не старше окна
     worker_alive_window_seconds: int = 120
     watchdog_interval_minutes: int = 5

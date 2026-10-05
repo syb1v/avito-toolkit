@@ -13,6 +13,7 @@ const STAGE_LABELS: Record<string, string> = {
   queued: "В очереди",
   pausing: "Подготовка",
   crawl: "Сбор страниц",
+  descriptions: "Загрузка описаний",
   moderation: "AI-модерация",
   analytics: "Аналитика",
   matching: "Матчинг SKU",

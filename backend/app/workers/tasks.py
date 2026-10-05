@@ -15,7 +15,7 @@ from app.collectors.ratelimit import RedisRateLimiter
 from app.collectors.transport.http_cffi import HttpCffiTransport
 from app.collectors.web.parsing import parse_search_page
 from app.config import get_settings
-from app.db.models import AvitoAccount, OurListing, Search
+from app.db.models import AvitoAccount, Listing, OurListing, Search, SearchListing
 from app.db.session import dispose_engine, get_engine
 from app.services.accounts import account_for_search, resolve_profile_path
 from app.services.alerts import evaluate_search_alerts
@@ -24,7 +24,7 @@ from app.services.collector import CrawlResult, SearchCollector
 from app.services.cookies import apply_cookies_to_profile, parse_cookie_input
 from app.services.crawl_guard import CrawlGuard, classify_failure
 from app.services.matching import match_all_our_listings
-from app.services.moderation import moderate_search
+from app.services.moderation import enrich_descriptions, moderate_search
 from app.services.progress import CrawlProgress
 from app.services.proxy_pool import build_proxy_pool
 from app.services.regions import with_city
@@ -38,8 +38,9 @@ ACCOUNT_CHECK_URL = "https://www.avito.ru/all?q=iphone"
 HAS_BROWSER = importlib.util.find_spec("patchright") is not None
 
 
-def _build_transport(
+async def _build_transport(
     redis: Redis,
+    session: AsyncSession,
     *,
     user_data_dir: str | None = None,
     proxy_url: str | None = None,
@@ -47,7 +48,7 @@ def _build_transport(
     settings = get_settings()
     mode = settings.crawl_transport.strip().lower()
     # Закреплённый за аккаунтом прокси важнее общего пула: cookies+IP — одна связка.
-    pool = None if proxy_url else build_proxy_pool(redis)
+    pool = None if proxy_url else await build_proxy_pool(redis, session)
     http = HttpCffiTransport(proxy=proxy_url) if proxy_url else HttpCffiTransport(proxy_pool=pool)
     if mode == "http":
         return http
@@ -78,6 +79,38 @@ def _empty_result(search_id: str) -> CrawlResult:
         price_changes=0,
         gone_listings=0,
     )
+
+
+async def _fetch_descriptions(
+    session: AsyncSession, search_id: uuid.UUID, transport: SourceAdapter
+) -> int:
+    """Догружает описания активных лотов поиска, чтобы фильтры видели и описание."""
+    settings = get_settings()
+    rows = await session.execute(
+        select(Listing.id, Listing.url, Listing.description)
+        .join(SearchListing, SearchListing.listing_id == Listing.id)
+        .where(
+            SearchListing.search_id == search_id,
+            Listing.status == "active",
+            Listing.url.is_not(None),
+            Listing.description.is_(None),
+        )
+        .order_by(SearchListing.last_position.nulls_last())
+        .limit(settings.crawl_descriptions_per_run)
+    )
+    candidates = [(int(row[0]), str(row[1]), row[2]) for row in rows.all()]
+    if not candidates:
+        return 0
+    fetched = await enrich_descriptions(
+        session,
+        transport,
+        candidates,
+        max_items=settings.crawl_descriptions_per_run,
+        delay_min=settings.moderation_description_delay_min_seconds,
+        delay_max=settings.moderation_description_delay_max_seconds,
+    )
+    await session.commit()
+    return fetched
 
 
 async def _match_if_needed(session: AsyncSession) -> int:
@@ -158,8 +191,9 @@ async def _collect(search_id: str) -> CrawlResult:
                 await progress.stage("cooldown")
                 await progress.finish({"skipped": True, "reason": reason})
                 return _empty_result(search_id)
-            transport = _build_transport(
+            transport = await _build_transport(
                 redis,
+                session,
                 user_data_dir=(
                     str(resolve_profile_path(account.profile_dir)) if account is not None else None
                 ),
@@ -187,6 +221,11 @@ async def _collect(search_id: str) -> CrawlResult:
                 await guard.note_failure(search_id, failure_reason)
             else:
                 await guard.note_success(search_id)
+            if settings.crawl_descriptions_per_run > 0:
+                await progress.stage("descriptions")
+                described = await _fetch_descriptions(session, result.search_id, transport)
+            else:
+                described = 0
             await progress.stage("moderation")
             moderation = await moderate_search(
                 session,
@@ -203,8 +242,9 @@ async def _collect(search_id: str) -> CrawlResult:
             await session.commit()
             await progress.finish(result.to_dict())
             logger.info(
-                "crawl pipeline: matched %s our SKUs, flagged %s listings "
-                "(categories %s, descriptions %s), ai-scored %s",
+                "crawl pipeline: descriptions +%s, matched %s our SKUs, flagged %s "
+                "(categories %s, moderation descriptions %s), ai-scored %s",
+                described,
                 matched,
                 moderation.flagged,
                 moderation.categories,
@@ -256,13 +296,16 @@ def recalc_analytics(search_id: str, day_iso: str | None = None) -> None:
 async def _check_proxies() -> dict[str, int]:
     settings = get_settings()
     redis = Redis.from_url(settings.redis_url)
+    session_factory = async_sessionmaker(get_engine(), expire_on_commit=False)
     try:
-        pool = build_proxy_pool(redis, force=True)
-        if pool is None:
-            return {"checked": 0, "ok": 0, "failed": 0}
-        return await pool.check_all()
+        async with session_factory() as session:
+            pool = await build_proxy_pool(redis, session, force=True)
+            if pool is None:
+                return {"checked": 0, "ok": 0, "failed": 0}
+            return await pool.check_all()
     finally:
         await redis.aclose()
+        await dispose_engine()
 
 
 @dramatiq.actor(queue_name="proxy", max_retries=1, time_limit=ANALYTICS_TIME_LIMIT_MS)
@@ -289,8 +332,9 @@ async def _check_account(account_id: str) -> dict[str, object]:
                 and (datetime.now(UTC) - account.last_check_at).total_seconds() < cooldown
             ):
                 return {"account_id": account_id, "skipped": "cooldown"}
-            transport = _build_transport(
+            transport = await _build_transport(
                 redis,
+                session,
                 user_data_dir=str(resolve_profile_path(account.profile_dir)),
                 proxy_url=account.proxy_url,
             )

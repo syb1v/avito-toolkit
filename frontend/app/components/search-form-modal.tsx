@@ -30,6 +30,19 @@ type FormState = {
   accountId: string;
 };
 
+export const DEFAULT_EXCLUDE_KEYWORDS = [
+  "б/у",
+  "бу",
+  "восстановлен",
+  "под восстановление",
+  "неисправ",
+  "на запчасти",
+  "запчаст",
+  "ремонт",
+  "копия",
+  "реплика",
+];
+
 const EMPTY_FORM: FormState = {
   id: null,
   name: "",
@@ -40,7 +53,7 @@ const EMPTY_FORM: FormState = {
   maxPages: "5",
   maxAgeDays: "0",
   include: "",
-  exclude: "",
+  exclude: DEFAULT_EXCLUDE_KEYWORDS.join(", "),
   city: "",
   regions: [],
   excludeRegions: [],
@@ -422,16 +435,17 @@ export function SearchFormModal({
           </span>
         </label>
         <label className="flex flex-col gap-1 text-xs text-neutral-400">
-          Не учитывать, если в названии есть (через запятую)
+          Не учитывать, если есть в названии или описании (через запятую)
           <textarea
             value={form.exclude}
             onChange={(event) => setForm({ ...form, exclude: event.target.value })}
             rows={3}
-            placeholder="чехол, копия, реплика, ремонт"
+            placeholder="б/у, восстановлен, на запчасти, чехол"
             className={inputClass}
           />
           <span className="text-[10px] text-neutral-600">
-            такие объявления останутся в списке с пометкой, но не попадут в цены
+            проверяем и заголовок, и описание; такие объявления останутся в списке
+            с пометкой, но не попадут в цены. Базовый набор уже подставлен
           </span>
         </label>
       </div>

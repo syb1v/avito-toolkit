@@ -15,6 +15,7 @@ from app.services.regions import (
     regions_from_params,
 )
 from app.services.search_filter import (
+    combined_text,
     exclude_keywords_from_params,
     keywords_from_params,
     matches_exclude_keywords,
@@ -55,6 +56,7 @@ async def _active_listings(
             Listing.current_price,
             Listing.region,
             ListingExclusion.listing_id,
+            Listing.description,
         )
         .join(SearchListing, SearchListing.listing_id == Listing.id)
         .outerjoin(
@@ -75,16 +77,17 @@ async def _active_listings(
     rows = await session.execute(statement)
     prices: list[float] = []
     keyword = stopword = region = manual = 0
-    for title, price, listing_region, manual_id in rows.all():
+    for title, price, listing_region, manual_id, description in rows.all():
         if price is None:
             continue
         if manual_id is not None:
             manual += 1
             continue
-        if groups and not matches_keyword_groups(title or "", groups):
+        text = combined_text(title or "", description)
+        if groups and not matches_keyword_groups(text, groups):
             keyword += 1
             continue
-        if matches_exclude_keywords(title or "", excludes):
+        if matches_exclude_keywords(text, excludes):
             stopword += 1
             continue
         if not matches_region(listing_region, regions, exclude_regions):

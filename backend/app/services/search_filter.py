@@ -13,6 +13,28 @@ TOKEN_CLEAN = re.compile(r"[^0-9a-zа-яё&+]+")
 
 KeywordGroups = Sequence[Sequence[str]]
 
+# Стоп-слова по умолчанию: применяются к новым поискам и дополняют существующие.
+# Проверяются и в заголовке, и в описании объявления.
+DEFAULT_EXCLUDE_KEYWORDS = (
+    "б/у",
+    "бу",
+    "восстановлен",
+    "под восстановление",
+    "неисправ",
+    "на запчасти",
+    "запчаст",
+    "ремонт",
+    "копия",
+    "реплика",
+)
+
+
+def combined_text(title: str, description: str | None) -> str:
+    """Текст для фильтров: заголовок + описание (описание тоже проверяем)."""
+    if description:
+        return f"{title}\n{description}"
+    return title
+
 
 def normalize_text(value: str) -> str:
     lowered = value.lower().replace("ё", "е")

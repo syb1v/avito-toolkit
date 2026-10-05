@@ -12,7 +12,7 @@ from app.ai.tasks import advise_price, generate_market_digest
 from app.api.deps import DbSession
 from app.api.schemas import PositionOut, PriceStatsOut
 from app.config import Settings, get_settings
-from app.db.models import Listing, LlmRun, OurListing, Search, SearchListing
+from app.db.models import AiDigest, Listing, LlmRun, OurListing, Search, SearchListing
 from app.services.analytics.service import build_search_summary, fetch_daily_history
 from app.services.matching import build_our_position
 from app.services.pricing import RepricingContext, build_price_target
@@ -35,6 +35,7 @@ class DigestOut(BaseModel):
     tokens_in: int | None
     tokens_out: int | None
     cost_usd: float | None
+    created_at: datetime | None = None
 
 
 class PriceActionOut(BaseModel):
@@ -124,9 +125,8 @@ async def create_digest(search_id: uuid.UUID, session: DbSession) -> DigestOut:
     await record_llm_run(
         session, task="market_digest", result=result, prompt_version=DIGEST_VERSION
     )
-    await session.commit()
     digest = result.content
-    return DigestOut(
+    out = DigestOut(
         search_id=search_id,
         headline=digest.headline,
         demand_signal=digest.demand_signal,
@@ -137,6 +137,43 @@ async def create_digest(search_id: uuid.UUID, session: DbSession) -> DigestOut:
         tokens_in=result.tokens_in,
         tokens_out=result.tokens_out,
         cost_usd=result.cost_usd,
+    )
+    stored = AiDigest(
+        search_id=search_id,
+        payload=out.model_dump(mode="json", exclude={"search_id", "created_at"}),
+        model=result.model,
+    )
+    session.add(stored)
+    await session.commit()
+    await session.refresh(stored)
+    out.created_at = stored.created_at
+    return out
+
+
+@router.get("/searches/{search_id}/digest", response_model=DigestOut)
+async def get_latest_digest(search_id: uuid.UUID, session: DbSession) -> DigestOut:
+    """Последний сохранённый дайджест — виден всем без повторной генерации."""
+    row = await session.scalar(
+        select(AiDigest)
+        .where(AiDigest.search_id == search_id)
+        .order_by(AiDigest.created_at.desc())
+        .limit(1)
+    )
+    if row is None:
+        raise HTTPException(status_code=404, detail="digest not generated yet")
+    payload = dict(row.payload or {})
+    return DigestOut(
+        search_id=search_id,
+        headline=str(payload.get("headline", "")),
+        demand_signal=str(payload.get("demand_signal", "")),
+        price_range_comment=str(payload.get("price_range_comment", "")),
+        competitor_notes=list(payload.get("competitor_notes") or []),
+        recommended_actions=list(payload.get("recommended_actions") or []),
+        model=str(payload.get("model") or row.model),
+        tokens_in=payload.get("tokens_in"),
+        tokens_out=payload.get("tokens_out"),
+        cost_usd=payload.get("cost_usd"),
+        created_at=row.created_at,
     )
 
 

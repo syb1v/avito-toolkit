@@ -532,12 +532,27 @@ make account-cookies name="Аккаунт 2" BROWSER=brave`}
           </>
         }
       >
+        <label className="flex flex-col gap-1 text-xs text-neutral-400">
+          Загрузить JSON-файл cookies (Export из Cookie-Editor)
+          <input
+            type="file"
+            accept=".json,application/json,text/plain"
+            onChange={async (event) => {
+              const file = event.target.files?.[0];
+              if (file) {
+                setCookieText(await file.text());
+                toast.push("info", `Файл «${file.name}» прочитан — нажмите «Загрузить cookies»`);
+              }
+            }}
+            className="rounded-lg border border-neutral-800 bg-neutral-950 px-3 py-2 text-xs text-neutral-300 file:mr-3 file:rounded-md file:border-0 file:bg-sky-500/15 file:px-3 file:py-1 file:text-sky-200"
+          />
+        </label>
         <textarea
           value={cookieText}
           onChange={(event) => setCookieText(event.target.value)}
           rows={10}
           placeholder='Вставьте JSON Cookie-Editor или строку "v=...; u=...; ft=..."'
-          className="w-full rounded-lg border border-neutral-800 bg-neutral-950 px-3 py-2 font-mono text-[11px] text-neutral-200 outline-none focus:border-sky-500/60"
+          className="mt-3 w-full rounded-lg border border-neutral-800 bg-neutral-950 px-3 py-2 font-mono text-[11px] text-neutral-200 outline-none focus:border-sky-500/60"
         />
         <label className="mt-3 flex items-center gap-2 text-xs text-neutral-400">
           <input

@@ -412,16 +412,42 @@ def _extract_exit_ip(response: httpx.Response) -> str | None:
     return text if text and len(text) <= 64 else None
 
 
-def build_proxy_pool(redis: Redis, *, force: bool = False) -> ProxyPool | None:
-    """Собирает пул из PROXY_LIST; для совместимости учитывает PROXY_URL.
+async def load_proxy_entries(session: Any, *, force: bool = False) -> list[ProxyEntry]:
+    """Прокси из БД (управляются в UI); при пустой таблице — сид из PROXY_LIST."""
+    from sqlalchemy import select
 
-    ``force=True`` (панель/healthcheck) собирает пул даже при PROXY_ENABLED=false,
-    чтобы прокси можно было проверить и включить позже.
+    from app.db.models import Proxy
+
+    rows = (await session.execute(select(Proxy).order_by(Proxy.created_at))).scalars().all()
+    if not rows:
+        settings = get_settings()
+        seeded = parse_proxy_list(settings.proxy_list)
+        if not seeded and settings.proxy_enabled and settings.proxy_url:
+            seeded = parse_proxy_list(settings.proxy_url)
+        for entry in seeded:
+            session.add(Proxy(url=entry.url, note="из PROXY_LIST"))
+        if seeded:
+            await session.commit()
+        rows = (await session.execute(select(Proxy).order_by(Proxy.created_at))).scalars().all()
+    entries: list[ProxyEntry] = []
+    for row in rows:
+        if not row.enabled and not force:
+            continue
+        try:
+            entries.append(parse_proxy_entry(row.url))
+        except ProxyParseError:
+            continue
+    return entries
+
+
+async def build_proxy_pool(redis: Redis, session: Any, *, force: bool = False) -> ProxyPool | None:
+    """Пул из прокси, добавленных через UI (PROXY_LIST — только сид).
+
+    ``force=True`` (панель/healthcheck) собирает пул даже при PROXY_ENABLED=false
+    и включает выключенные прокси, чтобы их можно было проверить и включить.
     """
     settings = get_settings()
-    entries = parse_proxy_list(settings.proxy_list)
-    if not entries and settings.proxy_enabled and settings.proxy_url:
-        entries = parse_proxy_list(settings.proxy_url)
+    entries = await load_proxy_entries(session, force=force)
     if not entries:
         return None
     if not settings.proxy_enabled and not force:

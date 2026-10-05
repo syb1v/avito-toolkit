@@ -17,7 +17,17 @@ STATUS_RUNNING = "running"
 STATUS_DONE = "done"
 STATUS_FAILED = "failed"
 
-STAGES = ("queued", "pausing", "crawl", "moderation", "analytics", "matching", "alerts", "done")
+STAGES = (
+    "queued",
+    "pausing",
+    "crawl",
+    "descriptions",
+    "moderation",
+    "analytics",
+    "matching",
+    "alerts",
+    "done",
+)
 
 
 def _now_iso() -> str:

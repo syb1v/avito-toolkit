@@ -2,7 +2,9 @@
 
 import { useEffect, useState } from "react";
 
-import { createDigest, type Digest } from "@/lib/api";
+import { createDigest, fetchDigestClient, type Digest } from "@/lib/api";
+import { useToast } from "@/app/components/toast";
+import { formatRelativeTime } from "@/lib/format";
 import { InfoHint } from "@/app/components/info-hint";
 
 const DEMAND_LABELS: Record<string, string> = {
@@ -22,6 +24,19 @@ export function DigestPanel({ searchId }: { searchId: string }) {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [elapsed, setElapsed] = useState(0);
+  const toast = useToast();
+
+  useEffect(() => {
+    let cancelled = false;
+    fetchDigestClient(searchId).then((latest) => {
+      if (!cancelled && latest) {
+        setDigest(latest);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [searchId]);
 
   useEffect(() => {
     if (!loading) {
@@ -38,8 +53,10 @@ export function DigestPanel({ searchId }: { searchId: string }) {
     const result = await createDigest(searchId);
     if (result.digest) {
       setDigest(result.digest);
+      toast.push("success", "Дайджест обновлён и сохранён — увидят все");
     } else {
       setError(result.error ?? "Неизвестная ошибка");
+      toast.push("error", result.error ?? "Не удалось сгенерировать дайджест");
     }
     setLoading(false);
   }
@@ -56,7 +73,11 @@ export function DigestPanel({ searchId }: { searchId: string }) {
             />
           </div>
           <p className="mt-1 text-xs text-neutral-500">
-            Сводка через LLM (litellm): цены, спрос, рекомендации действий
+            Сводка через LLM: цены, спрос, рекомендации. Сохраняется в базе — все
+            видят последнюю версию, повторно генерировать не нужно.
+            {digest?.created_at
+              ? ` Обновлён ${formatRelativeTime(digest.created_at)}.`
+              : ""}
           </p>
         </div>
         <button
@@ -65,7 +86,7 @@ export function DigestPanel({ searchId }: { searchId: string }) {
           disabled={loading}
           className="w-full rounded-lg border border-emerald-500/40 bg-emerald-500/15 px-4 py-2 text-sm text-emerald-200 transition hover:bg-emerald-500/25 disabled:opacity-50 sm:w-auto"
         >
-          {loading ? "Генерация…" : "Сгенерировать"}
+          {loading ? "Генерация…" : digest ? "Обновить" : "Сгенерировать"}
         </button>
       </div>
 

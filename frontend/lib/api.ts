@@ -131,6 +131,7 @@ export type Digest = {
   tokens_in: number | null;
   tokens_out: number | null;
   cost_usd: number | null;
+  created_at?: string | null;
 };
 
 export type OurListingOverview = {
@@ -282,9 +283,12 @@ export const fetchRecommendations = async (): Promise<Recommendation[]> =>
 export const fetchDashboard = () => getJson<Dashboard>("/api/v1/dashboard");
 
 export type ProxyEntryStatus = {
+  id: string;
   label: string;
   scheme: string;
-  healthy: boolean;
+  enabled: boolean;
+  note: string | null;
+  healthy: boolean | null;
   failures: number;
   cooldown_seconds_left: number;
   antibot_blocked: boolean;
@@ -317,6 +321,24 @@ export async function fetchProxiesClient(): Promise<ProxyStatus | null> {
     return null;
   }
 }
+
+export const createProxyClient = (url: string, note?: string | null) =>
+  mutate<ProxyEntryStatus>("/api/v1/proxies", {
+    method: "POST",
+    body: JSON.stringify({ url, note: note || null }),
+  });
+
+export const updateProxyClient = (
+  id: string,
+  payload: { enabled?: boolean; note?: string | null },
+) =>
+  mutate<ProxyEntryStatus>(`/api/v1/proxies/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify(payload),
+  });
+
+export const deleteProxyClient = (id: string) =>
+  mutate<void>(`/api/v1/proxies/${id}`, { method: "DELETE" });
 
 export async function checkProxiesClient(): Promise<boolean> {
   try {
@@ -365,6 +387,20 @@ export async function triggerCrawl(searchId: string): Promise<boolean> {
     return response.ok;
   } catch {
     return false;
+  }
+}
+
+export async function fetchDigestClient(searchId: string): Promise<Digest | null> {
+  try {
+    const response = await fetch(`${API_URL}/api/v1/searches/${searchId}/digest`, {
+      cache: "no-store",
+    });
+    if (!response.ok) {
+      return null;
+    }
+    return (await response.json()) as Digest;
+  } catch {
+    return null;
   }
 }
 

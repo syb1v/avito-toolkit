@@ -18,6 +18,7 @@ from app.services.regions import (
     regions_from_params,
 )
 from app.services.search_filter import (
+    combined_text,
     exclude_keywords_from_params,
     keywords_from_params,
     matches_exclude_keywords,
@@ -312,14 +313,14 @@ async def list_search_listings(
 
     items: list[ListingRead] = []
     for row in rows.all():
-        title = row[1] or ""
+        text = combined_text(row[1] or "", row[10])
         listing_region = row[11]
         manual_excluded = row[12] is not None
         if manual_excluded:
             reason: str | None = "manual"
-        elif groups and not matches_keyword_groups(title, groups):
+        elif groups and not matches_keyword_groups(text, groups):
             reason = "keyword"
-        elif matches_exclude_keywords(title, excludes):
+        elif matches_exclude_keywords(text, excludes):
             reason = "stopword"
         elif not matches_region(listing_region, regions, exclude_regions):
             reason = "region"
@@ -389,6 +390,7 @@ async def listings_stats(search_id: uuid.UUID, session: DbSession) -> ListingsSt
             Listing.region,
             SearchListing.first_seen,
             ListingExclusion.listing_id,
+            Listing.description,
         )
         .join(SearchListing, SearchListing.listing_id == Listing.id)
         .outerjoin(
@@ -401,7 +403,7 @@ async def listings_stats(search_id: uuid.UUID, session: DbSession) -> ListingsSt
     excluded = 0
     fresh = 0
     region_counts: dict[str, int] = {}
-    for title, listing_region, first_seen, manual_id in rows.all():
+    for title, listing_region, first_seen, manual_id, description in rows.all():
         total += 1
         if listing_region:
             region_counts[listing_region] = region_counts.get(listing_region, 0) + 1
@@ -410,10 +412,11 @@ async def listings_stats(search_id: uuid.UUID, session: DbSession) -> ListingsSt
         if manual_id is not None:
             excluded += 1
             continue
-        if groups and not matches_keyword_groups(title or "", groups):
+        text = combined_text(title or "", description)
+        if groups and not matches_keyword_groups(text, groups):
             excluded += 1
             continue
-        if matches_exclude_keywords(title or "", excludes):
+        if matches_exclude_keywords(text, excludes):
             excluded += 1
             continue
         if not matches_region(listing_region, regions_filter, exclude_regions):

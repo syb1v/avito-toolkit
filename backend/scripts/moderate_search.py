@@ -23,9 +23,10 @@ from app.services.proxy_pool import build_proxy_pool
 async def _run(search_id: str, with_descriptions: bool, with_ai: bool) -> int:
     factory = get_session_factory()
     redis = Redis.from_url(get_settings().redis_url)
-    transport = BrowserTransport(proxy_pool=build_proxy_pool(redis)) if with_descriptions else None
     try:
         async with factory() as session:
+            pool = await build_proxy_pool(redis, session)
+            transport = BrowserTransport(proxy_pool=pool) if with_descriptions else None
             result = await moderate_search(
                 session,
                 uuid.UUID(search_id),
