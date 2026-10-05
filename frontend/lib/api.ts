@@ -139,6 +139,11 @@ export type Digest = {
   tokens_out: number | null;
   cost_usd: number | null;
   created_at?: string | null;
+  price_suggestions: {
+    sku: string;
+    target_price: number;
+    reason: string;
+  }[];
 };
 
 export type OurListingOverview = {
@@ -196,6 +201,12 @@ export type Dashboard = {
     started_at: string | null;
   }[];
   latest_alerts: DashboardAlert[];
+  ai_spend: {
+    day_usd: number;
+    month_usd: number;
+    total_usd: number;
+    by_task: { task: string; runs: number; cost_usd: number }[];
+  };
 };
 
 export type SearchProgress = {
@@ -406,6 +417,27 @@ export async function fetchDigestClient(searchId: string): Promise<Digest | null
       return null;
     }
     return (await response.json()) as Digest;
+  } catch {
+    return null;
+  }
+}
+
+export async function applyDigestSuggestions(
+  searchId: string,
+): Promise<{ created: number; skipped: number; skus: string[] } | null> {
+  try {
+    const response = await fetch(
+      `${API_URL}/api/v1/searches/${searchId}/digest/apply-suggestions`,
+      { method: "POST" },
+    );
+    if (!response.ok) {
+      return null;
+    }
+    return (await response.json()) as {
+      created: number;
+      skipped: number;
+      skus: string[];
+    };
   } catch {
     return null;
   }

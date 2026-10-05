@@ -3,8 +3,9 @@ from collections.abc import Sequence
 from app.services.pricing import RepricingContext
 
 PRICE_ADVISOR_VERSION = "v1"
-DIGEST_VERSION = "v1"
+DIGEST_VERSION = "v2"
 MODERATION_VERSION = "v1"
+DESCRIPTION_REVIEW_VERSION = "v1"
 
 PRICE_ADVISOR_SYSTEM_PROMPT = """Ты коммерческий директор и ценовой аналитик на Авито.
 Анализируй рыночные метрики и текущую цену товара.
@@ -15,7 +16,18 @@ PRICE_ADVISOR_SYSTEM_PROMPT = """Ты коммерческий директор 
 DIGEST_SYSTEM_PROMPT = """Ты аналитик рынка Авито. Составь сжатую сводку по поисковой выдаче:
 что происходит с ценами, как ведёт себя спрос (скорость вымывания объявлений),
 какие действия предпринять продавцу. Опирайся только на переданные метрики.
-Отвечай строго в формате JSON по заданной схеме, без пояснений вне JSON."""
+Если передан блок «Наши товары», для товаров, относящихся к этому поиску,
+предложи целевую цену в price_suggestions (только реально подходящие по названию;
+пустой список допустим). Не выдумывай SKU. Отвечай строго в формате JSON
+по заданной схеме, без пояснений вне JSON."""
+
+DESCRIPTION_REVIEW_SYSTEM_PROMPT = """Ты проверяешь, действительно ли стоп-слово в описании
+объявления Авито означает, что товар плохой. Примеры безобидных упоминаний:
+«ремонт не требовался», «не б/у», «копия не продаётся», «на запчасти не разбирал»,
+«восстановление не делалось». Примеры по делу: «продаю на запчасти», «есть следы ремонта»,
+«копия», «неисправен». Для каждого listing_id верни actually_excluded=true, если
+стоп-слово по делу и объявление действительно не подходит, иначе false.
+reason — коротко на русском. Отвечай строго JSON по схеме."""
 
 MODERATION_SYSTEM_PROMPT = """Ты модератор выдачи Авито. Для каждого объявления определи:
 - relevant: соответствует ли оно тематике поискового запроса (другая модель,
@@ -69,6 +81,7 @@ def build_digest_prompt(
     p75: float | None,
     top_listings: Sequence[tuple[str, float | None]],
     history: Sequence[tuple[str, float | None]] = (),
+    our_listings: Sequence[tuple[str, str, float | None]] = (),
 ) -> str:
     top_lines = "\n".join(
         f"- {title} — {price if price is not None else 'цена не указана'} руб."
@@ -77,6 +90,10 @@ def build_digest_prompt(
     history_lines = "\n".join(
         f"- {day}: медиана {median_value if median_value is not None else '—'} руб."
         for day, median_value in history
+    )
+    our_lines = "\n".join(
+        f"- SKU {sku}: {title} — наша цена {price if price is not None else '—'} руб."
+        for sku, title, price in our_listings
     )
     return f"""Поиск: {search_name}
 
@@ -98,7 +115,10 @@ def build_digest_prompt(
 История медианы:
 {history_lines or "- нет данных"}
 
-Сделай сводку и предложи действия."""
+Наши товары (SKU | название | текущая цена):
+{our_lines or "- нет данных"}
+
+Сделай сводку и предложи действия. Для подходящих наших товаров дай price_suggestions."""
 
 
 def build_moderation_prompt(
@@ -121,3 +141,22 @@ def build_moderation_prompt(
 [{",\n ".join(lines)}]
 
 Верни решение по каждому listing_id, включая категорию."""
+
+
+def build_description_review_prompt(
+    *,
+    query: str,
+    items: list[tuple[int, str, str, str]],
+) -> str:
+    lines = []
+    for item_id, title, word, snippet in items:
+        lines.append(
+            f'{{"listing_id": {item_id}, "title": {title!r}, '
+            f'"stop_word": {word!r}, "description_snippet": {snippet!r}}}'
+        )
+    return f"""Поиск: {query}
+
+Объявления со стоп-словом в описании (JSON):
+[{",\n ".join(lines)}]
+
+Для каждого listing_id верни actually_excluded и reason."""

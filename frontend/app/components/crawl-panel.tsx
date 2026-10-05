@@ -88,6 +88,9 @@ export function CrawlPanel({ searchId }: { searchId: string }) {
     }
   }
 
+  const ai = progress?.result?.ai as
+    | { scored?: number; desc_reviewed?: number; cost_usd?: number }
+    | undefined;
   const status = progress?.status ?? "idle";
   const running = status === "running";
   const queued = status === "queued";
@@ -119,7 +122,7 @@ export function CrawlPanel({ searchId }: { searchId: string }) {
           <h2 className="text-base font-medium sm:text-lg">Обход</h2>
           <InfoHint
             title="Пайплайн обхода"
-            text="Что происходит при обходе: открываем страницы выдачи Авито → убираем мусор → считаем цены (медиана, диапазоны) → сравниваем с вашими товарами → создаём уведомления. Работает по расписанию, но можно запустить вручную. Пока идёт обход, статус меняется: «в очереди» → «подготовка» → «сбор страниц» и далее."
+            text="Что происходит при обходе: открываем страницы выдачи Авито → чистим фильтрами (стоп-слова, регион) → AI-модерация только спорных карточек → считаем цены → сравниваем с вашими товарами → создаём уведомления. Работает по расписанию, но можно запустить вручную."
           />
           <span
             className={`rounded-full border px-2.5 py-0.5 text-xs ${
@@ -181,11 +184,22 @@ export function CrawlPanel({ searchId }: { searchId: string }) {
         ) : progress?.error ? (
           <span className="text-red-300">{progress.error}</span>
         ) : progress?.result ? (
-          <span>
-            собрано страниц: {String(progress.result.pages_fetched ?? "—")} · новых:{" "}
-            {String(progress.result.new_listings ?? "—")} · изменений цены:{" "}
-            {String(progress.result.price_changes ?? "—")}
-          </span>
+          <>
+            <span>
+              собрано страниц: {String(progress.result.pages_fetched ?? "—")} · новых:{" "}
+              {String(progress.result.new_listings ?? "—")} · изменений цены:{" "}
+              {String(progress.result.price_changes ?? "—")}
+            </span>
+            {ai ? (
+              <span>
+                AI: {ai.scored ?? 0} карточек
+                {ai.desc_reviewed ? ` + ${ai.desc_reviewed} описаний` : ""}
+                {typeof ai.cost_usd === "number"
+                  ? ` · $${ai.cost_usd.toFixed(4)}`
+                  : ""}
+              </span>
+            ) : null}
+          </>
         ) : (
           <span>Обход запускается планировщиком по cron или кнопкой выше.</span>
         )}

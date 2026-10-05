@@ -102,6 +102,10 @@ class Settings(BaseSettings):
     moderation_description_max_items: int = 10
     moderation_description_delay_min_seconds: float = 3.0
     moderation_description_delay_max_seconds: float = 6.0
+    # AI-проверка контекста стоп-слов в описании (только спорные случаи).
+    moderation_description_review_enabled: bool = True
+    moderation_description_review_max_items: int = 20
+    moderation_description_review_batch_size: int = 10
 
 
 @lru_cache

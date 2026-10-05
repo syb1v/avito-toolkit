@@ -2,17 +2,21 @@ from collections.abc import Sequence
 
 from app.ai.client import LlmResult, complete_structured
 from app.ai.prompts import (
+    DESCRIPTION_REVIEW_SYSTEM_PROMPT,
+    DESCRIPTION_REVIEW_VERSION,
     DIGEST_SYSTEM_PROMPT,
     DIGEST_VERSION,
     MODERATION_SYSTEM_PROMPT,
     MODERATION_VERSION,
     PRICE_ADVISOR_SYSTEM_PROMPT,
     PRICE_ADVISOR_VERSION,
+    build_description_review_prompt,
     build_digest_prompt,
     build_moderation_prompt,
     build_price_prompt,
 )
 from app.ai.schemas import (
+    DescriptionReviewBatch,
     MarketDigest,
     ModerationBatch,
     PriceActionRecommendation,
@@ -54,6 +58,7 @@ async def generate_market_digest(
     p75: float | None,
     top_listings: Sequence[tuple[str, float | None]],
     history: Sequence[tuple[str, float | None]] = (),
+    our_listings: Sequence[tuple[str, str, float | None]] = (),
 ) -> LlmResult[MarketDigest]:
     return await complete_structured(
         MarketDigest,
@@ -70,9 +75,24 @@ async def generate_market_digest(
             p75=p75,
             top_listings=top_listings,
             history=history,
+            our_listings=our_listings,
         ),
         task="market_digest",
         prompt_version=DIGEST_VERSION,
+    )
+
+
+async def review_descriptions_batch(
+    *,
+    query: str,
+    items: list[tuple[int, str, str, str]],
+) -> LlmResult[DescriptionReviewBatch]:
+    return await complete_structured(
+        DescriptionReviewBatch,
+        system_prompt=DESCRIPTION_REVIEW_SYSTEM_PROMPT,
+        user_prompt=build_description_review_prompt(query=query, items=items),
+        task="description_context",
+        prompt_version=DESCRIPTION_REVIEW_VERSION,
     )
 
 

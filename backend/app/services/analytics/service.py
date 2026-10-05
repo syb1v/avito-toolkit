@@ -16,9 +16,10 @@ from app.services.regions import (
 )
 from app.services.search_filter import (
     combined_text,
+    desc_verdict_ok,
     exclude_keywords_from_params,
+    first_matching_exclude,
     keywords_from_params,
-    matches_exclude_keywords,
     matches_keyword_groups,
 )
 
@@ -39,10 +40,16 @@ class ExclusionCounts:
     manual: int = 0
 
 
-async def _active_listings(
-    session: AsyncSession, search_id: uuid.UUID
-) -> tuple[list[float], ExclusionCounts]:
-    """Цены активных объявлений (без флагов) после всех фильтров поиска."""
+@dataclass(frozen=True, slots=True)
+class FilteredListing:
+    title: str
+    price: float
+    # None — объявление проходит фильтры; иначе причина исключения.
+    reason: str | None = None
+
+
+async def _filtered_listings(session: AsyncSession, search_id: uuid.UUID) -> list[FilteredListing]:
+    """Активные объявления поиска (без флагов) с причиной исключения фильтрами."""
     search = await session.get(Search, search_id)
     params = search.params if search is not None else None
     groups = keywords_from_params(params)
@@ -57,6 +64,7 @@ async def _active_listings(
             Listing.region,
             ListingExclusion.listing_id,
             Listing.description,
+            Listing.params,
         )
         .join(SearchListing, SearchListing.listing_id == Listing.id)
         .outerjoin(
@@ -75,26 +83,51 @@ async def _active_listings(
             SearchListing.first_seen >= datetime.now(UTC) - timedelta(days=max_age_days)
         )
     rows = await session.execute(statement)
-    prices: list[float] = []
-    keyword = stopword = region = manual = 0
-    for title, price, listing_region, manual_id, description in rows.all():
+    filtered: list[FilteredListing] = []
+    for title, price, listing_region, manual_id, description, listing_params in rows.all():
         if price is None:
             continue
-        if manual_id is not None:
-            manual += 1
-            continue
         text = combined_text(title or "", description)
-        if groups and not matches_keyword_groups(text, groups):
-            keyword += 1
-            continue
-        if matches_exclude_keywords(text, excludes):
-            stopword += 1
-            continue
-        if not matches_region(listing_region, regions, exclude_regions):
-            region += 1
-            continue
-        prices.append(float(price))
-    return prices, ExclusionCounts(keyword=keyword, stopword=stopword, region=region, manual=manual)
+        word = first_matching_exclude(text, excludes)
+        reason: str | None = None
+        if manual_id is not None:
+            reason = "manual"
+        elif groups and not matches_keyword_groups(text, groups):
+            reason = "keyword"
+        elif word is not None and (
+            first_matching_exclude(title or "", excludes) is not None
+            or not desc_verdict_ok(listing_params, word)
+        ):
+            reason = "stopword"
+        elif not matches_region(listing_region, regions, exclude_regions):
+            reason = "region"
+        filtered.append(FilteredListing(title=title or "", price=float(price), reason=reason))
+    return filtered
+
+
+async def _active_listings(
+    session: AsyncSession, search_id: uuid.UUID
+) -> tuple[list[float], ExclusionCounts]:
+    """Цены активных объявлений (без флагов) после всех фильтров поиска."""
+    counters: dict[str, int] = {"keyword": 0, "stopword": 0, "region": 0, "manual": 0}
+    prices: list[float] = []
+    for row in await _filtered_listings(session, search_id):
+        if row.reason is None:
+            prices.append(row.price)
+        else:
+            counters[row.reason] = counters.get(row.reason, 0) + 1
+    return prices, ExclusionCounts(**counters)
+
+
+async def filtered_top_listings(
+    session: AsyncSession, search_id: uuid.UUID, limit: int
+) -> list[tuple[str, float | None]]:
+    """Топ выдачи для AI-дайджеста — только объявления, прошедшие фильтры поиска."""
+    rows = await _filtered_listings(session, search_id)
+    top: list[tuple[str, float | None]] = [
+        (row.title, row.price) for row in rows if row.reason is None
+    ]
+    return top[:limit]
 
 
 async def _active_prices(session: AsyncSession, search_id: uuid.UUID) -> list[float]:

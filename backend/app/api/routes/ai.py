@@ -12,8 +12,12 @@ from app.ai.tasks import advise_price, generate_market_digest
 from app.api.deps import DbSession
 from app.api.schemas import PositionOut, PriceStatsOut
 from app.config import Settings, get_settings
-from app.db.models import AiDigest, Listing, LlmRun, OurListing, Search, SearchListing
-from app.services.analytics.service import build_search_summary, fetch_daily_history
+from app.db.models import AiDigest, ListingEdit, LlmRun, OurListing, Search
+from app.services.analytics.service import (
+    build_search_summary,
+    fetch_daily_history,
+    filtered_top_listings,
+)
 from app.services.matching import build_our_position
 from app.services.pricing import RepricingContext, build_price_target
 
@@ -22,6 +26,14 @@ router = APIRouter(tags=["ai"])
 TOP_LISTINGS_FOR_PROMPT = 10
 HISTORY_FOR_PROMPT = 14
 MAX_LLM_RUNS = 100
+OUR_LISTINGS_FOR_PROMPT = 50
+OPEN_EDIT_STATUSES = ("draft", "approved", "applying", "reverting")
+
+
+class PriceSuggestionOut(BaseModel):
+    sku: str
+    target_price: float
+    reason: str
 
 
 class DigestOut(BaseModel):
@@ -36,6 +48,13 @@ class DigestOut(BaseModel):
     tokens_out: int | None
     cost_usd: float | None
     created_at: datetime | None = None
+    price_suggestions: list[PriceSuggestionOut] = []
+
+
+class ApplySuggestionsOut(BaseModel):
+    created: int
+    skipped: int
+    skus: list[str]
 
 
 class PriceActionOut(BaseModel):
@@ -85,15 +104,15 @@ async def create_digest(search_id: uuid.UUID, session: DbSession) -> DigestOut:
         raise HTTPException(status_code=404, detail="search not found")
 
     summary = await build_search_summary(session, search_id)
-    top_rows = await session.execute(
-        select(Listing.title, Listing.current_price)
-        .join(SearchListing, SearchListing.listing_id == Listing.id)
-        .where(SearchListing.search_id == search_id, Listing.status == "active")
-        .order_by(SearchListing.last_position.nulls_last())
-        .limit(TOP_LISTINGS_FOR_PROMPT)
+    top_listings = await filtered_top_listings(session, search_id, TOP_LISTINGS_FOR_PROMPT)
+    our_rows = await session.execute(
+        select(OurListing.sku, OurListing.title, OurListing.price)
+        .where(OurListing.is_active.is_(True))
+        .order_by(OurListing.title)
+        .limit(OUR_LISTINGS_FOR_PROMPT)
     )
-    top_listings = [
-        (row[0], float(row[1]) if row[1] is not None else None) for row in top_rows.all()
+    our_listings = [
+        (row[0], row[1], float(row[2]) if row[2] is not None else None) for row in our_rows.all()
     ]
     history_rows = await fetch_daily_history(session, search_id, HISTORY_FOR_PROMPT)
     history = [
@@ -118,6 +137,7 @@ async def create_digest(search_id: uuid.UUID, session: DbSession) -> DigestOut:
             p75=stats.p75 if stats else None,
             top_listings=top_listings,
             history=history,
+            our_listings=our_listings,
         )
     except LlmNotConfiguredError as error:
         raise HTTPException(status_code=409, detail=str(error)) from error
@@ -137,6 +157,10 @@ async def create_digest(search_id: uuid.UUID, session: DbSession) -> DigestOut:
         tokens_in=result.tokens_in,
         tokens_out=result.tokens_out,
         cost_usd=result.cost_usd,
+        price_suggestions=[
+            PriceSuggestionOut(sku=item.sku, target_price=item.target_price, reason=item.reason)
+            for item in digest.price_suggestions
+        ],
     )
     stored = AiDigest(
         search_id=search_id,
@@ -174,7 +198,81 @@ async def get_latest_digest(search_id: uuid.UUID, session: DbSession) -> DigestO
         tokens_out=payload.get("tokens_out"),
         cost_usd=payload.get("cost_usd"),
         created_at=row.created_at,
+        price_suggestions=[
+            PriceSuggestionOut(
+                sku=str(item.get("sku", "")),
+                target_price=float(item.get("target_price", 0)),
+                reason=str(item.get("reason", "")),
+            )
+            for item in (payload.get("price_suggestions") or [])
+            if isinstance(item, dict) and item.get("sku")
+        ],
     )
+
+
+@router.post(
+    "/searches/{search_id}/digest/apply-suggestions",
+    response_model=ApplySuggestionsOut,
+    status_code=201,
+)
+async def apply_digest_suggestions(search_id: uuid.UUID, session: DbSession) -> ApplySuggestionsOut:
+    """Черновики правок по AI-рекомендациям дайджеста (шаг и HITL — как у остальных правок)."""
+    settings = get_settings()
+    row = await session.scalar(
+        select(AiDigest)
+        .where(AiDigest.search_id == search_id)
+        .order_by(AiDigest.created_at.desc())
+        .limit(1)
+    )
+    if row is None:
+        raise HTTPException(status_code=404, detail="digest not generated yet")
+    suggestions = [
+        item
+        for item in ((row.payload or {}).get("price_suggestions") or [])
+        if isinstance(item, dict)
+    ]
+    open_rows = await session.execute(
+        select(ListingEdit.sku).where(ListingEdit.status.in_(OPEN_EDIT_STATUSES))
+    )
+    busy = {row_[0] for row_ in open_rows.all()}
+    created_skus: list[str] = []
+    skipped = 0
+    max_step = settings.reprice_max_step_pct / 100
+    for item in suggestions:
+        sku = str(item.get("sku") or "")
+        target = item.get("target_price")
+        if not sku or not isinstance(target, (int, float)) or target <= 0 or sku in busy:
+            skipped += 1
+            continue
+        our = await session.get(OurListing, sku)
+        if our is None or not our.is_active:
+            skipped += 1
+            continue
+        our_price = float(our.price)
+        if our_price <= 0:
+            skipped += 1
+            continue
+        clamped = max(our_price * (1 - max_step), min(float(target), our_price * (1 + max_step)))
+        if our.cost_price is not None:
+            clamped = max(clamped, float(our.cost_price))
+        clamped = round(clamped, 2)
+        delta_pct = (clamped - our_price) / our_price * 100
+        edit = ListingEdit(
+            sku=sku,
+            old_price=our_price,
+            target_price=clamped,
+            delta_pct=delta_pct,
+            strategy="ai_digest",
+            status=(
+                "draft" if abs(delta_pct) > settings.reprice_hitl_threshold_pct else "approved"
+            ),
+            mode=settings.seller_edit_mode,
+        )
+        session.add(edit)
+        busy.add(sku)
+        created_skus.append(sku)
+    await session.commit()
+    return ApplySuggestionsOut(created=len(created_skus), skipped=skipped, skus=created_skus)
 
 
 @router.post("/our-listings/{sku}/advice", response_model=AdviceOut)

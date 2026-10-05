@@ -101,6 +101,20 @@ def matches_exclude_keywords(title: str, excludes: Sequence[str] | None) -> bool
     return first_matching_exclude(title, excludes) is not None
 
 
+def desc_verdict_ok(params: Mapping[str, object] | None, word: str) -> bool:
+    """AI подтвердил, что стоп-слово в описании — безобидное упоминание.
+
+    Вердикт хранится в Listing.params["desc_verdict"] и привязан к слову:
+    при появлении другого стоп-слова проверка выполняется заново.
+    """
+    if not isinstance(params, Mapping):
+        return False
+    verdict = params.get("desc_verdict")
+    if not isinstance(verdict, Mapping):
+        return False
+    return verdict.get("ok") is True and verdict.get("word") == word
+
+
 def matches_search(
     title: str,
     groups: KeywordGroups | None,

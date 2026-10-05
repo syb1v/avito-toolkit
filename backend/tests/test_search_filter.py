@@ -74,3 +74,20 @@ def test_first_matching_exclude_and_missing_group() -> None:
     groups = [["b&o", "bang olufsen"], ["beoplay"], ["natural aluminium"]]
     assert first_missing_group(text, groups) == ["natural aluminium"]
     assert first_missing_group("B&O Beoplay Eleven Natural Aluminium", groups) is None
+
+
+def test_desc_verdict_ok_matches_word() -> None:
+    from app.services.search_filter import desc_verdict_ok
+
+    params = {"desc_verdict": {"ok": True, "word": "ремонт"}}
+    assert desc_verdict_ok(params, "ремонт") is True
+    assert desc_verdict_ok(params, "копия") is False
+    assert desc_verdict_ok(None, "ремонт") is False
+    assert desc_verdict_ok({}, "ремонт") is False
+
+
+def test_desc_verdict_ok_false_verdict() -> None:
+    from app.services.search_filter import desc_verdict_ok
+
+    params = {"desc_verdict": {"ok": False, "word": "ремонт"}}
+    assert desc_verdict_ok(params, "ремонт") is False

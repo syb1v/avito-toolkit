@@ -277,7 +277,15 @@ async def _collect(search_id: str) -> CrawlResult:
             await progress.stage("alerts")
             await evaluate_search_alerts(session, result.search_id)
             await session.commit()
-            await progress.finish(result.to_dict())
+            payload = result.to_dict()
+            payload["ai"] = {
+                "scored": moderation.ai_scored,
+                "desc_reviewed": moderation.desc_reviewed,
+                "tokens_in": moderation.ai_tokens_in,
+                "tokens_out": moderation.ai_tokens_out,
+                "cost_usd": round(moderation.ai_cost_usd, 6),
+            }
+            await progress.finish(payload)
             logger.info(
                 "crawl pipeline: descriptions +%s, matched %s our SKUs, flagged %s "
                 "(categories %s, moderation descriptions %s), ai-scored %s",

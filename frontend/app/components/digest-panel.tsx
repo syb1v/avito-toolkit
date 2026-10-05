@@ -1,10 +1,17 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useState } from "react";
 
-import { createDigest, fetchDigestClient, type Digest } from "@/lib/api";
+import {
+  applyDigestSuggestions,
+  createDigest,
+  fetchDigestClient,
+  type Digest,
+} from "@/lib/api";
+import { useConfirm } from "@/app/components/confirm";
 import { useToast } from "@/app/components/toast";
-import { formatRelativeTime } from "@/lib/format";
+import { formatPrice, formatRelativeTime } from "@/lib/format";
 import { InfoHint } from "@/app/components/info-hint";
 
 const DEMAND_LABELS: Record<string, string> = {
@@ -24,7 +31,9 @@ export function DigestPanel({ searchId }: { searchId: string }) {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [elapsed, setElapsed] = useState(0);
+  const [applying, setApplying] = useState(false);
   const toast = useToast();
+  const confirm = useConfirm();
 
   useEffect(() => {
     let cancelled = false;
@@ -46,6 +55,44 @@ export function DigestPanel({ searchId }: { searchId: string }) {
     const timer = setInterval(() => setElapsed((value) => value + 1), 1000);
     return () => clearInterval(timer);
   }, [loading]);
+
+  async function applySuggestions() {
+    if (!digest) {
+      return;
+    }
+    const ok = await confirm({
+      title: "Создать черновики правок?",
+      text: `AI предложил цены для ${digest.price_suggestions.length} наших товаров. Правки появятся на странице «Правки»: шаг ограничен настройкой, крупные изменения уйдут на подтверждение.`,
+      confirmLabel: "Создать",
+    });
+    if (!ok) {
+      return;
+    }
+    setApplying(true);
+    const result = await applyDigestSuggestions(searchId);
+    setApplying(false);
+    if (result === null) {
+      toast.push("error", "Не удалось создать правки");
+      return;
+    }
+    toast.push(
+      "success",
+      `Черновиков создано: ${result.created}${
+        result.skipped > 0 ? `, пропущено: ${result.skipped}` : ""
+      }`,
+    );
+    const createdSkus = new Set(result.skus);
+    setDigest((current) =>
+      current === null
+        ? current
+        : {
+            ...current,
+            price_suggestions: current.price_suggestions.filter(
+              (item) => !createdSkus.has(item.sku),
+            ),
+          },
+    );
+  }
 
   async function generate() {
     setLoading(true);
@@ -148,6 +195,41 @@ export function DigestPanel({ searchId }: { searchId: string }) {
               </ul>
             </div>
           </div>
+          {digest.price_suggestions.length > 0 ? (
+            <div className="rounded-lg border border-sky-500/25 bg-sky-500/5 p-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <p className="text-xs uppercase tracking-wider text-sky-300/80">
+                  AI-предложения по нашим ценам
+                </p>
+                <button
+                  type="button"
+                  onClick={applySuggestions}
+                  disabled={applying}
+                  className="rounded-lg border border-sky-500/40 bg-sky-500/15 px-3 py-1.5 text-xs text-sky-200 transition hover:bg-sky-500/25 disabled:opacity-50"
+                >
+                  {applying ? "Создание…" : "Создать черновики правок"}
+                </button>
+              </div>
+              <ul className="mt-2 flex flex-col gap-1.5 text-sm text-neutral-300">
+                {digest.price_suggestions.map((item) => (
+                  <li key={item.sku} className="flex flex-wrap gap-x-2">
+                    <span className="font-medium">{item.sku}</span>
+                    <span className="text-sky-200">
+                      → {formatPrice(item.target_price)}
+                    </span>
+                    <span className="text-neutral-500">{item.reason}</span>
+                  </li>
+                ))}
+              </ul>
+              <p className="mt-2 text-xs text-neutral-500">
+                Правки с подтверждением — на странице{" "}
+                <Link href="/edits" className="text-sky-300 underline">
+                  «Правки»
+                </Link>
+                .
+              </p>
+            </div>
+          ) : null}
           <p className="text-xs text-neutral-600">
             {digest.model}
             {digest.tokens_in !== null || digest.tokens_out !== null

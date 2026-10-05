@@ -322,16 +322,15 @@ async def list_search_listings(
         detail: str | None = None
         if manual_excluded:
             reason: str | None = "manual"
-            detail = "скрыто вручную"
         elif groups and (missing := first_missing_group(text, groups)):
             reason = "keyword"
             detail = f"нет: {', '.join(missing[:3])}"
         elif word := first_matching_exclude(text, excludes):
             reason = "stopword"
-            detail = f"стоп-слово: {word}"
+            detail = word
         elif not matches_region(listing_region, regions, exclude_regions):
             reason = "region"
-            detail = f"город: {listing_region or '—'}"
+            detail = listing_region
         else:
             reason = None
         items.append(

@@ -1,5 +1,5 @@
 import uuid
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter
 from pydantic import BaseModel
@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import DbSession
 from app.config import get_settings
-from app.db.models import Alert, Listing, OurListing, Search
+from app.db.models import Alert, Listing, LlmRun, OurListing, Search
 from app.services.alerts import search_alive_clause
 from app.services.progress import list_running_progress
 from app.services.queues import system_health
@@ -41,6 +41,19 @@ class ActiveCrawlOut(BaseModel):
     started_at: str | None
 
 
+class AiTaskSpendOut(BaseModel):
+    task: str
+    runs: int
+    cost_usd: float
+
+
+class AiSpendOut(BaseModel):
+    day_usd: float
+    month_usd: float
+    total_usd: float
+    by_task: list[AiTaskSpendOut]
+
+
 class DashboardOut(BaseModel):
     searches_total: int
     searches_active: int
@@ -51,6 +64,7 @@ class DashboardOut(BaseModel):
     queues: QueueStatusOut
     active_crawls: list[ActiveCrawlOut]
     latest_alerts: list[DashboardAlertOut]
+    ai_spend: AiSpendOut
 
 
 async def _count(session: AsyncSession, model: type, *conditions: ColumnElement[bool]) -> int:
@@ -58,6 +72,39 @@ async def _count(session: AsyncSession, model: type, *conditions: ColumnElement[
     for condition in conditions:
         statement = statement.where(condition)
     return int(await session.scalar(statement) or 0)
+
+
+async def _ai_spend(session: AsyncSession) -> AiSpendOut:
+    now = datetime.now(UTC)
+    day_ago = now - timedelta(days=1)
+    month_ago = now - timedelta(days=30)
+
+    async def _sum_since(moment: datetime | None) -> float:
+        statement = select(func.coalesce(func.sum(LlmRun.cost_usd), 0))
+        if moment is not None:
+            statement = statement.where(LlmRun.created_at >= moment)
+        value = await session.scalar(statement)
+        return float(value) if value is not None else 0.0
+
+    rows = await session.execute(
+        select(
+            LlmRun.task,
+            func.count(),
+            func.coalesce(func.sum(LlmRun.cost_usd), 0),
+        )
+        .where(LlmRun.created_at >= month_ago)
+        .group_by(LlmRun.task)
+        .order_by(func.coalesce(func.sum(LlmRun.cost_usd), 0).desc())
+    )
+    return AiSpendOut(
+        day_usd=round(await _sum_since(day_ago), 6),
+        month_usd=round(await _sum_since(month_ago), 6),
+        total_usd=round(await _sum_since(None), 6),
+        by_task=[
+            AiTaskSpendOut(task=row[0], runs=int(row[1]), cost_usd=round(float(row[2] or 0), 6))
+            for row in rows.all()
+        ],
+    )
 
 
 async def _active_crawls(session: AsyncSession, redis: Redis) -> list[ActiveCrawlOut]:
@@ -128,4 +175,5 @@ async def get_dashboard(session: DbSession) -> DashboardOut:
         ),
         active_crawls=active_crawls,
         latest_alerts=latest,
+        ai_spend=await _ai_spend(session),
     )

@@ -32,6 +32,16 @@ const SORT_OPTIONS: { value: ListingSort; label: string }[] = [
   { value: "status", label: "По статусу" },
 ];
 
+function excludeDetailText(region: string | null, reason: string | null, detail: string | null) {
+  if (!detail) {
+    return null;
+  }
+  if (reason === "region") {
+    return regionName(detail);
+  }
+  return detail;
+}
+
 const EXCLUDE_REASON_META: Record<string, { label: string; className: string }> = {
   manual: {
     label: "скрыто вручную",
@@ -567,7 +577,14 @@ export default async function SearchDetailPage({
                       >
                         {EXCLUDE_REASON_META[listing.exclude_reason]?.label ??
                           listing.exclude_reason}
-                        {listing.exclude_detail ? ` · ${listing.exclude_detail}` : ""}
+                        {(() => {
+                          const detail = excludeDetailText(
+                            listing.region,
+                            listing.exclude_reason,
+                            listing.exclude_detail,
+                          );
+                          return detail ? ` · ${detail}` : "";
+                        })()}
                       </span>
                     ) : null}
                     <ListingFlags
@@ -615,7 +632,14 @@ export default async function SearchDetailPage({
                     : ""}
                   {listing.exclude_reason
                     ? ` · ${EXCLUDE_REASON_META[listing.exclude_reason]?.label ?? listing.exclude_reason}${
-                        listing.exclude_detail ? ` (${listing.exclude_detail})` : ""
+                        (() => {
+                          const detail = excludeDetailText(
+                            listing.region,
+                            listing.exclude_reason,
+                            listing.exclude_detail,
+                          );
+                          return detail ? ` (${detail})` : "";
+                        })()
                       }`
                     : ""}
                 </p>
