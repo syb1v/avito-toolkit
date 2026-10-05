@@ -7,6 +7,8 @@
 
 ## [Unreleased]
 
+## [0.24.1] - 2026-10-05
+
 ### Добавлено
 
 - FAQ по статусам аккаунтов: hover-подсказка «?» у панели аккаунтов и раздел
@@ -606,7 +608,8 @@
 - Дашборд Next.js 16 + Tailwind 4 со статусом API и дорожной картой.
 - Документация: README, `docs/plan.md`, `.env.example`, MIT-лицензия.
 
-[Unreleased]: https://github.com/syb1v/avito-toolkit/compare/v0.24.0...HEAD
+[Unreleased]: https://github.com/syb1v/avito-toolkit/compare/v0.24.1...HEAD
+[0.24.1]: https://github.com/syb1v/avito-toolkit/compare/v0.24.0...v0.24.1
 [0.24.0]: https://github.com/syb1v/avito-toolkit/compare/v0.23.1...v0.24.0
 [0.23.1]: https://github.com/syb1v/avito-toolkit/compare/v0.23.0...v0.23.1
 [0.23.0]: https://github.com/syb1v/avito-toolkit/compare/v0.22.0...v0.23.0
