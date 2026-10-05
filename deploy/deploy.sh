@@ -51,6 +51,8 @@ done
 
 echo "== запуск стека =="
 "${COMPOSE[@]}" up -d
+# bind-mount конфигов: пересоздаём nginx, чтобы гарантированно подхватить их
+"${COMPOSE[@]}" up -d --force-recreate nginx
 
 echo "== статус =="
 "${COMPOSE[@]}" ps

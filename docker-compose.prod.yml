@@ -16,8 +16,9 @@ services:
     ports:
       - "80:80"
     volumes:
-      - ./deploy/nginx.conf:/etc/nginx/conf.d/default.conf:ro
-      - ./deploy/.htpasswd:/etc/nginx/.htpasswd:ro
+      # каталоги, а не файлы: новые inode видны без пересоздания контейнера
+      - ./deploy/nginx:/etc/nginx/conf.d:ro
+      - ./deploy:/opt/deploy:ro
     depends_on:
       - web
       - api
