@@ -7,6 +7,21 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 COMPOSE=(docker compose -f docker-compose.yml -f docker-compose.prod.yml)
 
+echo "== Basic Auth (deploy/.htpasswd из .env) =="
+set -a
+# shellcheck disable=SC1091
+. ./.env
+set +a
+if [ -n "${PANEL_PASSWORD:-}" ]; then
+    HASH="$(openssl passwd -apr1 "$PANEL_PASSWORD")"
+    printf '%s:%s\n' "${PANEL_USER:-admin}" "$HASH" > deploy/.htpasswd
+else
+    # файл обязан существовать (bind-mount), но вход никому не разрешён
+    printf '%s:!\n' "${PANEL_USER:-admin}" > deploy/.htpasswd
+    echo "WARN: PANEL_PASSWORD не задан в .env — вход в панель закрыт" >&2
+fi
+chmod 600 deploy/.htpasswd
+
 echo "== git: обновление кода =="
 git fetch --all --tags --prune
 git checkout main

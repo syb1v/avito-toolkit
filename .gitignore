@@ -48,3 +48,6 @@ cookies/
 .vscode/
 .DS_Store
 *.swp
+
+# Пароли панели (генерируются деплоем из .env)
+deploy/.htpasswd
