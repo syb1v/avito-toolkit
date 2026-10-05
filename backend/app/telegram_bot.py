@@ -566,6 +566,22 @@ class TelegramBot:
                 )
             if alert.type == "worker_down":
                 text += "Воркер не отвечает — проверьте сервер.\n"
+            elif alert.type == "account_stale":
+                names = ", ".join(
+                    str(item.get("name"))
+                    for item in (payload.get("accounts") or [])[:5]
+                    if isinstance(item, dict)
+                )
+                text += f"Обновите cookies/вход: {names or 'аккаунты'}.\n"
+            elif alert.type == "proxy_dead":
+                text += "Все прокси мертвы или в антибот-блоке — проверьте панель «Прокси».\n"
+            elif alert.type == "ai_balance_low":
+                balance = payload.get("balance")
+                currency = payload.get("currency") or ""
+                text += "Пополните AI API"
+                if balance is not None:
+                    text += f": остаток {balance} {currency}".rstrip()
+                text += ".\n"
             for chat_id in chat_ids:
                 await self._send(chat_id, text, alerts_keyboard())
         newest = max(row.created_at for row in rows)

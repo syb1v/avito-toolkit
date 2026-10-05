@@ -9,6 +9,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
 from app.db.models import Alert
+from app.services.health_alerts import (
+    ACCOUNT_STALE,
+    AI_BALANCE_LOW,
+    PROXY_DEAD,
+    check_accounts,
+    check_ai_balance,
+    check_proxies,
+)
 from app.services.queues import queue_depth, worker_alive
 
 logger = logging.getLogger(__name__)
@@ -28,6 +36,20 @@ async def _resolve_open(session: AsyncSession, alert_type: str) -> None:
     await session.execute(
         update(Alert).where(Alert.type == alert_type, Alert.status == "new").values(status="acked")
     )
+
+
+async def _sync_system_alert(
+    session: AsyncSession,
+    alert_type: str,
+    payload: dict[str, object],
+    problem: bool,
+) -> None:
+    if problem:
+        if not await _has_open(session, alert_type):
+            session.add(Alert(type=alert_type, payload=payload, status="new"))
+            logger.warning("watchdog: %s (%s)", alert_type, payload.get("reason"))
+    else:
+        await _resolve_open(session, alert_type)
 
 
 async def run_watchdog(session: AsyncSession, redis: Redis) -> dict[str, object]:
@@ -73,9 +95,35 @@ async def run_watchdog(session: AsyncSession, redis: Redis) -> dict[str, object]
     else:
         await _resolve_open(session, QUEUE_BACKLOG)
 
+    checked_at = datetime.now(UTC).isoformat()
+    stale_accounts = await check_accounts(session, settings)
+    await _sync_system_alert(
+        session,
+        ACCOUNT_STALE,
+        {"kind": ACCOUNT_STALE, "accounts": stale_accounts, "checked_at": checked_at},
+        bool(stale_accounts),
+    )
+    proxy_problem = await check_proxies(redis, session, settings)
+    await _sync_system_alert(
+        session,
+        PROXY_DEAD,
+        {"kind": PROXY_DEAD, **(proxy_problem or {}), "checked_at": checked_at},
+        proxy_problem is not None,
+    )
+    balance = await check_ai_balance(settings)
+    await _sync_system_alert(
+        session,
+        AI_BALANCE_LOW,
+        {"kind": AI_BALANCE_LOW, **(balance or {}), "checked_at": checked_at},
+        bool(balance and balance.get("low")),
+    )
+
     await session.flush()
     return {
         "worker_alive": alive,
         "crawl_queue": crawl_queue,
         "analytics_queue": analytics_queue,
+        "accounts_stale": len(stale_accounts),
+        "proxy_dead": proxy_problem,
+        "ai_balance": balance,
     }

@@ -77,6 +77,10 @@ class Settings(BaseSettings):
     worker_alive_window_seconds: int = 120
     watchdog_interval_minutes: int = 5
     watchdog_queue_warn_depth: int = 25
+    # Алерт «куки протухли»: если cookies не обновлялись дольше N часов.
+    watchdog_cookies_max_age_hours: int = 72
+    # Алерт «баланс AI API на исходе»: порог в валюте баланса (DeepSeek — CNY).
+    watchdog_ai_balance_min: float = 1.0
 
     reprice_hitl_threshold_pct: float = 10.0
     reprice_max_step_pct: float = 5.0
