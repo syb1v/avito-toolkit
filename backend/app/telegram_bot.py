@@ -1,22 +1,22 @@
-"""Telegram-бот: авторизация, уведомления и простое управление тулкитом.
+"""Telegram-бот: интерактивное меню на кнопках, уведомления и управление.
 
-Запуск: ``python -m app.telegram_bot`` (в docker-compose сервис ``telegram``).
-Токен и доступы — в переменных TELEGRAM_BOT_TOKEN / TELEGRAM_LOGIN /
-TELEGRAM_PASSWORD. Сессия пользователя живёт TELEGRAM_SESSION_DAYS дней.
+Запуск: ``python -m app.telegram_bot`` (сервис ``telegram`` в docker compose).
+Пользователь один раз вводит логин/пароль (сессия TELEGRAM_SESSION_DAYS дней),
+дальше всё делается кнопками: статус, поиски, обходы, дайджесты, алерты.
 """
 
 import asyncio
 import logging
 import secrets
-import uuid
 from datetime import UTC, datetime
+from typing import Any
 
 import httpx
 from redis.asyncio import Redis
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 
 from app.config import get_settings
-from app.db.models import Alert, Listing, Search
+from app.db.models import AiDigest, Alert, Listing, Search
 from app.db.session import dispose_engine, get_session_factory
 from app.services.queues import system_health
 
@@ -27,19 +27,55 @@ STATE_PREFIX = "tg:state:"
 LAST_ALERT_KEY = "tg:last_alert_ts"
 STATE_TTL_SECONDS = 600
 ALERT_BATCH = 5
-HELP_TEXT = (
-    "Команды:\n"
-    "/status — сводка: поиски, лоты, воркер, очереди\n"
-    "/searches — список поисков\n"
-    "/crawl <id или часть названия> — запустить обход\n"
-    "/alerts — последние уведомления\n"
-    "/digest <id или часть названия> — последний AI-дайджест\n"
-    "/logout — выйти из аккаунта бота"
-)
 
 
-def _now_ts() -> float:
-    return datetime.now(UTC).timestamp()
+def main_keyboard() -> dict[str, Any]:
+    return {
+        "inline_keyboard": [
+            [
+                {"text": "📊 Статус", "callback_data": "st"},
+                {"text": "🔍 Поиски", "callback_data": "se"},
+            ],
+            [
+                {"text": "🔔 Алерты", "callback_data": "al"},
+                {"text": "❓ Помощь", "callback_data": "h"},
+            ],
+        ]
+    }
+
+
+def back_keyboard(target: str = "m") -> dict[str, Any]:
+    return {"inline_keyboard": [[{"text": "⬅️ Назад", "callback_data": target}]]}
+
+
+def searches_keyboard(rows: list[tuple[str, str]]) -> dict[str, Any]:
+    keyboard = [
+        [{"text": f"🔎 {name[:44]}", "callback_data": f"s:{prefix}"}] for prefix, name in rows
+    ]
+    keyboard.append([{"text": "⬅️ Меню", "callback_data": "m"}])
+    return {"inline_keyboard": keyboard}
+
+
+def search_keyboard(prefix: str) -> dict[str, Any]:
+    return {
+        "inline_keyboard": [
+            [{"text": "🚀 Запустить обход", "callback_data": f"c:{prefix}"}],
+            [{"text": "📈 AI-дайджест", "callback_data": f"d:{prefix}"}],
+            [{"text": "⬅️ К поискам", "callback_data": "se"}],
+        ]
+    }
+
+
+def alerts_keyboard() -> dict[str, Any]:
+    return {
+        "inline_keyboard": [
+            [
+                {"text": "🔄 Обновить", "callback_data": "al"},
+                {"text": "🧹 Очистить новые", "callback_data": "acl"},
+            ],
+            [{"text": "⬅️ Меню", "callback_data": "m"}],
+        ]
+    }
 
 
 class TelegramBot:
@@ -60,7 +96,7 @@ class TelegramBot:
             base_url=f"https://api.telegram.org/bot{self._token}",
             timeout=httpx.Timeout(40.0, connect=10.0),
         )
-        logger.info("telegram bot started")
+        logger.info("telegram bot started (inline menu)")
         await asyncio.gather(self._poll_loop(), self._notify_loop())
 
     async def close(self) -> None:
@@ -70,16 +106,51 @@ class TelegramBot:
             await self._redis.aclose()
 
     # --- Telegram API -------------------------------------------------
-    async def _send(self, chat_id: int, text: str) -> None:
+    async def _api(self, method: str, payload: dict[str, Any]) -> dict[str, Any]:
         assert self._client is not None
         try:
-            await self._client.post(
-                "/sendMessage",
-                json={"chat_id": chat_id, "text": text[:3900], "disable_web_page_preview": True},
-            )
+            response = await self._client.post(f"/{method}", json=payload)
+            return response.json()
         except Exception as error:  # noqa: BLE001 — сеть до Telegram может отвалиться
-            logger.warning("sendMessage failed: %s", error)
+            logger.warning("%s failed: %s", method, error)
+            return {}
 
+    async def _send(self, chat_id: int, text: str, keyboard: dict[str, Any] | None = None) -> None:
+        payload: dict[str, Any] = {
+            "chat_id": chat_id,
+            "text": text[:3900],
+            "disable_web_page_preview": True,
+        }
+        if keyboard is not None:
+            payload["reply_markup"] = keyboard
+        await self._api("sendMessage", payload)
+
+    async def _edit(
+        self,
+        chat_id: int,
+        message_id: int,
+        text: str,
+        keyboard: dict[str, Any] | None = None,
+    ) -> None:
+        payload: dict[str, Any] = {
+            "chat_id": chat_id,
+            "message_id": message_id,
+            "text": text[:3900],
+            "disable_web_page_preview": True,
+        }
+        if keyboard is not None:
+            payload["reply_markup"] = keyboard
+        result = await self._api("editMessageText", payload)
+        if not result.get("ok"):
+            await self._send(chat_id, text, keyboard)
+
+    async def _answer(self, callback_id: str, text: str | None = None) -> None:
+        payload: dict[str, Any] = {"callback_query_id": callback_id}
+        if text:
+            payload["text"] = text[:200]
+        await self._api("answerCallbackQuery", payload)
+
+    # --- polling ------------------------------------------------------
     async def _poll_loop(self) -> None:
         assert self._client is not None
         while True:
@@ -90,12 +161,16 @@ class TelegramBot:
                 payload = response.json()
                 for update in payload.get("result", []):
                     self._offset = max(self._offset, int(update["update_id"]) + 1)
+                    callback = update.get("callback_query")
+                    if callback:
+                        await self._handle_callback(callback)
+                        continue
                     message = update.get("message") or {}
                     chat_id = (message.get("chat") or {}).get("id")
                     text = (message.get("text") or "").strip()
                     if chat_id is None or not text:
                         continue
-                    await self._handle(int(chat_id), text)
+                    await self._handle_message(int(chat_id), text)
             except asyncio.CancelledError:
                 raise
             except Exception as error:  # noqa: BLE001
@@ -116,7 +191,7 @@ class TelegramBot:
         value = await self._redis.get(f"{STATE_PREFIX}{chat_id}")
         return value.decode() if isinstance(value, bytes) else value
 
-    async def _handle(self, chat_id: int, text: str) -> None:
+    async def _handle_message(self, chat_id: int, text: str) -> None:
         assert self._redis is not None
         command = text.split()[0].split("@")[0].lower()
         if command == "/logout":
@@ -126,31 +201,30 @@ class TelegramBot:
         if not await self._authed(chat_id):
             await self._login_flow(chat_id, text)
             return
-        if command == "/start" or command == "/help":
-            await self._send(chat_id, "Бот готов.\n\n" + HELP_TEXT)
+        if command in ("/start", "/menu"):
+            await self._send(chat_id, self._menu_text(), main_keyboard())
         elif command == "/status":
-            await self._send(chat_id, await self._status_text())
+            await self._send(chat_id, await self._status_text(), back_keyboard())
         elif command == "/searches":
-            await self._send(chat_id, await self._searches_text())
+            await self._send(chat_id, "Выберите поиск:", await self._searches_keyboard())
         elif command == "/alerts":
-            await self._send(chat_id, await self._alerts_text())
-        elif command == "/crawl":
-            await self._send(chat_id, await self._crawl(text))
-        elif command == "/digest":
-            await self._send(chat_id, await self._digest(text))
+            await self._send(chat_id, await self._alerts_text(), alerts_keyboard())
+        elif command == "/help":
+            await self._send(chat_id, self._help_text(), main_keyboard())
         else:
-            await self._send(chat_id, "Не понял команду.\n\n" + HELP_TEXT)
+            # неизвестная команда — показываем меню (минимум инструкций)
+            await self._send(chat_id, self._menu_text(), main_keyboard())
 
     async def _login_flow(self, chat_id: int, text: str) -> None:
         state = await self._get_state(chat_id)
         if text.strip().lower() in ("/start", "start") or state is None:
             await self._set_state(chat_id, "login")
-            await self._send(chat_id, "Введите логин:")
+            await self._send(chat_id, "🔐 Введите логин:")
             return
         if state == "login":
             if secrets.compare_digest(text.strip(), self._login):
                 await self._set_state(chat_id, "password")
-                await self._send(chat_id, "Введите пароль:")
+                await self._send(chat_id, "🔑 Введите пароль:")
             else:
                 await self._send(chat_id, "Неверный логин. Попробуйте ещё раз:")
                 await self._set_state(chat_id, "login")
@@ -162,13 +236,100 @@ class TelegramBot:
                 await self._redis.delete(f"{STATE_PREFIX}{chat_id}")
                 days = self._session_ttl // 86_400
                 await self._send(
-                    chat_id, f"Вход выполнен. Сессия активна {days} дн.\n\n" + HELP_TEXT
+                    chat_id,
+                    f"✅ Вход выполнен, сессия {days} дн.\n\n" + self._menu_text(),
+                    main_keyboard(),
                 )
             else:
                 await self._set_state(chat_id, "login")
                 await self._send(chat_id, "Неверный пароль. Начнём заново — введите логин:")
 
+    # --- callbacks ----------------------------------------------------
+    async def _handle_callback(self, callback: dict[str, Any]) -> None:
+        callback_id = str(callback.get("id") or "")
+        message = callback.get("message") or {}
+        chat_id = (message.get("chat") or {}).get("id")
+        message_id = message.get("message_id")
+        data = str(callback.get("data") or "")
+        if chat_id is None or message_id is None:
+            await self._answer(callback_id)
+            return
+        chat_id = int(chat_id)
+        message_id = int(message_id)
+        if not await self._authed(chat_id):
+            await self._answer(callback_id, "Сначала войдите: /start")
+            return
+
+        if data == "m":
+            await self._edit(chat_id, message_id, self._menu_text(), main_keyboard())
+            await self._answer(callback_id)
+        elif data == "st":
+            await self._edit(chat_id, message_id, await self._status_text(), back_keyboard())
+            await self._answer(callback_id)
+        elif data == "se":
+            await self._edit(
+                chat_id, message_id, "Выберите поиск:", await self._searches_keyboard()
+            )
+            await self._answer(callback_id)
+        elif data.startswith("s:"):
+            await self._show_search(chat_id, message_id, data[2:], callback_id)
+        elif data.startswith("c:"):
+            await self._crawl(chat_id, message_id, data[2:], callback_id)
+        elif data.startswith("d:"):
+            await self._show_digest(chat_id, message_id, data[2:], callback_id)
+        elif data == "al":
+            await self._edit(chat_id, message_id, await self._alerts_text(), alerts_keyboard())
+            await self._answer(callback_id)
+        elif data == "acl":
+            count = await self._count_new_alerts()
+            if count == 0:
+                await self._answer(callback_id, "Новых алертов нет")
+                return
+            await self._edit(
+                chat_id,
+                message_id,
+                f"Очистить {count} новых алертов? Это необратимо.",
+                {
+                    "inline_keyboard": [
+                        [
+                            {"text": "✅ Да, очистить", "callback_data": "acly"},
+                            {"text": "Отмена", "callback_data": "al"},
+                        ]
+                    ]
+                },
+            )
+            await self._answer(callback_id)
+        elif data == "acly":
+            deleted = await self._clear_new_alerts()
+            await self._edit(
+                chat_id,
+                message_id,
+                f"🧹 Очищено алертов: {deleted}",
+                back_keyboard("al"),
+            )
+            await self._answer(callback_id, f"Очищено: {deleted}")
+        elif data == "h":
+            await self._edit(chat_id, message_id, self._help_text(), back_keyboard())
+            await self._answer(callback_id)
+        else:
+            await self._answer(callback_id)
+
     # --- data ---------------------------------------------------------
+    @staticmethod
+    def _menu_text() -> str:
+        return "🤖 *Авито-тулкит*\n\nВсё управление — кнопками ниже. Команды не нужны."
+
+    @staticmethod
+    def _help_text() -> str:
+        return (
+            "Как пользоваться:\n"
+            "• 📊 Статус — поиски, лоты, воркер, очереди\n"
+            "• 🔍 Поиски — список; откройте поиск, чтобы запустить обход или "
+            "посмотреть дайджест\n"
+            "• 🔔 Алерты — последние события и очистка\n\n"
+            "Команды на всякий случай: /menu, /logout."
+        )
+
     async def _status_text(self) -> str:
         settings = get_settings()
         assert self._redis is not None
@@ -190,114 +351,92 @@ class TelegramBot:
                 )
         finally:
             await dispose_engine()
-        worker = "жив" if health["worker_alive"] else "НЕ ОТВЕЧАЕТ"
+        worker = "✅ жив" if health["worker_alive"] else "❌ НЕ ОТВЕЧАЕТ"
         return (
+            f"📊 *Статус*\n\n"
             f"Поиски: {searches_active}/{searches_total} активных\n"
             f"Лотов на рынке: {listings_active}\n"
-            f"Новых уведомлений: {alerts_new}\n"
+            f"Новых алертов: {alerts_new}\n"
             f"Воркер: {worker}\n"
             f"Очереди: обходы {health['crawl_queue']}, аналитика {health['analytics_queue']}"
         )
 
-    async def _find_search(self, query: str) -> Search | None:
-        query = query.strip()
-        if not query:
-            return None
+    async def _search_rows(self) -> list[Search]:
         factory = get_session_factory()
         try:
             async with factory() as session:
-                rows = (
+                return list(
                     (await session.execute(select(Search).order_by(Search.priority, Search.name)))
                     .scalars()
                     .all()
                 )
         finally:
             await dispose_engine()
+
+    async def _searches_keyboard(self) -> dict[str, Any]:
+        rows = await self._search_rows()
         if not rows:
+            return back_keyboard()
+        return searches_keyboard([(str(row.id)[:8], row.name) for row in rows])
+
+    async def _find_search(self, prefix: str) -> Search | None:
+        prefix = prefix.strip().lower()
+        if not prefix:
             return None
-        try:
-            wanted = uuid.UUID(query)
-            for row in rows:
-                if row.id == wanted:
-                    return row
-        except ValueError:
-            pass
-        if query.isdigit():
-            index = int(query) - 1
-            if 0 <= index < len(rows):
-                return rows[index]
-        lowered = query.lower()
+        rows = await self._search_rows()
         for row in rows:
-            if lowered in row.name.lower():
+            if str(row.id).lower().startswith(prefix):
+                return row
+        for row in rows:
+            if prefix in row.name.lower():
                 return row
         return None
 
-    async def _searches_text(self) -> str:
-        factory = get_session_factory()
-        try:
-            async with factory() as session:
-                rows = (
-                    (await session.execute(select(Search).order_by(Search.priority, Search.name)))
-                    .scalars()
-                    .all()
-                )
-        finally:
-            await dispose_engine()
-        if not rows:
-            return "Поисков нет."
-        lines = ["Поиски (номер. название — обход):"]
-        for index, row in enumerate(rows, start=1):
-            state = "активен" if row.is_active else "пауза"
-            lines.append(f"{index}. {row.name[:60]} [{state}] · id {str(row.id)[:8]}")
-        return "\n".join(lines)
-
-    async def _crawl(self, text: str) -> str:
-        query = text.partition(" ")[2]
-        search = await self._find_search(query)
+    async def _show_search(
+        self, chat_id: int, message_id: int, prefix: str, callback_id: str
+    ) -> None:
+        search = await self._find_search(prefix)
         if search is None:
-            return "Не нашёл поиск. Список: /searches"
+            await self._answer(callback_id, "Поиск не найден")
+            return
+        state = "активен" if search.is_active else "на паузе"
+        short = str(search.id)[:8]
+        text = (
+            f"🔍 *{search.name[:60]}*\n\n"
+            f"Статус: {state}\n"
+            f"Расписание: `{search.schedule_cron}`\n"
+            f"Ссылка: {search.url}"
+        )
+        await self._edit(chat_id, message_id, text, search_keyboard(short))
+        await self._answer(callback_id)
+
+    async def _crawl(self, chat_id: int, message_id: int, prefix: str, callback_id: str) -> None:
+        search = await self._find_search(prefix)
+        if search is None:
+            await self._answer(callback_id, "Поиск не найден")
+            return
         from app.services.progress import CrawlProgress
         from app.workers.tasks import crawl_search
 
         assert self._redis is not None
         await CrawlProgress(self._redis, search.id).queued(search.name)
         crawl_search.send(str(search.id))
-        return f"Обход «{search.name}» поставлен в очередь."
+        await self._answer(callback_id, "🚀 Обход поставлен в очередь")
+        state = "активен" if search.is_active else "на паузе"
+        text = (
+            f"🔍 *{search.name[:60]}*\n\n"
+            f"Статус: {state}\n"
+            f"🚀 Обход поставлен в очередь — прогресс смотрите в панели."
+        )
+        await self._edit(chat_id, message_id, text, search_keyboard(str(search.id)[:8]))
 
-    async def _alerts_text(self) -> str:
-        factory = get_session_factory()
-        try:
-            async with factory() as session:
-                rows = (
-                    (
-                        await session.execute(
-                            select(Alert)
-                            .where(Alert.status == "new")
-                            .order_by(Alert.created_at.desc())
-                            .limit(ALERT_BATCH)
-                        )
-                    )
-                    .scalars()
-                    .all()
-                )
-        finally:
-            await dispose_engine()
-        if not rows:
-            return "Новых уведомлений нет."
-        lines = ["Последние уведомления:"]
-        for alert in rows:
-            payload = alert.payload or {}
-            title = payload.get("title") or payload.get("kind") or alert.type
-            lines.append(f"• {alert.type}: {str(title)[:70]}")
-        return "\n".join(lines)
-
-    async def _digest(self, text: str) -> str:
-        query = text.partition(" ")[2]
-        search = await self._find_search(query)
+    async def _show_digest(
+        self, chat_id: int, message_id: int, prefix: str, callback_id: str
+    ) -> None:
+        search = await self._find_search(prefix)
         if search is None:
-            return "Не нашёл поиск. Список: /searches"
-        from app.db.models import AiDigest
-
+            await self._answer(callback_id, "Поиск не найден")
+            return
         factory = get_session_factory()
         try:
             async with factory() as session:
@@ -310,21 +449,72 @@ class TelegramBot:
         finally:
             await dispose_engine()
         if row is None:
-            return (
-                f"Дайджест «{search.name}» ещё не генерировали — "
-                "нажмите «Сгенерировать» на странице поиска, он сохранится для всех."
+            text = (
+                f"📈 *{search.name[:60]}*\n\n"
+                "Дайджест ещё не готов. Сгенерируйте его на странице поиска в панели — "
+                "после этого он появится здесь."
             )
-        payload = row.payload or {}
-        actions = payload.get("recommended_actions") or []
-        lines = [
-            f"{search.name}:",
-            str(payload.get("headline", "")),
-            str(payload.get("price_range_comment", "")),
-        ]
-        if actions:
-            lines.append("Рекомендации:")
-            lines.extend(f"• {str(action)[:100]}" for action in actions[:5])
+        else:
+            payload = row.payload or {}
+            actions = payload.get("recommended_actions") or []
+            lines = [
+                f"📈 *{search.name[:60]}*",
+                "",
+                str(payload.get("headline", "")),
+                str(payload.get("price_range_comment", "")),
+            ]
+            if actions:
+                lines.append("")
+                lines.append("Рекомендации:")
+                lines.extend(f"• {str(action)[:120]}" for action in actions[:5])
+            text = "\n".join(lines)
+        await self._edit(chat_id, message_id, text, search_keyboard(str(search.id)[:8]))
+        await self._answer(callback_id)
+
+    async def _alerts_text(self) -> str:
+        factory = get_session_factory()
+        try:
+            async with factory() as session:
+                result = await session.execute(
+                    select(Alert)
+                    .where(Alert.status == "new")
+                    .order_by(Alert.created_at.desc())
+                    .limit(ALERT_BATCH)
+                )
+                rows = result.scalars().all()
+        finally:
+            await dispose_engine()
+        if not rows:
+            return "🔔 *Алерты*\n\nНовых уведомлений нет."
+        lines = ["🔔 *Последние алерты*", ""]
+        for alert in rows:
+            payload = alert.payload or {}
+            title = payload.get("title") or payload.get("kind") or alert.type
+            lines.append(f"• {alert.type}: {str(title)[:80]}")
         return "\n".join(lines)
+
+    async def _count_new_alerts(self) -> int:
+        factory = get_session_factory()
+        try:
+            async with factory() as session:
+                return int(
+                    await session.scalar(
+                        select(func.count()).select_from(Alert).where(Alert.status == "new")
+                    )
+                    or 0
+                )
+        finally:
+            await dispose_engine()
+
+    async def _clear_new_alerts(self) -> int:
+        factory = get_session_factory()
+        try:
+            async with factory() as session:
+                result = await session.execute(delete(Alert).where(Alert.status == "new"))
+                await session.commit()
+                return int(getattr(result, "rowcount", 0) or 0)
+        finally:
+            await dispose_engine()
 
     # --- notifications ------------------------------------------------
     async def _notify_loop(self) -> None:
@@ -341,36 +531,31 @@ class TelegramBot:
     async def _notify_once(self) -> None:
         assert self._redis is not None
         raw_ts = await self._redis.get(LAST_ALERT_KEY)
-        last_ts = float(raw_ts) if raw_ts else _now_ts()
+        last_ts = float(raw_ts) if raw_ts else datetime.now(UTC).timestamp()
         factory = get_session_factory()
         try:
             async with factory() as session:
-                rows = (
-                    (
-                        await session.execute(
-                            select(Alert)
-                            .where(
-                                Alert.status == "new",
-                                Alert.created_at > datetime.fromtimestamp(last_ts, tz=UTC),
-                            )
-                            .order_by(Alert.created_at)
-                            .limit(20)
-                        )
+                result = await session.execute(
+                    select(Alert)
+                    .where(
+                        Alert.status == "new",
+                        Alert.created_at > datetime.fromtimestamp(last_ts, tz=UTC),
                     )
-                    .scalars()
-                    .all()
+                    .order_by(Alert.created_at)
+                    .limit(20)
                 )
+                rows = result.scalars().all()
         finally:
             await dispose_engine()
         if not rows:
-            await self._redis.set(LAST_ALERT_KEY, _now_ts())
+            await self._redis.set(LAST_ALERT_KEY, datetime.now(UTC).timestamp())
             return
         chat_ids: list[int] = []
         async for key in self._redis.scan_iter(f"{AUTH_PREFIX}*"):
             name = key.decode() if isinstance(key, bytes) else key
-            with_ = name.removeprefix(AUTH_PREFIX)
-            if with_.lstrip("-").isdigit():
-                chat_ids.append(int(with_))
+            suffix = name.removeprefix(AUTH_PREFIX)
+            if suffix.lstrip("-").isdigit():
+                chat_ids.append(int(suffix))
         for alert in rows:
             payload = alert.payload or {}
             title = payload.get("title") or payload.get("kind") or ""
@@ -382,7 +567,7 @@ class TelegramBot:
             if alert.type == "worker_down":
                 text += "Воркер не отвечает — проверьте сервер.\n"
             for chat_id in chat_ids:
-                await self._send(chat_id, text)
+                await self._send(chat_id, text, alerts_keyboard())
         newest = max(row.created_at for row in rows)
         await self._redis.set(LAST_ALERT_KEY, newest.timestamp())
 
