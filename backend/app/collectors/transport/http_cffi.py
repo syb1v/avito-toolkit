@@ -58,7 +58,13 @@ class HttpCffiTransport:
             await self._session.close()
             self._session = None
 
-    async def fetch(self, url: str, headers: dict[str, str] | None = None) -> FetchedPage:
+    async def fetch(
+        self,
+        url: str,
+        headers: dict[str, str] | None = None,
+        *,
+        expect_items: bool = True,
+    ) -> FetchedPage:
         try:
             session = await self._get_session()
             response = await session.get(url, headers=headers)

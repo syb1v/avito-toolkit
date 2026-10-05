@@ -217,7 +217,7 @@ async def enrich_descriptions(
         if existing or not url:
             continue
         try:
-            page = await transport.fetch(url)
+            page = await transport.fetch(url, expect_items=False)
             description = extract_description(page.body)
         except Exception as error:
             logger.warning("description fetch failed for %s: %s", listing_id, error)

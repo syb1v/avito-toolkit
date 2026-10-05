@@ -31,6 +31,12 @@ class SourceAdapter(Protocol):
 
     name: str
 
-    async def fetch(self, url: str, headers: dict[str, str] | None = None) -> FetchedPage: ...
+    async def fetch(
+        self,
+        url: str,
+        headers: dict[str, str] | None = None,
+        *,
+        expect_items: bool = True,
+    ) -> FetchedPage: ...
 
     async def close(self) -> None: ...

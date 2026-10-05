@@ -26,10 +26,16 @@ class HybridTransport:
         """Сброс состояния перед новым обходом."""
         self._primary_confirmed = False
 
-    async def fetch(self, url: str, headers: dict[str, str] | None = None) -> FetchedPage:
+    async def fetch(
+        self,
+        url: str,
+        headers: dict[str, str] | None = None,
+        *,
+        expect_items: bool = True,
+    ) -> FetchedPage:
         page: FetchedPage | None = None
         try:
-            page = await self._primary.fetch(url, headers=headers)
+            page = await self._primary.fetch(url, headers=headers, expect_items=expect_items)
         except (BotChallengeError, RateLimitedError):
             page = None
         if page is not None:
@@ -38,7 +44,7 @@ class HybridTransport:
                 return page
             if self._primary_confirmed:
                 return page
-        return await self._fallback.fetch(url)
+        return await self._fallback.fetch(url, expect_items=expect_items)
 
     async def close(self) -> None:
         await self._primary.close()

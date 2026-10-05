@@ -14,7 +14,13 @@ class FakeTransport:
         self._pages = list(pages)
         self.calls = 0
 
-    async def fetch(self, url: str, headers: dict[str, str] | None = None) -> FetchedPage:
+    async def fetch(
+        self,
+        url: str,
+        headers: dict[str, str] | None = None,
+        *,
+        expect_items: bool = True,
+    ) -> FetchedPage:
         self.calls += 1
         item = self._pages.pop(0) if self._pages else ""
         if isinstance(item, Exception):

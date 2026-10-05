@@ -179,14 +179,20 @@ class BrowserTransport:
             logger.debug("warmup failed: %s", error)
         self._warmed_up = True
 
-    async def fetch(self, url: str, headers: dict[str, str] | None = None) -> FetchedPage:
+    async def fetch(
+        self,
+        url: str,
+        headers: dict[str, str] | None = None,
+        *,
+        expect_items: bool = True,
+    ) -> FetchedPage:
         for attempt in range(1, CHALLENGE_RETRIES + 1):
             context = await self._ensure_context()
             page = await context.new_page()
             try:
                 if not self._warmed_up:
                     await self._warm_up(page)
-                outcome = await self._load_once(page, url)
+                outcome = await self._load_once(page, url, expect_items=expect_items)
             finally:
                 with contextlib.suppress(Exception):
                     await page.close()
@@ -217,7 +223,7 @@ class BrowserTransport:
                 await asyncio.sleep(CHALLENGE_WAIT_SECONDS)
         raise BotChallengeError(f"antibot challenge at {url}")
 
-    async def _load_once(self, page: Any, url: str) -> "_PageOutcome":
+    async def _load_once(self, page: Any, url: str, *, expect_items: bool = True) -> "_PageOutcome":
         status_code = 200
         try:
             response = await page.goto(url, wait_until="domcontentloaded", timeout=self._timeout_ms)
@@ -232,6 +238,14 @@ class BrowserTransport:
                 page=FetchedPage(url=page.url, status_code=status_code, body=body),
                 challenge=True,
                 rate_limited=True,
+            )
+        if not expect_items:
+            # Страницы объявлений (описания): карточек выдачи тут нет — не ждём их.
+            await asyncio.sleep(0.4)
+            body = await self._safe_content(page)
+            return _PageOutcome(
+                page=FetchedPage(url=page.url, status_code=status_code, body=body),
+                challenge=self._is_challenge(body),
             )
         try:
             await page.wait_for_selector(ITEM_SELECTOR, timeout=SELECTOR_TIMEOUT_MS)
