@@ -28,7 +28,7 @@ else
     printf '%s:!\n' "${PANEL_USER:-admin}" > deploy/.htpasswd
     echo "WARN: PANEL_PASSWORD не задан в .env — вход в панель закрыт" >&2
 fi
-chmod 600 deploy/.htpasswd
+chmod 644 deploy/.htpasswd
 
 echo "== сборка образов =="
 "${COMPOSE[@]}" build
