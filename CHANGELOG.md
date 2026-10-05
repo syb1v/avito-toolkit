@@ -7,6 +7,8 @@
 
 ## [Unreleased]
 
+## [0.22.0] - 2026-10-05
+
 ### Изменено
 
 - Telegram-бот переведён на **инлайн-кнопки**: главное меню (статус, поиски,
@@ -561,7 +563,8 @@
 - Дашборд Next.js 16 + Tailwind 4 со статусом API и дорожной картой.
 - Документация: README, `docs/plan.md`, `.env.example`, MIT-лицензия.
 
-[Unreleased]: https://github.com/syb1v/avito-toolkit/compare/v0.21.0...HEAD
+[Unreleased]: https://github.com/syb1v/avito-toolkit/compare/v0.22.0...HEAD
+[0.22.0]: https://github.com/syb1v/avito-toolkit/compare/v0.21.0...v0.22.0
 [0.21.0]: https://github.com/syb1v/avito-toolkit/compare/v0.20.0...v0.21.0
 [0.20.0]: https://github.com/syb1v/avito-toolkit/compare/v0.19.1...v0.20.0
 [0.19.1]: https://github.com/syb1v/avito-toolkit/compare/v0.19.0...v0.19.1
