@@ -24,6 +24,7 @@ RR_INDEX_KEY = "proxy:rr_index"
 HEALTHCHECK_CONCURRENCY = 5
 MASK_VISIBLE = 4
 AVITO_PROBE_URL = "https://www.avito.ru/all?q=iphone"
+AVITO_ROBOTS_URL = "https://www.avito.ru/robots.txt"
 AVITO_PROBE_MARKERS = ("доступ ограничен", "проблема с ip", "hcaptcha", "firewallcaptcha")
 
 
@@ -251,7 +252,8 @@ class ProxyPool:
             in_cooldown = cooldown_until > now
             is_antibot = antibot_until > now
             healthy = not in_cooldown and not is_antibot
-            if healthy:
+            channel_alive = not in_cooldown
+            if channel_alive:
                 alive += 1
             if in_cooldown:
                 cooling += 1
@@ -262,6 +264,7 @@ class ProxyPool:
                     "label": entry.label,
                     "scheme": entry.scheme,
                     "healthy": healthy,
+                    "alive": channel_alive,
                     "failures": failures,
                     "cooldown_seconds_left": max(0, int(cooldown_until - now)),
                     "antibot_blocked": is_antibot,
@@ -320,16 +323,38 @@ class ProxyPool:
         timeout: float = 20.0,
         client_factory: Callable[[ProxyEntry], httpx.AsyncClient] | None = None,
     ) -> bool:
-        """Проверяет, пускает ли Авито трафик через этот прокси."""
+        """Доступность Авито через прокси: robots.txt (канал) + поиск (HTTP-клиент).
+
+        429 от httpx — это лимит для не-браузерных клиентов, а не блокировка:
+        реальный Chromium с cookies через тот же прокси может получать 200.
+        Поэтому 429 помечается как примечание, а не как «Авито блокирует».
+        """
         factory = client_factory or self._default_client
         try:
             async with factory(entry) as client:
+                reach = await client.get(
+                    AVITO_ROBOTS_URL,
+                    timeout=timeout,
+                    headers={"Accept-Language": "ru-RU,ru;q=0.9"},
+                )
+                if reach.status_code >= 400 or any(
+                    marker in reach.text.lower() for marker in AVITO_PROBE_MARKERS
+                ):
+                    await self.report_antibot(entry, f"avito robots HTTP {reach.status_code}")
+                    return False
                 response = await client.get(
                     url,
                     timeout=timeout,
                     headers={"Accept-Language": "ru-RU,ru;q=0.9"},
                 )
             body = response.text.lower()
+            if response.status_code == 429:
+                await self.report_success(entry, avito=True)
+                await self._redis.hset(
+                    entry.key,
+                    mapping={"last_error": "avito HTTP 429 (лимит для HTTP-клиента)"},
+                )
+                return True
             if response.status_code >= 400 or any(m in body for m in AVITO_PROBE_MARKERS):
                 await self.report_antibot(entry, f"avito HTTP {response.status_code}")
                 return False

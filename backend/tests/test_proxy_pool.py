@@ -138,3 +138,42 @@ async def test_check_all_with_fake_http(redis) -> None:
     assert status["entries"][1]["healthy"] is True  # одна ошибка — кулдауна ещё нет
     assert status["entries"][1]["last_error"] is not None
     assert status["entries"][0]["exit_ip"] == "9.9.9.9"
+
+
+async def test_avito_probe_429_is_note_not_block(redis) -> None:
+    pool = ProxyPool(await _entries(), redis)
+    entry = pool.entries[0]
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if "robots.txt" in str(request.url):
+            return httpx.Response(200, text="User-agent: *\nDisallow:")
+        return httpx.Response(429, text="too many requests")
+
+    factory = lambda e: httpx.AsyncClient(  # noqa: E731
+        transport=httpx.MockTransport(handler)
+    )
+    ok = await pool.check_avito(entry, client_factory=factory)
+    status = await pool.status()
+    assert ok is True
+    assert status["entries"][0]["antibot_blocked"] is False
+    assert status["entries"][0]["healthy"] is True
+    assert "429" in (status["entries"][0]["last_error"] or "")
+
+
+async def test_avito_probe_403_marks_block(redis) -> None:
+    pool = ProxyPool(await _entries(), redis)
+    entry = pool.entries[0]
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if "robots.txt" in str(request.url):
+            return httpx.Response(200, text="User-agent: *")
+        return httpx.Response(403, text="<html>доступ ограничен: проблема с IP</html>")
+
+    factory = lambda e: httpx.AsyncClient(  # noqa: E731
+        transport=httpx.MockTransport(handler)
+    )
+    ok = await pool.check_avito(entry, client_factory=factory)
+    status = await pool.status()
+    assert ok is False
+    assert status["entries"][0]["antibot_blocked"] is True
+    assert status["entries"][0]["alive"] is True
