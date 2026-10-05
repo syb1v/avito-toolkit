@@ -252,6 +252,7 @@ async def list_search_listings(
     region: str | None = None,
     sort: str = "position",
     fresh: bool | None = None,
+    offset: int = 0,
 ) -> list[ListingRead]:
     """Выдача поиска. ``limit=0`` — без лимита; ``sort`` — цена/позиция/новизна/статус."""
     search = await session.get(Search, search_id)
@@ -304,8 +305,9 @@ async def list_search_listings(
             SearchListing.first_seen >= datetime.now(UTC) - timedelta(days=max_age_days)
         )
     statement = statement.order_by(*_order_by(sort if sort in SORT_OPTIONS else "position"))
+    safe_offset = max(0, offset)
     if limit > 0 and excluded is None:
-        statement = statement.limit(limit)
+        statement = statement.limit(limit).offset(safe_offset)
     rows = await session.execute(statement)
 
     items: list[ListingRead] = []
@@ -346,7 +348,7 @@ async def list_search_listings(
     if excluded is not None:
         items = [item for item in items if item.excluded == excluded]
         if limit > 0:
-            items = items[:limit]
+            items = items[safe_offset : safe_offset + limit]
     return items
 
 
@@ -354,6 +356,78 @@ class ExclusionsRequest(BaseModel):
     listing_ids: list[int] = Field(min_length=1, max_length=10_000)
     excluded: bool = True
     reason: str | None = "вручную"
+
+
+class ListingsStatsOut(BaseModel):
+    total: int
+    excluded: int
+    fresh: int
+    max_age_days: int
+    regions: list[dict]
+
+
+@router.get("/{search_id}/listings/stats", response_model=ListingsStatsOut)
+async def listings_stats(search_id: uuid.UUID, session: DbSession) -> ListingsStatsOut:
+    # Лёгкая статистика выдачи: всего/исключено/свежих и регионы (чипы и фильтры).
+    search = await session.get(Search, search_id)
+    if search is None:
+        raise HTTPException(status_code=404, detail="search not found")
+    params = search.params if isinstance(search.params, dict) else {}
+    groups = keywords_from_params(search.params)
+    excludes = exclude_keywords_from_params(search.params)
+    regions_filter = regions_from_params(search.params)
+    exclude_regions = exclude_regions_from_params(search.params)
+    raw_age = params.get("max_age_days")
+    max_age_days = (
+        raw_age if isinstance(raw_age, int) and not isinstance(raw_age, bool) and raw_age > 0 else 0
+    )
+    cutoff = datetime.now(UTC) - timedelta(days=max_age_days) if max_age_days else None
+
+    rows = await session.execute(
+        select(
+            Listing.title,
+            Listing.region,
+            SearchListing.first_seen,
+            ListingExclusion.listing_id,
+        )
+        .join(SearchListing, SearchListing.listing_id == Listing.id)
+        .outerjoin(
+            ListingExclusion,
+            (ListingExclusion.listing_id == Listing.id) & (ListingExclusion.search_id == search_id),
+        )
+        .where(SearchListing.search_id == search_id)
+    )
+    total = 0
+    excluded = 0
+    fresh = 0
+    region_counts: dict[str, int] = {}
+    for title, listing_region, first_seen, manual_id in rows.all():
+        total += 1
+        if listing_region:
+            region_counts[listing_region] = region_counts.get(listing_region, 0) + 1
+        if cutoff is not None and first_seen is not None and first_seen >= cutoff:
+            fresh += 1
+        if manual_id is not None:
+            excluded += 1
+            continue
+        if groups and not matches_keyword_groups(title or "", groups):
+            excluded += 1
+            continue
+        if matches_exclude_keywords(title or "", excludes):
+            excluded += 1
+            continue
+        if not matches_region(listing_region, regions_filter, exclude_regions):
+            excluded += 1
+    return ListingsStatsOut(
+        total=total,
+        excluded=excluded,
+        fresh=fresh,
+        max_age_days=max_age_days,
+        regions=[
+            {"region": region, "count": count}
+            for region, count in sorted(region_counts.items(), key=lambda item: -item[1])
+        ],
+    )
 
 
 @router.post("/{search_id}/listings/exclusions")

@@ -13,9 +13,12 @@ import {
   fetchAlerts,
   fetchHistory,
   fetchListings,
+  fetchSearchStats,
   fetchSummary,
 } from "@/lib/api";
 import { formatDays, formatPercent, formatPrice, formatRelativeTime } from "@/lib/format";
+
+const LISTINGS_PAGE_SIZE = 100;
 
 const SORT_OPTIONS: { value: ListingSort; label: string }[] = [
   { value: "position", label: "По позиции" },
@@ -142,6 +145,7 @@ export default async function SearchDetailPage({
     region?: string;
     sort?: string;
     fresh?: string;
+    page?: string;
   }>;
 }) {
   const [{ id }, query] = await Promise.all([params, searchParams]);
@@ -150,6 +154,7 @@ export default async function SearchDetailPage({
   const excludedOnly = query?.excluded === "1";
   const regionFilter = query?.region ?? null;
   const freshOnly = query?.fresh === "1";
+  const pageNumber = Math.max(1, Number(query?.page) || 1);
   const sortParam = query?.sort ?? "position";
   const sortOption: ListingSort = (
     SORT_OPTIONS.some((option) => option.value === sortParam) ? sortParam : "position"
@@ -164,8 +169,12 @@ export default async function SearchDetailPage({
       region: regionFilter,
       sort: sortOption !== "position" ? sortOption : null,
       fresh: freshOnly ? "1" : null,
+      page: pageNumber > 1 ? String(pageNumber) : null,
       ...changes,
     };
+    if (!("page" in changes)) {
+      current.page = null;
+    }
     for (const [key, value] of Object.entries(current)) {
       if (value) {
         next.set(key, value);
@@ -175,7 +184,7 @@ export default async function SearchDetailPage({
     return `/searches/${id}${suffix ? `?${suffix}` : ""}`;
   };
 
-  const [summary, history, alerts, listings] = await Promise.all([
+  const [summary, history, alerts, listings, listingStats] = await Promise.all([
     fetchSummary(id),
     fetchHistory(id),
     fetchAlerts(id),
@@ -186,7 +195,10 @@ export default async function SearchDetailPage({
       region: regionFilter ?? undefined,
       sort: sortOption,
       fresh: freshOnly ? true : undefined,
+      limit: LISTINGS_PAGE_SIZE,
+      offset: (pageNumber - 1) * LISTINGS_PAGE_SIZE,
     }),
+    fetchSearchStats(id),
   ]);
 
   if (summary === null) {
@@ -204,21 +216,13 @@ export default async function SearchDetailPage({
   }
 
   const stats = summary.stats;
-  const excludedCount = listings.filter((listing) => listing.excluded).length;
-  const freshCutoff =
-    summary.max_age_days > 0 ? Date.now() - summary.max_age_days * 86_400_000 : 0;
-  const freshCount =
-    freshCutoff > 0
-      ? listings.filter(
-          (listing) => listing.first_seen && new Date(listing.first_seen).getTime() >= freshCutoff,
-        ).length
-      : 0;
-  const regionCounts = listings.reduce<Record<string, number>>((acc, listing) => {
-    if (listing.region) {
-      acc[listing.region] = (acc[listing.region] ?? 0) + 1;
-    }
-    return acc;
-  }, {});
+  const excludedCount = listingStats?.excluded ?? 0;
+  const freshCount = listingStats?.fresh ?? 0;
+  const regionCounts: Record<string, number> = Object.fromEntries(
+    (listingStats?.regions ?? []).map((item) => [item.region, item.count]),
+  );
+  const totalListings = listingStats?.total ?? listings.length;
+  const hasMore = listings.length === LISTINGS_PAGE_SIZE;
 
   return (
     <main className="mx-auto flex max-w-6xl flex-col gap-6 px-4 py-8 sm:gap-8 sm:px-6 sm:py-12">
@@ -395,7 +399,9 @@ export default async function SearchDetailPage({
               text="Категории: копия/реплика — слова «копия», «реплика», «1:1»; приманка — цена ниже 35% медианы или фразы-приманки; нерелевант — запчасти, неисправности, «под восстановление»; дубль — одинаковые название+цена у 5+ продавцов. Для кандидатов догружаются описания объявлений (до 10 за обход), затем DeepSeek оценивает карточки батчами (до 40) и возвращает категорию и причину. Исключающие фильтры поиска (стоп-слова) убирают лот из статистики цен, но он остаётся здесь с пометкой «фильтр»."
             />
           </div>
-          <span className="text-xs text-neutral-500">всего {listings.length}</span>
+          <span className="text-xs text-neutral-500">
+            показано {listings.length} из {totalListings}
+          </span>
         </div>
 
         <div className="flex flex-wrap items-center gap-2 px-4 pb-2 pt-1 sm:px-5">
@@ -642,6 +648,37 @@ export default async function SearchDetailPage({
             </li>
           )}
         </ul>
+
+        <div className="flex flex-wrap items-center justify-between gap-3 border-t border-neutral-800 px-4 py-3 sm:px-5">
+          <span className="text-xs text-neutral-500">
+            страница {pageNumber}
+            {hasMore
+              ? " · есть ещё"
+              : pageNumber > 1
+                ? " · это конец списка"
+                : ""}
+          </span>
+          <div className="flex gap-2">
+            {pageNumber > 1 ? (
+              <Link
+                href={hrefWith({
+                  page: pageNumber - 1 === 1 ? null : String(pageNumber - 1),
+                })}
+                className="rounded-lg border border-neutral-700 px-3 py-1 text-xs text-neutral-300 transition hover:border-neutral-500"
+              >
+                ← Назад
+              </Link>
+            ) : null}
+            {hasMore ? (
+              <Link
+                href={hrefWith({ page: String(pageNumber + 1) })}
+                className="rounded-lg border border-sky-500/40 bg-sky-500/10 px-3 py-1 text-xs text-sky-200 transition hover:bg-sky-500/20"
+              >
+                Показать ещё {LISTINGS_PAGE_SIZE} →
+              </Link>
+            ) : null}
+          </div>
+        </div>
       </section>
     </main>
   );

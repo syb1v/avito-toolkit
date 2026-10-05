@@ -101,6 +101,17 @@ export type Listing = {
 
 export type ListingSort = "position" | "price_asc" | "price_desc" | "new" | "status";
 
+export type SearchStats = {
+  total: number;
+  excluded: number;
+  fresh: number;
+  max_age_days: number;
+  regions: { region: string; count: number }[];
+};
+
+export const fetchSearchStats = (searchId: string) =>
+  getJson<SearchStats>(`/api/v1/searches/${searchId}/listings/stats`);
+
 export type Alert = {
   id: string;
   type: string;
@@ -228,6 +239,7 @@ export const fetchListings = async (
     region?: string;
     sort?: ListingSort;
     fresh?: boolean;
+    offset?: number;
   } = {},
 ): Promise<Listing[]> => {
   const parts = [`limit=${options.limit ?? 0}`];
@@ -248,6 +260,9 @@ export const fetchListings = async (
   }
   if (options.fresh) {
     parts.push("fresh=1");
+  }
+  if (options.offset) {
+    parts.push(`offset=${options.offset}`);
   }
   return (
     (await getJson<Listing[]>(`/api/v1/searches/${searchId}/listings?${parts.join("&")}`)) ??
