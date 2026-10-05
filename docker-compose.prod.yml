@@ -1,0 +1,22 @@
+# Прод-оверлей для сервера: наружу только 80 (nginx), БД/Redis/API/фронт — внутри.
+# Запуск: docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
+# (или через deploy/deploy.sh)
+services:
+  postgres:
+    ports: !reset []
+  redis:
+    ports: !reset []
+  api:
+    ports: !reset []
+  web:
+    ports: !reset []
+  nginx:
+    image: nginx:alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    volumes:
+      - ./deploy/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      - web
+      - api

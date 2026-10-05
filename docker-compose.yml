@@ -120,11 +120,15 @@ services:
         condition: service_healthy
 
   web:
-    build: ./frontend
+    build:
+      context: ./frontend
+      args:
+        # пусто = относительные /api-запросы (прод за nginx); локально — localhost:8000
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL-http://localhost:8000}
     restart: unless-stopped
     environment:
       API_URL_INTERNAL: http://api:8000
-      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL-http://localhost:8000}
     ports:
       - "3000:3000"
     depends_on:
