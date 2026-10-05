@@ -79,20 +79,42 @@ export function AccountManager({ initial }: { initial: Account[] }) {
   async function check(account: Account) {
     setBusy(account.id);
     const result = await checkAccountClient(account.id);
-    setBusy(null);
     if (!result.ok) {
+      setBusy(null);
       setError(result.error);
       return;
     }
     if (result.data?.status === "cooldown") {
+      setBusy(null);
       const minutes = Math.max(1, Math.ceil((result.data.seconds_left ?? 0) / 60));
       setMessage(
         `Проверка «${account.name}» была недавно — следующая через ~${minutes} мин (защита IP)`,
       );
       return;
     }
-    setMessage(`Проверка «${account.name}» в очереди — обновится через несколько секунд`);
-    setTimeout(refresh, 4000);
+    setMessage(`Проверка «${account.name}» идёт — обычно 30–60 секунд`);
+    const before = account.last_check_at;
+    for (let attempt = 0; attempt < 30; attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 5000));
+      const fresh = await fetchAccounts();
+      setItems(fresh);
+      const current = fresh.find((item) => item.id === account.id);
+      if (current && current.last_check_at !== before) {
+        setBusy(null);
+        setMessage(
+          current.last_check_ok
+            ? `«${current.name}»: доступ есть (объявлений на выдаче достаточно)`
+            : `«${current.name}»: проверка не прошла — ${current.last_error ?? "ошибка"}`,
+        );
+        router.refresh();
+        return;
+      }
+    }
+    setBusy(null);
+    setMessage(
+      `Проверка «${account.name}» ещё выполняется — результат появится в статусе позже`,
+    );
+    await refresh();
   }
 
   async function toggle(account: Account) {
@@ -324,6 +346,12 @@ make account-cookies name="Продавец 2" BROWSER=brave`}
                   {account.profile_dir}
                   {!account.profile_exists ? " · профиль ещё не создан" : ""}
                 </p>
+                {!account.profile_exists ? (
+                  <p className="mt-1 text-[11px] text-amber-300/80">
+                    Профиля на сервере нет: залейте cookies кнопкой «Cookies» или
+                    скопируйте каталог профиля с машины, где Авито уже работает.
+                  </p>
+                ) : null}
                 <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-neutral-500">
                   <span>поисков: {account.searches_count}</span>
                   <span
@@ -346,7 +374,10 @@ make account-cookies name="Продавец 2" BROWSER=brave`}
                       : "не было"}
                   </span>
                   {account.last_error ? (
-                    <span className="max-w-[280px] truncate text-red-400/80">
+                    <span
+                      className="max-w-[320px] truncate text-red-400/80"
+                      title={account.last_error}
+                    >
                       {account.last_error}
                     </span>
                   ) : null}
@@ -359,7 +390,7 @@ make account-cookies name="Продавец 2" BROWSER=brave`}
                   disabled={busy === account.id}
                   className="rounded-lg border border-sky-500/40 bg-sky-500/10 px-3 py-1 text-xs text-sky-200 transition hover:bg-sky-500/20 disabled:opacity-50"
                 >
-                  Проверить
+                  {busy === account.id ? "Проверка…" : "Проверить"}
                 </button>
                 <button
                   type="button"
