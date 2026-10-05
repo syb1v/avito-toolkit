@@ -17,7 +17,7 @@ from app.collectors.web.parsing import parse_search_page
 from app.config import get_settings
 from app.db.models import AvitoAccount, OurListing, Search
 from app.db.session import dispose_engine, get_engine
-from app.services.accounts import account_for_search
+from app.services.accounts import account_for_search, resolve_profile_path
 from app.services.alerts import evaluate_search_alerts
 from app.services.analytics.service import recalc_daily_analytics
 from app.services.collector import CrawlResult, SearchCollector
@@ -160,7 +160,9 @@ async def _collect(search_id: str) -> CrawlResult:
                 return _empty_result(search_id)
             transport = _build_transport(
                 redis,
-                user_data_dir=account.profile_dir if account is not None else None,
+                user_data_dir=(
+                    str(resolve_profile_path(account.profile_dir)) if account is not None else None
+                ),
                 proxy_url=account.proxy_url if account is not None else None,
             )
             city = search.params.get("city") if isinstance(search.params, dict) else None
@@ -289,7 +291,7 @@ async def _check_account(account_id: str) -> dict[str, object]:
                 return {"account_id": account_id, "skipped": "cooldown"}
             transport = _build_transport(
                 redis,
-                user_data_dir=account.profile_dir,
+                user_data_dir=str(resolve_profile_path(account.profile_dir)),
                 proxy_url=account.proxy_url,
             )
             checked_at = datetime.now(UTC)
@@ -338,7 +340,9 @@ async def _apply_account_cookies(account_id: str, raw: str, fresh: bool) -> dict
             account = await session.get(AvitoAccount, uuid.UUID(account_id))
             if account is None:
                 raise LookupError(f"account {account_id} not found")
-            check = await apply_cookies_to_profile(cookies, account.profile_dir, fresh=fresh)
+            check = await apply_cookies_to_profile(
+                cookies, str(resolve_profile_path(account.profile_dir)), fresh=fresh
+            )
             now = datetime.now(UTC)
             account.cookies_at = now
             account.last_check_at = now
