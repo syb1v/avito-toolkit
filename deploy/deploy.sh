@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Деплой на сервер: git pull → сборка → миграции → запуск.
+# Деплой на сервер: git pull → Basic Auth → сборка → миграции → запуск.
 # Вызывается из GitHub Actions (.github/workflows/deploy.yml) или вручную:
 #   bash /opt/avito-toolkit/deploy/deploy.sh
 set -euo pipefail
@@ -7,25 +7,28 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 COMPOSE=(docker compose -f docker-compose.yml -f docker-compose.prod.yml)
 
+echo "== git: обновление кода =="
+git fetch --all --tags --prune
+git checkout main
+git pull --ff-only
+
 echo "== Basic Auth (deploy/.htpasswd из .env) =="
 set -a
 # shellcheck disable=SC1091
 . ./.env
 set +a
+# файл может быть каталогом, если раньше bind-mount создал его до первого запуска
+if [ -d deploy/.htpasswd ]; then
+    rm -rf deploy/.htpasswd
+fi
 if [ -n "${PANEL_PASSWORD:-}" ]; then
     HASH="$(openssl passwd -apr1 "$PANEL_PASSWORD")"
     printf '%s:%s\n' "${PANEL_USER:-admin}" "$HASH" > deploy/.htpasswd
 else
-    # файл обязан существовать (bind-mount), но вход никому не разрешён
     printf '%s:!\n' "${PANEL_USER:-admin}" > deploy/.htpasswd
     echo "WARN: PANEL_PASSWORD не задан в .env — вход в панель закрыт" >&2
 fi
 chmod 600 deploy/.htpasswd
-
-echo "== git: обновление кода =="
-git fetch --all --tags --prune
-git checkout main
-git pull --ff-only
 
 echo "== сборка образов =="
 "${COMPOSE[@]}" build
