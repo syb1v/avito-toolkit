@@ -254,7 +254,11 @@ async def _collect(search_id: str) -> CrawlResult:
                         redis,
                         account_token,
                         minutes,
-                        "челлендж Авито" if failure_reason == "challenge" else "429",
+                        (
+                            "челлендж Авито"
+                            if failure_reason == "challenge"
+                            else "429: лимит запросов IP"
+                        ),
                     )
             else:
                 await guard.note_success(search_id)
@@ -383,9 +387,19 @@ async def _check_account(account_id: str) -> dict[str, object]:
                 user_data_dir=str(resolve_profile_path(account.profile_dir)),
                 proxy_url=account.proxy_url,
             )
+            check_url = ACCOUNT_CHECK_URL
+            own_search_url = await session.scalar(
+                select(Search.url)
+                .where(Search.account_id == account.id, Search.is_active.is_(True))
+                .order_by(Search.priority)
+                .limit(1)
+            )
+            if own_search_url:
+                check_url = own_search_url
             checked_at = datetime.now(UTC)
+            rest_reason: str | None = None
             try:
-                page = await transport.fetch(ACCOUNT_CHECK_URL)
+                page = await transport.fetch(check_url)
                 items = len(parse_search_page(page.body, base_url=page.url))
                 ok = page.status_code < 400 and items > 0
                 account.last_check_ok = ok
@@ -396,18 +410,35 @@ async def _check_account(account_id: str) -> dict[str, object]:
                     "status_code": page.status_code,
                     "items": items,
                 }
+            except RateLimitedError as error:
+                account.last_check_ok = False
+                account.last_error = (
+                    "429: Авито лимитирует запросы (похоже на лимит IP, аккаунт не заблокирован)"
+                )
+                result = {
+                    "account_id": account_id,
+                    "ok": False,
+                    "rate_limited": True,
+                    "error": str(error),
+                }
+                rest_reason = "проверка: лимит запросов IP (не бан аккаунта)"
+            except BotChallengeError as error:
+                account.last_check_ok = False
+                account.last_error = f"челлендж Авито — нужны свежие cookies ({error})"
+                result = {
+                    "account_id": account_id,
+                    "ok": False,
+                    "challenge": True,
+                    "error": str(error),
+                }
+                rest_reason = "проверка: челлендж Авито"
             except Exception as error:  # noqa: BLE001 — статус фиксируем в БД
                 account.last_check_ok = False
                 account.last_error = f"{type(error).__name__}: {error}"
                 result = {"account_id": account_id, "ok": False, "error": str(error)}
             await note_activity(redis, account_id, pages=1)
-            if not account.last_check_ok and any(
-                marker in (account.last_error or "").lower()
-                for marker in ("challenge", "429", "rate")
-            ):
-                await set_rest(
-                    redis, account_id, settings.account_rest_minutes, "проверка: блокировка"
-                )
+            if rest_reason is not None:
+                await set_rest(redis, account_id, settings.account_rest_minutes, rest_reason)
             account.last_check_at = checked_at
             if account.last_check_ok and account.status == "paused":
                 account.status = "active"
@@ -569,11 +600,23 @@ async def _warmup_account(account_id: str) -> dict[str, object]:
                 if search is not None:
                     await transport.fetch(search.url, expect_items=False)
                     await asyncio.sleep(random.uniform(2.0, 5.0))
-            except (BotChallengeError, RateLimitedError) as error:
+            except RateLimitedError:
                 ok = False
-                error_text = f"прогрев: {error}"
+                error_text = "прогрев: 429 — лимит запросов IP (аккаунт не заблокирован)"
                 await set_rest(
-                    redis, account_id, settings.account_rest_minutes, "прогрев: блокировка"
+                    redis,
+                    account_id,
+                    settings.account_rest_minutes,
+                    "прогрев: лимит запросов IP (не бан аккаунта)",
+                )
+            except BotChallengeError as error:
+                ok = False
+                error_text = f"прогрев: челлендж Авито — обновите cookies ({error})"
+                await set_rest(
+                    redis,
+                    account_id,
+                    settings.account_rest_minutes,
+                    "прогрев: челлендж Авито",
                 )
             except Exception as error:  # noqa: BLE001 — фиксируем и продолжаем жить
                 ok = False

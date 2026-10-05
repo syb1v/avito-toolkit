@@ -442,12 +442,18 @@ make account-cookies name="Аккаунт 2" BROWSER=brave`}
                     {account.last_check_at
                       ? account.last_check_ok
                         ? `ок, ${formatRelativeTime(account.last_check_at)}`
-                        : `ошибка, ${formatRelativeTime(account.last_check_at)}`
+                        : account.last_error?.includes("429")
+                          ? `лимит IP, ${formatRelativeTime(account.last_check_at)}`
+                          : `ошибка, ${formatRelativeTime(account.last_check_at)}`
                       : "не было"}
                   </span>
                   {account.last_error ? (
                     <span
-                      className="max-w-[320px] truncate text-red-400/80"
+                      className={`max-w-[320px] truncate ${
+                        account.last_error.includes("429")
+                          ? "text-amber-400/80"
+                          : "text-red-400/80"
+                      }`}
                       title={account.last_error}
                     >
                       {account.last_error}
