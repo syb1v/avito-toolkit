@@ -1,4 +1,12 @@
-export function InfoHint({ title, text }: { title?: string; text: string }) {
+export function InfoHint({
+  title,
+  text,
+  lines,
+}: {
+  title?: string;
+  text?: string;
+  lines?: { label: string; value: string }[];
+}) {
   return (
     <span className="group relative inline-flex align-middle">
       <span
@@ -14,6 +22,15 @@ export function InfoHint({ title, text }: { title?: string; text: string }) {
           <span className="mb-1 block font-medium text-neutral-100">{title}</span>
         ) : null}
         {text}
+        {lines ? (
+          <span className="mt-1.5 flex flex-col gap-1">
+            {lines.map((line) => (
+              <span key={line.label}>
+                <b className="text-neutral-100">{line.label}</b> — {line.value}
+              </span>
+            ))}
+          </span>
+        ) : null}
       </span>
     </span>
   );
