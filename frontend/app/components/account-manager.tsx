@@ -208,9 +208,32 @@ export function AccountManager({ initial }: { initial: Account[] }) {
     setCookieText("");
     toast.push(
       "info",
-      `Cookies для «${account.name}» загружаются в фоне; проверка появится в статусе`,
+      `Cookies для «${account.name}» загружаются — проверяю выдачу через прокси аккаунта`,
     );
-    setTimeout(refresh, 6000);
+    const before = account.cookies_at;
+    for (let attempt = 0; attempt < 30; attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 5000));
+      const freshItems = await fetchAccounts();
+      setItems(freshItems);
+      const current = freshItems.find((item) => item.id === account.id);
+      if (current && current.cookies_at !== before) {
+        if (current.last_check_ok) {
+          toast.push("success", `«${current.name}»: cookies загружены, доступ есть`);
+        } else {
+          toast.push(
+            "error",
+            `«${current.name}»: cookies записаны, но проверка не прошла — ${current.last_error ?? "ошибка"}`,
+          );
+        }
+        router.refresh();
+        return;
+      }
+    }
+    toast.push(
+      "info",
+      `Cookies «${account.name}» ещё загружаются — результат появится в статусе аккаунта`,
+    );
+    await refresh();
   }
 
   const btn =

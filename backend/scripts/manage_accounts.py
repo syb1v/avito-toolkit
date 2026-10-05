@@ -141,7 +141,13 @@ async def cmd_cookies(args: argparse.Namespace) -> int:
             account = await _find(session, args.name)
             profile = str(resolve_profile_path(account.profile_dir))
             print(f"Аккаунт {account.name!r}, cookies: {len(cookies)}")
-            check = await apply_cookies_to_profile(cookies, profile, args.url, fresh=args.fresh)
+            check = await apply_cookies_to_profile(
+                cookies,
+                profile,
+                args.url,
+                fresh=args.fresh,
+                proxy_url=account.proxy_url,
+            )
             account.cookies_at = datetime.now(UTC)
             account.last_check_at = account.cookies_at
             account.last_check_ok = check.ok

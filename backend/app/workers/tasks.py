@@ -341,7 +341,10 @@ async def _apply_account_cookies(account_id: str, raw: str, fresh: bool) -> dict
             if account is None:
                 raise LookupError(f"account {account_id} not found")
             check = await apply_cookies_to_profile(
-                cookies, str(resolve_profile_path(account.profile_dir)), fresh=fresh
+                cookies,
+                str(resolve_profile_path(account.profile_dir)),
+                fresh=fresh,
+                proxy_url=account.proxy_url,
             )
             now = datetime.now(UTC)
             account.cookies_at = now

@@ -137,9 +137,16 @@ async def apply_cookies_to_profile(
     verify_url: str = VERIFY_URL,
     *,
     fresh: bool = False,
+    proxy_url: str | None = None,
 ) -> CookieCheck:
-    """Пишет cookies в профиль, открывает видимый Chromium и проверяет выдачу."""
+    """Пишет cookies в профиль, открывает видимый Chromium и проверяет выдачу.
+
+    Проверка идёт через тот же прокси, что закреплён за аккаунтом: иначе
+    датацентр-IP Авито отдаёт заглушку и cookies ошибочно считаются плохими.
+    """
     from patchright.async_api import async_playwright
+
+    from app.collectors.transport.browser_patchright import proxy_settings
 
     settings = get_settings()
     channel = settings.browser_channel or "chromium"
@@ -148,12 +155,14 @@ async def apply_cookies_to_profile(
         logger.info("reset profile %s", profile_path.resolve())
         shutil.rmtree(profile_path, ignore_errors=True)
     profile_path.mkdir(parents=True, exist_ok=True)
+    proxy = cast(Any, proxy_settings(proxy_url)) if proxy_url else None
 
     async with async_playwright() as playwright:
         context = await playwright.chromium.launch_persistent_context(
             str(profile_path),
             headless=False,
             channel=channel,
+            proxy=proxy,
             locale="ru-RU",
             timezone_id="Europe/Moscow",
             viewport={"width": 1440, "height": 900},

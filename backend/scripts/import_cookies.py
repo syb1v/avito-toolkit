@@ -64,6 +64,24 @@ async def _stamp_default_account(ok: bool, items: int) -> None:
         await dispose_engine()
 
 
+async def default_account_proxy() -> str | None:
+    """Прокси, закреплённый за основным аккаунтом (если есть в БД)."""
+    from app.db.models import AvitoAccount
+    from app.db.session import dispose_engine, get_session_factory
+
+    factory = get_session_factory()
+    try:
+        async with factory() as session:
+            account = await session.scalar(
+                select(AvitoAccount).where(AvitoAccount.is_default.is_(True))
+            )
+            return account.proxy_url if account is not None else None
+    except Exception:  # noqa: BLE001 — импорт cookies важнее статуса
+        return None
+    finally:
+        await dispose_engine()
+
+
 async def _run(
     cookies: list[dict[str, Any]],
     profile_dir: str,
@@ -73,7 +91,12 @@ async def _run(
 ) -> int:
     print(f"Профиль: {Path(profile_dir).resolve()}")
     print(f"Cookies к импорту: {len(cookies)}")
-    check = await apply_cookies_to_profile(cookies, profile_dir, verify_url, fresh=fresh)
+    proxy_url = await default_account_proxy()
+    if proxy_url:
+        print("Проверка через закреплённый прокси аккаунта")
+    check = await apply_cookies_to_profile(
+        cookies, profile_dir, verify_url, fresh=fresh, proxy_url=proxy_url
+    )
     print(f"Проверка: челлендж={'да' if check.challenge else 'нет'}, объявлений={check.items}")
     await _stamp_default_account(check.ok, check.items)
     if not check.ok:
