@@ -7,6 +7,8 @@
 
 ## [Unreleased]
 
+## [0.18.1] - 2026-10-05
+
 ### Исправлено
 
 - Загрузка cookies (UI и CLI) проверяет выдачу **через закреплённый за аккаунтом
@@ -495,7 +497,8 @@
 - Дашборд Next.js 16 + Tailwind 4 со статусом API и дорожной картой.
 - Документация: README, `docs/plan.md`, `.env.example`, MIT-лицензия.
 
-[Unreleased]: https://github.com/syb1v/avito-toolkit/compare/v0.18.0...HEAD
+[Unreleased]: https://github.com/syb1v/avito-toolkit/compare/v0.18.1...HEAD
+[0.18.1]: https://github.com/syb1v/avito-toolkit/compare/v0.18.0...v0.18.1
 [0.18.0]: https://github.com/syb1v/avito-toolkit/compare/v0.17.0...v0.18.0
 [0.17.0]: https://github.com/syb1v/avito-toolkit/compare/v0.16.0...v0.17.0
 [0.16.0]: https://github.com/syb1v/avito-toolkit/compare/v0.15.2...v0.16.0
