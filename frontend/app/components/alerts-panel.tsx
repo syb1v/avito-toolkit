@@ -12,6 +12,12 @@ function alertTitle(type: string): string {
   if (type === "price_above_market") {
     return "Наша цена выше рынка";
   }
+  if (type === "worker_down") {
+    return "Воркер не отвечает";
+  }
+  if (type === "queue_backlog") {
+    return "Очередь забита";
+  }
   return type;
 }
 

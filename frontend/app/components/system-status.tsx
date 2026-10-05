@@ -58,7 +58,7 @@ export function SystemStatusPanel({ initial }: { initial: Dashboard | null }) {
             {workerAlive ? "воркер на связи" : "воркер не отвечает"}
           </span>
           <span className="text-neutral-400">
-            очередь обходов: {queues.crawl} · аналитика: {queues.analytics}
+            в очереди: обходы {queues.crawl} · аналитика {queues.analytics} (включая отложенные)
           </span>
         </div>
       </div>

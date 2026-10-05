@@ -16,6 +16,8 @@ import { formatPercent, formatPrice, formatRelativeTime } from "@/lib/format";
 
 const ALERT_LABELS: Record<string, string> = {
   price_above_market: "Наша цена выше рынка",
+  worker_down: "Воркер не отвечает",
+  queue_backlog: "Очередь забита",
 };
 
 export default async function Home({

@@ -2,7 +2,7 @@ import uuid
 from collections.abc import Sequence
 from dataclasses import dataclass
 
-from sqlalchemy import ColumnElement, String, cast, select
+from sqlalchemy import ColumnElement, String, cast, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
@@ -20,11 +20,16 @@ PRICE_ABOVE_MARKET = "price_above_market"
 
 
 def search_alive_clause() -> ColumnElement[bool]:
-    """Условие «алерт ссылается на существующий поиск» (сироты не показываем)."""
-    return (
+    """Алерт либо системный (без search_id), либо ссылается на живой поиск.
+
+    Сироты удалённых поисков не показываем; системные алерты вотчдога
+    (воркер упал / очередь забита) не имеют search_id и должны быть видны.
+    """
+    return or_(
+        Alert.payload["search_id"].is_(None),
         select(Search.id)
         .where(cast(Search.id, String) == Alert.payload["search_id"].astext)
-        .exists()
+        .exists(),
     )
 
 

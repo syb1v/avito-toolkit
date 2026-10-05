@@ -1,4 +1,3 @@
-import time
 import uuid
 from datetime import datetime
 
@@ -13,14 +12,11 @@ from app.config import get_settings
 from app.db.models import Alert, Listing, OurListing, Search
 from app.services.alerts import search_alive_clause
 from app.services.progress import list_running_progress
+from app.services.queues import system_health
 
 router = APIRouter(tags=["dashboard"])
 
 LATEST_ALERTS_LIMIT = 5
-CRAWL_QUEUE = "dramatiq:crawl"
-ANALYTICS_QUEUE = "dramatiq:analytics"
-HEARTBEAT_KEY = "dramatiq:__heartbeats__"
-WORKER_ALIVE_WINDOW_SECONDS = 90
 
 
 class DashboardAlertOut(BaseModel):
@@ -64,20 +60,6 @@ async def _count(session: AsyncSession, model: type, *conditions: ColumnElement[
     return int(await session.scalar(statement) or 0)
 
 
-async def _worker_alive(redis: Redis) -> bool:
-    try:
-        rows = await redis.zrange(HEARTBEAT_KEY, -1, -1, withscores=True)
-    except Exception:
-        return False
-    if not rows:
-        return False
-    try:
-        score = float(rows[0][1])
-    except (TypeError, ValueError):
-        return False
-    return (time.time() - score) < WORKER_ALIVE_WINDOW_SECONDS
-
-
 async def _active_crawls(session: AsyncSession, redis: Redis) -> list[ActiveCrawlOut]:
     running = await list_running_progress(redis)
     if not running:
@@ -113,9 +95,7 @@ async def get_dashboard(session: DbSession) -> DashboardOut:
     settings = get_settings()
     redis = Redis.from_url(settings.redis_url)
     try:
-        crawl_queue = int(await redis.llen(CRAWL_QUEUE) or 0)
-        analytics_queue = int(await redis.llen(ANALYTICS_QUEUE) or 0)
-        worker_alive = await _worker_alive(redis)
+        health = await system_health(redis, window_seconds=settings.worker_alive_window_seconds)
         active_crawls = await _active_crawls(session, redis)
     finally:
         await redis.aclose()
@@ -141,8 +121,11 @@ async def get_dashboard(session: DbSession) -> DashboardOut:
         listings_active=await _count(session, Listing, Listing.status == "active"),
         our_listings_active=await _count(session, OurListing, OurListing.is_active.is_(True)),
         alerts_new=await _count(session, Alert, Alert.status == "new", search_alive_clause()),
-        worker_alive=worker_alive,
-        queues=QueueStatusOut(crawl=crawl_queue, analytics=analytics_queue),
+        worker_alive=bool(health["worker_alive"]),
+        queues=QueueStatusOut(
+            crawl=int(health["crawl_queue"]),
+            analytics=int(health["analytics_queue"]),
+        ),
         active_crawls=active_crawls,
         latest_alerts=latest,
     )

@@ -90,10 +90,6 @@ def resolve_profile_path(profile_dir: str | None) -> Path:
     return base.parent / path
 
 
-def new_profile_dir(name: str) -> str:
-    return f"{ACCOUNTS_SUBDIR}/{slugify(name)}"
-
-
 def proxy_label_for(proxy_url: str | None) -> str | None:
     if not proxy_url:
         return None

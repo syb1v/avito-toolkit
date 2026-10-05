@@ -58,6 +58,10 @@ class Settings(BaseSettings):
     browser_humanize: bool = True
     # Проверка аккаунта — не чаще раза в N минут (защита от самоизбиения IP)
     account_check_cooldown_minutes: int = 10
+    # Watchdog: воркер считается живым, если heartbeat не старше окна
+    worker_alive_window_seconds: int = 120
+    watchdog_interval_minutes: int = 5
+    watchdog_queue_warn_depth: int = 25
 
     reprice_hitl_threshold_pct: float = 10.0
     reprice_max_step_pct: float = 5.0

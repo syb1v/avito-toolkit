@@ -11,6 +11,7 @@ from app.config import get_settings
 from app.db.models import Search
 from app.db.session import dispose_engine, get_session_factory
 from app.services.progress import CrawlProgress
+from app.services.watchdog import run_watchdog
 from app.workers.tasks import check_proxies, crawl_search, recalc_analytics
 
 logger = logging.getLogger(__name__)
@@ -56,6 +57,29 @@ def _enqueue_analytics() -> None:
 def _enqueue_proxy_check() -> None:
     check_proxies.send()
     logger.info("enqueued proxy healthcheck")
+
+
+def _watchdog_check() -> None:
+    """Проверка здоровья вне воркера: если он упал, алерт всё равно появится."""
+
+    async def _run() -> dict[str, object]:
+        settings = get_settings()
+        factory = get_session_factory()
+        redis = Redis.from_url(settings.redis_url)
+        try:
+            async with factory() as session:
+                result = await run_watchdog(session, redis)
+                await session.commit()
+                return result
+        finally:
+            await redis.aclose()
+            await dispose_engine()
+
+    try:
+        result = asyncio.run(_run())
+        logger.info("watchdog: %s", result)
+    except Exception:
+        logger.exception("watchdog check failed")
 
 
 def _load_searches() -> list[tuple[str, str]]:
@@ -131,6 +155,13 @@ def main() -> None:
             "proxy healthcheck scheduled every %s min",
             settings.proxy_healthcheck_interval_minutes,
         )
+    scheduler.add_job(
+        _watchdog_check,
+        "interval",
+        minutes=settings.watchdog_interval_minutes,
+        id="watchdog",
+    )
+    logger.info("watchdog scheduled every %s min", settings.watchdog_interval_minutes)
     logger.info("scheduler started")
     scheduler.start()
 

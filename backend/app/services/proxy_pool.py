@@ -22,7 +22,6 @@ DEFAULT_SCHEME = "http"
 STATE_PREFIX = "proxy:state:"
 RR_INDEX_KEY = "proxy:rr_index"
 HEALTHCHECK_CONCURRENCY = 5
-MASK_VISIBLE = 4
 AVITO_PROBE_URL = "https://www.avito.ru/all?q=iphone"
 AVITO_ROBOTS_URL = "https://www.avito.ru/robots.txt"
 AVITO_PROBE_MARKERS = ("доступ ограничен", "проблема с ip", "hcaptcha", "firewallcaptcha")

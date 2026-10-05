@@ -1,4 +1,4 @@
-from app.services.accounts import new_profile_dir, slugify
+from app.services.accounts import slugify
 
 
 def test_slugify_transliterates_russian() -> None:
@@ -9,4 +9,3 @@ def test_slugify_transliterates_russian() -> None:
 
 def test_slugify_fallback() -> None:
     assert slugify("!!!") == "account"
-    assert new_profile_dir("Аккаунт 2") == ".accounts/akkaunt-2"
