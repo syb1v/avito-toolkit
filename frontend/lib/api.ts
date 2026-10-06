@@ -205,9 +205,33 @@ export type Dashboard = {
     day_usd: number;
     month_usd: number;
     total_usd: number;
+    avg_day_7d: number;
+    avg_day_30d: number;
+    daily: { date: string; cost_usd: number }[];
     by_task: { task: string; runs: number; cost_usd: number }[];
   };
 };
+
+export type AiBalance = {
+  configured: boolean;
+  low: boolean;
+  balance: number | null;
+  currency: string | null;
+  reason: string;
+  updated_at: string | null;
+};
+
+export async function fetchAiBalanceClient(): Promise<AiBalance | null> {
+  try {
+    const response = await fetch(`${API_URL}/api/v1/ai/balance`, { cache: "no-store" });
+    if (!response.ok) {
+      return null;
+    }
+    return (await response.json()) as AiBalance;
+  } catch {
+    return null;
+  }
+}
 
 export type SearchProgress = {
   search_id: string;

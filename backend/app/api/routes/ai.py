@@ -1,8 +1,10 @@
+import json
 import uuid
-from datetime import datetime
+from datetime import UTC, datetime
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, ConfigDict
+from redis.asyncio import Redis
 from sqlalchemy import select
 
 from app.ai.client import LlmNotConfiguredError
@@ -18,6 +20,7 @@ from app.services.analytics.service import (
     fetch_daily_history,
     filtered_top_listings,
 )
+from app.services.health_alerts import check_ai_balance
 from app.services.matching import build_our_position
 from app.services.pricing import RepricingContext, build_price_target
 
@@ -28,6 +31,8 @@ HISTORY_FOR_PROMPT = 14
 MAX_LLM_RUNS = 100
 OUR_LISTINGS_FOR_PROMPT = 50
 OPEN_EDIT_STATUSES = ("draft", "approved", "applying", "reverting")
+BALANCE_CACHE_KEY = "ai:balance:v1"
+BALANCE_CACHE_SECONDS = 900
 
 
 class PriceSuggestionOut(BaseModel):
@@ -55,6 +60,15 @@ class ApplySuggestionsOut(BaseModel):
     created: int
     skipped: int
     skus: list[str]
+
+
+class AiBalanceOut(BaseModel):
+    configured: bool
+    low: bool
+    balance: float | None
+    currency: str | None
+    reason: str
+    updated_at: str | None = None
 
 
 class PriceActionOut(BaseModel):
@@ -369,6 +383,35 @@ async def create_advice(
             ),
         ),
     )
+
+
+@router.get("/ai/balance", response_model=AiBalanceOut)
+async def get_ai_balance() -> AiBalanceOut:
+    """Баланс AI API (DeepSeek) с кэшем в Redis на 15 минут."""
+    settings = get_settings()
+    redis = Redis.from_url(settings.redis_url)
+    try:
+        cached = await redis.get(BALANCE_CACHE_KEY)
+        if cached:
+            try:
+                return AiBalanceOut(**json.loads(cached))
+            except (TypeError, ValueError):
+                pass
+        data = await check_ai_balance(settings)
+        if data is None:
+            return AiBalanceOut(configured=False, low=False, balance=None, currency=None, reason="")
+        out = AiBalanceOut(
+            configured=True,
+            low=bool(data.get("low")),
+            balance=float(data["balance"]) if data.get("balance") is not None else None,
+            currency=str(data.get("currency") or "") or None,
+            reason=str(data.get("reason") or ""),
+            updated_at=datetime.now(UTC).isoformat(),
+        )
+        await redis.set(BALANCE_CACHE_KEY, json.dumps(out.model_dump()), ex=BALANCE_CACHE_SECONDS)
+        return out
+    finally:
+        await redis.aclose()
 
 
 @router.get("/llm-runs", response_model=list[LlmRunOut])

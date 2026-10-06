@@ -1,6 +1,7 @@
 import Link from "next/link";
 
 import { AccountManager } from "@/app/components/account-manager";
+import { AiSpendPanel } from "@/app/components/ai-spend-panel";
 import { ClearAlertsButton } from "@/app/components/clear-alerts-button";
 import { ProxyPanel } from "@/app/components/proxy-panel";
 import { SearchManager } from "@/app/components/search-manager";
@@ -13,13 +14,6 @@ import {
   fetchSearches,
 } from "@/lib/api";
 import { formatPercent, formatPrice, formatRelativeTime } from "@/lib/format";
-
-const AI_TASK_LABELS: Record<string, string> = {
-  market_digest: "Дайджесты рынка",
-  listing_moderation: "Модерация объявлений",
-  description_context: "Проверка описаний",
-  price_advice: "Советы по цене",
-};
 
 const ALERT_LABELS: Record<string, string> = {
   price_above_market: "Наша цена выше рынка",
@@ -106,44 +100,7 @@ export default async function Home({
         />
       </section>
 
-      {dashboard?.ai_spend ? (
-        <section className="rounded-xl border border-neutral-800 bg-neutral-900/60 p-4 sm:p-5">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div className="flex items-center">
-              <h2 className="text-base font-medium sm:text-lg">Расходы на AI</h2>
-              <span className="ml-2 rounded-full border border-violet-500/30 bg-violet-500/10 px-2.5 py-0.5 text-xs text-violet-200">
-                за 30 дней ${dashboard.ai_spend.month_usd.toFixed(4)}
-              </span>
-            </div>
-            <span className="text-xs text-neutral-500">
-              за сутки ${dashboard.ai_spend.day_usd.toFixed(4)} · всего $
-              {dashboard.ai_spend.total_usd.toFixed(4)}
-            </span>
-          </div>
-          {dashboard.ai_spend.by_task.length > 0 ? (
-            <ul className="mt-3 grid gap-2 sm:grid-cols-2">
-              {dashboard.ai_spend.by_task.map((item) => (
-                <li
-                  key={item.task}
-                  className="flex items-center justify-between rounded-lg border border-neutral-800 bg-neutral-950/40 px-3 py-2 text-sm"
-                >
-                  <span className="text-neutral-300">
-                    {AI_TASK_LABELS[item.task] ?? item.task}
-                  </span>
-                  <span className="text-neutral-400">
-                    {item.runs} зап. · ${item.cost_usd.toFixed(4)}
-                  </span>
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <p className="mt-3 text-xs text-neutral-500">
-              Пока не было AI-запросов — расходы появятся после первого обхода с
-              модерацией или дайджеста.
-            </p>
-          )}
-        </section>
-      ) : null}
+      <AiSpendPanel initial={dashboard?.ai_spend} />
 
       {stats.latest_alerts.length > 0 ? (
         <section className="rounded-xl border border-amber-500/25 bg-amber-500/5 p-4 sm:p-5">

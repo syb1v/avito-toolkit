@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import DbSession
 from app.config import get_settings
 from app.db.models import Alert, Listing, LlmRun, OurListing, Search
+from app.services.ai_spend import DAILY_WINDOW_DAYS, average, daily_series
 from app.services.alerts import search_alive_clause
 from app.services.progress import list_running_progress
 from app.services.queues import system_health
@@ -47,10 +48,18 @@ class AiTaskSpendOut(BaseModel):
     cost_usd: float
 
 
+class AiDailySpendOut(BaseModel):
+    date: str
+    cost_usd: float
+
+
 class AiSpendOut(BaseModel):
     day_usd: float
     month_usd: float
     total_usd: float
+    avg_day_7d: float
+    avg_day_30d: float
+    daily: list[AiDailySpendOut]
     by_task: list[AiTaskSpendOut]
 
 
@@ -96,10 +105,24 @@ async def _ai_spend(session: AsyncSession) -> AiSpendOut:
         .group_by(LlmRun.task)
         .order_by(func.coalesce(func.sum(LlmRun.cost_usd), 0).desc())
     )
+    daily_rows = await session.execute(
+        select(
+            func.date(LlmRun.created_at),
+            func.coalesce(func.sum(LlmRun.cost_usd), 0),
+        )
+        .where(LlmRun.created_at >= month_ago)
+        .group_by(func.date(LlmRun.created_at))
+    )
+    daily_totals = {row[0]: float(row[1] or 0) for row in daily_rows.all() if row[0] is not None}
+    daily = daily_series(daily_totals, end=now.date(), days=DAILY_WINDOW_DAYS)
+    daily_costs = [cost for _day, cost in daily]
     return AiSpendOut(
         day_usd=round(await _sum_since(day_ago), 6),
         month_usd=round(await _sum_since(month_ago), 6),
         total_usd=round(await _sum_since(None), 6),
+        avg_day_7d=average(daily_costs[-7:]),
+        avg_day_30d=average(daily_costs),
+        daily=[AiDailySpendOut(date=day.isoformat(), cost_usd=cost) for day, cost in daily],
         by_task=[
             AiTaskSpendOut(task=row[0], runs=int(row[1]), cost_usd=round(float(row[2] or 0), 6))
             for row in rows.all()
