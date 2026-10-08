@@ -53,7 +53,6 @@ class AccountOut(BaseModel):
     proxy_label: str | None = None
     status: str
     notes: str | None
-    is_default: bool
     cookies_at: datetime | None
     last_check_at: datetime | None
     last_check_ok: bool | None
@@ -89,7 +88,6 @@ def _account_out(
         proxy_label=proxy_label_for(account.proxy_url),
         status=account.status,
         notes=account.notes,
-        is_default=account.is_default,
         cookies_at=account.cookies_at,
         last_check_at=account.last_check_at,
         last_check_ok=account.last_check_ok,
@@ -209,8 +207,6 @@ async def update_account(
 @router.delete("/{account_id}", status_code=204)
 async def delete_account(account_id: uuid.UUID, session: DbSession) -> None:
     account = await _load(session, account_id)
-    if account.is_default:
-        raise HTTPException(status_code=409, detail="default account cannot be deleted")
     await session.delete(account)
     await session.commit()
 

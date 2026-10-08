@@ -288,13 +288,12 @@ export function SearchFormModal({
             onChange={(event) => setForm({ ...form, accountId: event.target.value })}
             className={inputClass}
           >
-            <option value="">— основной —</option>
+            <option value="">— без аккаунта (общий профиль) —</option>
             {accounts
               .filter((account) => account.role !== "seller")
               .map((account) => (
                 <option key={account.id} value={account.id}>
                   {account.name}
-                  {account.is_default ? " (основной)" : ""}
                 </option>
               ))}
           </select>

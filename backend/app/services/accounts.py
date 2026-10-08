@@ -149,7 +149,7 @@ async def account_overview(session: AsyncSession) -> list[dict[str, Any]]:
         select(AvitoAccount, func.count(Search.id))
         .outerjoin(Search, Search.account_id == AvitoAccount.id)
         .group_by(AvitoAccount.id)
-        .order_by(AvitoAccount.is_default.desc(), AvitoAccount.name)
+        .order_by(AvitoAccount.name)
     )
     overview: list[dict[str, Any]] = []
     for account, searches_count in rows.all():
@@ -162,7 +162,6 @@ async def account_overview(session: AsyncSession) -> list[dict[str, Any]]:
                 "proxy_label": proxy_label_for(account.proxy_url),
                 "status": account.status,
                 "notes": account.notes,
-                "is_default": account.is_default,
                 "cookies_at": account.cookies_at,
                 "last_check_at": account.last_check_at,
                 "last_check_ok": account.last_check_ok,

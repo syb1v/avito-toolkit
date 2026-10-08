@@ -37,7 +37,7 @@ DEFAULT_PROFILE_DIR = ".browser-profile"
 
 
 async def _stamp_default_account(ok: bool, items: int) -> None:
-    """Отмечает в БД, что cookies основного аккаунта обновлены и проверены."""
+    """Отмечает в БД, что cookies аккаунта обновлены и проверены."""
     from app.db.models import AvitoAccount
     from app.db.session import dispose_engine, get_session_factory
 
@@ -45,7 +45,7 @@ async def _stamp_default_account(ok: bool, items: int) -> None:
     try:
         async with factory() as session:
             account = await session.scalar(
-                select(AvitoAccount).where(AvitoAccount.is_default.is_(True))
+                select(AvitoAccount).order_by(AvitoAccount.name).limit(1)
             )
             if account is None:
                 return
@@ -65,7 +65,7 @@ async def _stamp_default_account(ok: bool, items: int) -> None:
 
 
 async def default_account_proxy() -> str | None:
-    """Прокси, закреплённый за основным аккаунтом (если есть в БД)."""
+    """Прокси, закреплённый за аккаунтом (если есть в БД)."""
     from app.db.models import AvitoAccount
     from app.db.session import dispose_engine, get_session_factory
 
@@ -73,7 +73,7 @@ async def default_account_proxy() -> str | None:
     try:
         async with factory() as session:
             account = await session.scalar(
-                select(AvitoAccount).where(AvitoAccount.is_default.is_(True))
+                select(AvitoAccount).order_by(AvitoAccount.name).limit(1)
             )
             return account.proxy_url if account is not None else None
     except Exception:  # noqa: BLE001 — импорт cookies важнее статуса

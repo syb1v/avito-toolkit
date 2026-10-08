@@ -60,7 +60,7 @@ async def cmd_list() -> int:
                 select(AvitoAccount, func.count(Search.id))
                 .outerjoin(Search, Search.account_id == AvitoAccount.id)
                 .group_by(AvitoAccount.id)
-                .order_by(AvitoAccount.is_default.desc(), AvitoAccount.name)
+                .order_by(AvitoAccount.name)
             )
             print(
                 f"{'имя':<24} {'роль':<10} {'статус':<8} {'поисков':<8} "
@@ -70,10 +70,9 @@ async def cmd_list() -> int:
                 cookies = (
                     account.cookies_at.strftime("%Y-%m-%d %H:%M") if account.cookies_at else "—"
                 )
-                marker = " (основной)" if account.is_default else ""
                 proxy = proxy_label_for(account.proxy_url) or "личный IP"
                 print(
-                    f"{account.name + marker:<24} {account.role:<10} {account.status:<8} "
+                    f"{account.name:<24} {account.role:<10} {account.status:<8} "
                     f"{count:<8} {proxy:<28} {cookies:<20} {account.profile_dir}"
                 )
             return 0
@@ -209,11 +208,9 @@ async def cmd_remove(name: str) -> int:
     try:
         async with factory() as session:
             account = await _find(session, name)
-            if account.is_default:
-                raise SystemExit("Основной аккаунт удалить нельзя")
             await session.delete(account)
             await session.commit()
-            print(f"Аккаунт {name!r} удалён; поиски переведены на основной профиль.")
+            print(f"Аккаунт {name!r} удалён; поиски перейдут на общий профиль.")
             return 0
     finally:
         await dispose_engine()

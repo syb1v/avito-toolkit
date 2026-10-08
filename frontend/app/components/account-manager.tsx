@@ -162,7 +162,7 @@ export function AccountManager({ initial }: { initial: Account[] }) {
   async function remove(account: Account) {
     const ok = await confirm({
       title: "Удалить аккаунт?",
-      text: `«${account.name}» будет удалён, поиски перейдут на основной профиль. Каталог профиля останется на диске.`,
+      text: `«${account.name}» будет удалён. Поиски, привязанные к нему, останутся и перейдут на общий профиль. Каталог профиля останется на диске.`,
       confirmLabel: "Удалить",
       danger: true,
     });
@@ -423,11 +423,6 @@ make account-cookies name="Аккаунт 2" BROWSER=brave`}
                     }`}
                   />
                   <p className="font-medium">{account.name}</p>
-                  {account.is_default ? (
-                    <span className="rounded-full border border-sky-500/30 bg-sky-500/10 px-2 py-0.5 text-[10px] text-sky-200">
-                      основной
-                    </span>
-                  ) : null}
                   <span
                     className={`rounded-full border px-2 py-0.5 text-[10px] ${
                       account.role === "seller"
@@ -579,16 +574,14 @@ make account-cookies name="Аккаунт 2" BROWSER=brave`}
                 >
                   {account.role === "seller" ? "Сделать поисковиком" : "Сделать продавцом"}
                 </button>
-                {!account.is_default ? (
-                  <button
-                    type="button"
-                    onClick={() => remove(account)}
-                    disabled={busy === account.id}
-                    className="rounded-lg border border-red-500/30 px-3 py-1 text-xs text-red-300 transition hover:border-red-500/60 disabled:opacity-50"
-                  >
-                    Удалить
-                  </button>
-                ) : null}
+                <button
+                  type="button"
+                  onClick={() => remove(account)}
+                  disabled={busy === account.id}
+                  className="rounded-lg border border-red-500/30 px-3 py-1 text-xs text-red-300 transition hover:border-red-500/60 disabled:opacity-50"
+                >
+                  Удалить
+                </button>
               </div>
             </div>
           </li>

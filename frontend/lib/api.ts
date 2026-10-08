@@ -27,7 +27,6 @@ export type Account = {
   proxy_label: string | null;
   status: "active" | "paused";
   notes: string | null;
-  is_default: boolean;
   cookies_at: string | null;
   last_check_at: string | null;
   last_check_ok: boolean | null;
