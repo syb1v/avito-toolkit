@@ -7,6 +7,8 @@
 
 ## [Unreleased]
 
+## [0.32.2] - 2026-10-09
+
 ### Исправлено
 
 - Live-правка ждала форму кабинета слишком мало: теперь скрипт дожидается
@@ -741,7 +743,8 @@
 - Дашборд Next.js 16 + Tailwind 4 со статусом API и дорожной картой.
 - Документация: README, `docs/plan.md`, `.env.example`, MIT-лицензия.
 
-[Unreleased]: https://github.com/syb1v/avito-toolkit/compare/v0.32.1...HEAD
+[Unreleased]: https://github.com/syb1v/avito-toolkit/compare/v0.32.2...HEAD
+[0.32.2]: https://github.com/syb1v/avito-toolkit/compare/v0.32.1...v0.32.2
 [0.32.1]: https://github.com/syb1v/avito-toolkit/compare/v0.32.0...v0.32.1
 [0.32.0]: https://github.com/syb1v/avito-toolkit/compare/v0.31.1...v0.32.0
 [0.31.1]: https://github.com/syb1v/avito-toolkit/compare/v0.31.0...v0.31.1
