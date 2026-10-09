@@ -124,3 +124,25 @@ def test_parse_profile_items_own_listings() -> None:
     ]
     assert items[0].url == "https://www.avito.ru/krasnodar/audio/thing_111"
     assert items[1].position == 2
+
+
+def test_apply_seller_links_from_cards() -> None:
+    from app.collectors.web.parsing import ParsedListing, apply_seller_links
+
+    html = (
+        '<a target="_blank" href="/user/cb65b8acb80a109cc03e25e1f9c9359f/profile'
+        '?src=search_seller_info&amp;iid=8182097164">FusionGear</a>'
+        '<a href="/user/aaaabbbbccccdddd/profile?iid=111">Профиль</a>'
+    )
+    listings = [
+        ParsedListing(listing_id=8182097164, title="A", price=1.0, url="u", position=1),
+        ParsedListing(listing_id=111, title="B", price=2.0, url="u", position=2),
+        ParsedListing(listing_id=222, title="C", price=3.0, url="u", position=3),
+    ]
+    enriched = apply_seller_links(html, listings)
+    assert enriched[0].seller_url == (
+        "https://www.avito.ru/user/cb65b8acb80a109cc03e25e1f9c9359f/profile"
+    )
+    assert enriched[0].seller_name == "FusionGear"
+    assert enriched[1].seller_name is None
+    assert enriched[2].seller_url is None

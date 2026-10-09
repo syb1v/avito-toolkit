@@ -23,11 +23,15 @@ def is_url_ref(ref: str) -> bool:
     return "://" in value or value.startswith("avito.ru") or "/user/" in value
 
 
-def ref_matches_seller(ref: str, *, name: str | None, url: str | None) -> bool:
-    """Совпадение ссылки/имени из настроек поиска с продавцом объявления."""
+def ref_matches_seller(
+    ref: str, *, name: str | None, url: str | None, seller_id: int | None = None
+) -> bool:
+    """Совпадение ссылки/имени/ID из настроек поиска с продавцом объявления."""
     value = ref.strip().lower()
     if not value:
         return False
+    if value.isdigit() and seller_id is not None and int(value) == seller_id:
+        return True
     normalized_name = (name or "").lower().replace("ё", "е")
     if is_url_ref(value):
         link = value if "://" in value else f"https://{value}"
@@ -59,10 +63,17 @@ def seller_filter_reason(
     url: str | None,
     target_refs: Sequence[str],
     exclude_refs: Sequence[str],
+    seller_id: int | None = None,
 ) -> str | None:
     """None — продавец проходит; иначе 'excluded' или 'not_target'."""
-    if exclude_refs and any(ref_matches_seller(ref, name=name, url=url) for ref in exclude_refs):
+    if exclude_refs and any(
+        ref_matches_seller(ref, name=name, url=url, seller_id=seller_id)
+        for ref in exclude_refs
+    ):
         return "excluded"
-    if target_refs and not any(ref_matches_seller(ref, name=name, url=url) for ref in target_refs):
+    if target_refs and not any(
+        ref_matches_seller(ref, name=name, url=url, seller_id=seller_id)
+        for ref in target_refs
+    ):
         return "not_target"
     return None

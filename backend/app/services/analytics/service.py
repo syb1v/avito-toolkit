@@ -83,6 +83,7 @@ async def _filtered_listings(session: AsyncSession, search_id: uuid.UUID) -> lis
             Listing.params,
             Seller.name,
             Seller.url,
+            Listing.seller_id,
         )
         .join(SearchListing, SearchListing.listing_id == Listing.id)
         .outerjoin(Seller, Seller.id == Listing.seller_id)
@@ -112,6 +113,7 @@ async def _filtered_listings(session: AsyncSession, search_id: uuid.UUID) -> lis
         listing_params,
         seller_name,
         seller_url,
+        seller_id,
     ) in rows.all():
         if price is None:
             continue
@@ -128,7 +130,11 @@ async def _filtered_listings(session: AsyncSession, search_id: uuid.UUID) -> lis
         ):
             reason = "stopword"
         elif (target_refs or exclude_refs) and seller_filter_reason(
-            name=seller_name, url=seller_url, target_refs=target_refs, exclude_refs=exclude_refs
+            name=seller_name,
+            url=seller_url,
+            target_refs=target_refs,
+            exclude_refs=exclude_refs,
+            seller_id=seller_id,
         ) is not None:
             reason = "seller"
         elif not matches_region(listing_region, regions, exclude_regions):

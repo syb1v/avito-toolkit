@@ -32,6 +32,19 @@ REQUEST_HEADERS = {
 }
 
 
+def seller_key(listing: ParsedListing) -> tuple[int, str | None] | None:
+    """Стабильный числовой id продавца: из hash профиля или из sellerId JSON."""
+    if listing.seller_url and "/user/" in listing.seller_url:
+        hash_part = listing.seller_url.split("/user/", 1)[1].split("/", 1)[0]
+        try:
+            return int(hash_part[:15], 16) % (2**62), listing.seller_url
+        except ValueError:
+            pass
+    if listing.seller_id is not None:
+        return listing.seller_id, None
+    return None
+
+
 def should_mark_gone(
     *,
     completed_pagination: bool,
@@ -226,19 +239,31 @@ class SearchCollector:
             if price_changed(existing_prices.get(listing.listing_id), listing.price)
         ]
 
-        seller_rows = {
-            listing.seller_id: {
-                "id": listing.seller_id,
-                "first_seen": now,
-                "last_seen": now,
-            }
-            for listing in listings
-            if listing.seller_id is not None
-        }
+        seller_rows: dict[int, dict[str, object]] = {}
+        listing_seller_ids: dict[int, int] = {}
+        for listing in listings:
+            key = seller_key(listing)
+            if key is None:
+                continue
+            seller_id, seller_url = key
+            listing_seller_ids[listing.listing_id] = seller_id
+            entry = seller_rows.setdefault(
+                seller_id,
+                {"id": seller_id, "first_seen": now, "last_seen": now},
+            )
+            if seller_url:
+                entry["url"] = seller_url
+            if listing.seller_name:
+                entry["name"] = listing.seller_name
         if seller_rows:
             seller_stmt = pg_insert(Seller).values(list(seller_rows.values()))
             seller_stmt = seller_stmt.on_conflict_do_update(
-                index_elements=[Seller.id], set_={"last_seen": now}
+                index_elements=[Seller.id],
+                set_={
+                    "last_seen": now,
+                    "url": func.coalesce(seller_stmt.excluded.url, Seller.url),
+                    "name": func.coalesce(seller_stmt.excluded.name, Seller.name),
+                },
             )
             await session.execute(seller_stmt)
 
@@ -250,7 +275,7 @@ class SearchCollector:
                         "title": listing.title,
                         "url": listing.url,
                         "region": region_from_url(listing.url),
-                        "seller_id": listing.seller_id,
+                        "seller_id": listing_seller_ids.get(listing.listing_id),
                         "current_price": listing.price,
                         "status": "active",
                         "first_seen": now,

@@ -270,6 +270,7 @@ def passes_base_filters(
     manual_excluded: bool = False,
     seller_name: str | None = None,
     seller_url: str | None = None,
+    seller_id: int | None = None,
 ) -> bool:
     """Проходит ли объявление include/регион/ручные фильтры поиска (без стоп-слов).
 
@@ -288,7 +289,11 @@ def passes_base_filters(
     target_refs = seller_refs_from_params(params, TARGET_KEY)
     exclude_refs = seller_refs_from_params(params, EXCLUDE_KEY)
     if (target_refs or exclude_refs) and seller_filter_reason(
-        name=seller_name, url=seller_url, target_refs=target_refs, exclude_refs=exclude_refs
+        name=seller_name,
+        url=seller_url,
+        target_refs=target_refs,
+        exclude_refs=exclude_refs,
+        seller_id=seller_id,
     ) is not None:
         return False
     return matches_region(region, regions_from_params(params), exclude_regions_from_params(params))
@@ -385,6 +390,7 @@ async def moderate_search(
             manual_excluded=row[0] in manual_ids,
             seller_name=row[8],
             seller_url=row[9],
+            seller_id=row[3],
         )
     ]
     prices = [row[2] for row in listing_rows if row[2] is not None]

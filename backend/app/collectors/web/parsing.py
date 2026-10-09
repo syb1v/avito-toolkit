@@ -1,7 +1,7 @@
 import json
 import re
 from collections.abc import Iterator
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from html import unescape as html_unescape
 from typing import Any
 from urllib.parse import unquote, urljoin
@@ -35,6 +35,11 @@ PROFILE_TITLE_PATTERN = re.compile(
     r'<h4[^>]*>.*?<a[^>]*href="(/[^"]+)"[^>]*>([^<]+)</a>', re.DOTALL
 )
 PROFILE_PRICE_PATTERN = re.compile(r">([^<>]*₽)<")
+SELLER_LINK_PATTERN = re.compile(
+    r'href="/user/(?P<hash>[0-9a-f]{6,})/profile[^"]*?iid=(?P<item>\d+)[^"]*"[^>]*>'
+    r"(?P<name>[^<]{0,120})<"
+)
+GENERIC_SELLER_NAMES = {"", "профиль", "все объявления", "перейти в профиль", "в профиль"}
 
 
 @dataclass(frozen=True, slots=True)
@@ -47,6 +52,8 @@ class ParsedListing:
     seller_id: int | None = None
     is_vip: bool = False
     is_highlighted: bool = False
+    seller_url: str | None = None
+    seller_name: str | None = None
 
 
 def _to_float(value: str) -> float | None:
@@ -86,9 +93,37 @@ def _coerce_int(value: Any) -> int | None:
 def parse_search_page(html_text: str, base_url: str = "") -> list[ParsedListing]:
     """Разбор страницы выдачи: сначала встроенный JSON, затем DOM-селекторы."""
     listings = _parse_initial_data(html_text, base_url)
-    if listings:
+    if not listings:
+        listings = _parse_dom(html_text, base_url)
+    return apply_seller_links(html_text, listings)
+
+
+def apply_seller_links(html_text: str, listings: list[ParsedListing]) -> list[ParsedListing]:
+    """Дополняет объявления продавцом из ссылок карточек `/user/{hash}/profile?iid=ID`."""
+    mapping: dict[int, tuple[str, str | None]] = {}
+    for match in SELLER_LINK_PATTERN.finditer(html_text):
+        name = html_unescape(match.group("name")).strip()
+        mapping[int(match.group("item"))] = (
+            match.group("hash"),
+            None if name.lower() in GENERIC_SELLER_NAMES else name,
+        )
+    if not mapping:
         return listings
-    return _parse_dom(html_text, base_url)
+    enriched: list[ParsedListing] = []
+    for listing in listings:
+        found = mapping.get(listing.listing_id)
+        if found is None:
+            enriched.append(listing)
+            continue
+        seller_url = f"{AVITO_WEB_BASE}/user/{found[0]}/profile"
+        enriched.append(
+            replace(
+                listing,
+                seller_url=seller_url,
+                seller_name=found[1] or listing.seller_name,
+            )
+        )
+    return enriched
 
 
 def _parse_initial_data(html_text: str, base_url: str) -> list[ParsedListing]:
