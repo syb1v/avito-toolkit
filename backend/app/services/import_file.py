@@ -82,7 +82,9 @@ def _as_int(value: object) -> int | None:
 
 def parse_xlsx(data: bytes) -> list[FileRow]:
     """Читает первый лист выгрузки Авито: Id/AvitoId, Title, Price, AvitoStatus, Category."""
-    workbook = load_workbook(io.BytesIO(data), read_only=True, data_only=True)
+    # Без read_only: у части выгрузок Авито битые метаданные размеров листа,
+    # и read_only-режим видит только первую строку.
+    workbook = load_workbook(io.BytesIO(data), data_only=True)
     sheet = workbook.worksheets[0]
     rows = sheet.iter_rows(values_only=True)
     header = next(rows, None)
