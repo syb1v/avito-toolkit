@@ -7,6 +7,8 @@
 
 ## [Unreleased]
 
+## [0.34.0] - 2026-10-09
+
 ### Добавлено
 
 - **Официальный API Авито для правок цен** (`AVITO_CLIENT_ID`/`AVITO_CLIENT_SECRET`):
@@ -772,7 +774,8 @@
 - Дашборд Next.js 16 + Tailwind 4 со статусом API и дорожной картой.
 - Документация: README, `docs/plan.md`, `.env.example`, MIT-лицензия.
 
-[Unreleased]: https://github.com/syb1v/avito-toolkit/compare/v0.33.1...HEAD
+[Unreleased]: https://github.com/syb1v/avito-toolkit/compare/v0.34.0...HEAD
+[0.34.0]: https://github.com/syb1v/avito-toolkit/compare/v0.33.1...v0.34.0
 [0.33.1]: https://github.com/syb1v/avito-toolkit/compare/v0.33.0...v0.33.1
 [0.33.0]: https://github.com/syb1v/avito-toolkit/compare/v0.32.3...v0.33.0
 [0.32.3]: https://github.com/syb1v/avito-toolkit/compare/v0.32.2...v0.32.3
