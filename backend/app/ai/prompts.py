@@ -10,6 +10,7 @@ REPRICE_SUMMARY_VERSION = "v2"
 SEARCH_FILTERS_VERSION = "v3"
 CHAT_PLAN_VERSION = "v1"
 CHAT_ANSWER_VERSION = "v1"
+FACETS_VERSION = "v1"
 
 PRICE_ADVISOR_SYSTEM_PROMPT = """
 Пиши простым человеческим языком: без технических кодов, английских
@@ -276,4 +277,23 @@ def build_chat_answer_prompt(
         f"Данные из системы (JSON):\n{data_text or '{}'}\n\n"
         f"Запрос пользователя: {text}\n\n"
         "Ответь простым языком. Если в данных есть действие — скажи, что оно ждёт подтверждения."
+    )
+
+
+FACETS_SYSTEM_PROMPT = """
+Ты размечаешь объявления Авито по бренду, модели и цвету. Для каждого listing_id верни:
+- brand — бренд (например «Bang & Olufsen», «Devialet», «Apple», «Insta360»); если бренд
+  не очевиден — «Другое»;
+- model — модель или линейка, если понятна из заголовка, иначе пустую строку;
+- color — цвет, если указан в заголовке, иначе пустую строку.
+Пиши простым человеческим языком, без выдумок. Отвечай строго JSON по схеме.
+"""
+
+
+def build_facets_prompt(*, items: list[tuple[int, str]]) -> str:
+    lines = [f'{{"listing_id": {listing_id}, "title": {title!r}}}' for listing_id, title in items]
+    return (
+        "Объявления (JSON):\n["
+        + ",\n ".join(lines)
+        + "]\n\nВерни brand/model/color по каждому listing_id."
     )

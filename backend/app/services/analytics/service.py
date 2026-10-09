@@ -16,6 +16,7 @@ from app.db.models import (
 )
 from app.services.analytics.aggregates import MarketSummary, build_market_summary
 from app.services.analytics.iqr import compute_price_stats
+from app.services.facets import listing_brand
 from app.services.regions import (
     exclude_regions_from_params,
     matches_region,
@@ -60,6 +61,7 @@ class FilteredListing:
     price: float
     # None — объявление проходит фильтры; иначе причина исключения.
     reason: str | None = None
+    brand: str | None = None
 
 
 async def _filtered_listings(session: AsyncSession, search_id: uuid.UUID) -> list[FilteredListing]:
@@ -139,7 +141,16 @@ async def _filtered_listings(session: AsyncSession, search_id: uuid.UUID) -> lis
             reason = "seller"
         elif not matches_region(listing_region, regions, exclude_regions):
             reason = "region"
-        filtered.append(FilteredListing(title=title or "", price=float(price), reason=reason))
+        filtered.append(
+            FilteredListing(
+                title=title or "",
+                price=float(price),
+                reason=reason,
+                brand=listing_brand(title or "", listing_params)
+                if isinstance(listing_params, dict)
+                else None,
+            )
+        )
     return filtered
 
 
@@ -164,12 +175,14 @@ async def _active_listings(
 
 
 async def filtered_top_listings(
-    session: AsyncSession, search_id: uuid.UUID, limit: int
+    session: AsyncSession, search_id: uuid.UUID, limit: int, brand: str | None = None
 ) -> list[tuple[str, float | None]]:
     """Топ выдачи для AI-дайджеста — только объявления, прошедшие фильтры поиска."""
     rows = await _filtered_listings(session, search_id)
     top: list[tuple[str, float | None]] = [
-        (row.title, row.price) for row in rows if row.reason is None
+        (row.title, row.price)
+        for row in rows
+        if row.reason is None and (brand is None or row.brand == brand)
     ]
     return top[:limit]
 

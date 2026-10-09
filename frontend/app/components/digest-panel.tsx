@@ -7,7 +7,9 @@ import {
   applyDigestSuggestions,
   createDigest,
   fetchDigestClient,
+  fetchFacetsClient,
   type Digest,
+  type Facet,
 } from "@/lib/api";
 import { useConfirm } from "@/app/components/confirm";
 import { useToast } from "@/app/components/toast";
@@ -33,20 +35,27 @@ export function DigestPanel({ searchId }: { searchId: string }) {
   const [loading, setLoading] = useState(false);
   const [elapsed, setElapsed] = useState(0);
   const [applying, setApplying] = useState(false);
+  const [facets, setFacets] = useState<Facet[]>([]);
+  const [brand, setBrand] = useState<string | null>(null);
   const toast = useToast();
   const confirm = useConfirm();
 
   useEffect(() => {
+    fetchFacetsClient(searchId).then(setFacets);
+  }, [searchId]);
+
+  useEffect(() => {
     let cancelled = false;
-    fetchDigestClient(searchId).then((latest) => {
-      if (!cancelled && latest) {
+    setDigest(null);
+    fetchDigestClient(searchId, brand).then((latest) => {
+      if (!cancelled) {
         setDigest(latest);
       }
     });
     return () => {
       cancelled = true;
     };
-  }, [searchId]);
+  }, [searchId, brand]);
 
   useEffect(() => {
     if (!loading) {
@@ -59,13 +68,16 @@ export function DigestPanel({ searchId }: { searchId: string }) {
 
   useEvents(
     (event) => {
-      fetchDigestClient(searchId).then((latest) => {
+      fetchDigestClient(searchId, brand).then((latest) => {
         if (latest) {
           setDigest(latest);
         }
       });
     },
-    (event) => event.type === "digest.new" && event.payload.search_id === searchId,
+    (event) =>
+      event.type === "digest.new" &&
+      event.payload.search_id === searchId &&
+      String(event.payload.brand ?? "") === (brand ?? ""),
   );
 
   async function applySuggestions() {
@@ -109,7 +121,7 @@ export function DigestPanel({ searchId }: { searchId: string }) {
   async function generate() {
     setLoading(true);
     setError(null);
-    const result = await createDigest(searchId);
+    const result = await createDigest(searchId, brand);
     if (result.digest) {
       setDigest(result.digest);
       toast.push("success", "Дайджест обновлён и сохранён — увидят все");
@@ -132,8 +144,8 @@ export function DigestPanel({ searchId }: { searchId: string }) {
             />
           </div>
           <p className="mt-1 text-xs text-neutral-500">
-            Сводка через LLM: цены, спрос, рекомендации. Сохраняется в базе — все
-            видят последнюю версию, повторно генерировать не нужно.
+            Сводка через LLM: цены, спрос, рекомендации{brand ? ` — по бренду «${brand}»` : ""}.
+            Сохраняется в базе — все видят последнюю версию, повторно генерировать не нужно.
             {digest?.created_at
               ? ` Обновлён ${formatRelativeTime(digest.created_at)}.`
               : ""}
@@ -148,6 +160,39 @@ export function DigestPanel({ searchId }: { searchId: string }) {
           {loading ? "Генерация…" : digest ? "Обновить" : "Сгенерировать"}
         </button>
       </div>
+
+      {facets.length > 0 ? (
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          <span className="text-[11px] uppercase tracking-wider text-neutral-600">
+            срез:
+          </span>
+          <button
+            type="button"
+            onClick={() => setBrand(null)}
+            className={`rounded-full border px-2.5 py-1 text-xs transition ${
+              brand === null
+                ? "border-neutral-500 bg-neutral-800 text-neutral-100"
+                : "border-neutral-800 text-neutral-400 hover:border-neutral-600"
+            }`}
+          >
+            Весь рынок
+          </button>
+          {facets.map((facet) => (
+            <button
+              key={facet.brand}
+              type="button"
+              onClick={() => setBrand(facet.brand)}
+              className={`rounded-full border px-2.5 py-1 text-xs transition ${
+                brand === facet.brand
+                  ? "border-emerald-500/60 bg-emerald-500/15 text-emerald-100"
+                  : "border-neutral-800 text-neutral-400 hover:border-neutral-600"
+              }`}
+            >
+              {facet.brand} ({facet.count})
+            </button>
+          ))}
+        </div>
+      ) : null}
 
       {loading ? (
         <div className="mt-4">

@@ -36,6 +36,17 @@ class RepriceSummary(BaseModel):
     items: list[RepriceSummaryItem]
 
 
+class ListingTags(BaseModel):
+    listing_id: int
+    brand: str = Field(..., description="Бренд: Bang & Olufsen, Devialet, Apple… или «Другое»")
+    model: str = Field(..., description="Модель/линейка, если понятна, иначе пустая строка")
+    color: str = Field(..., description="Цвет, если указан, иначе пустая строка")
+
+
+class ListingTagsBatch(BaseModel):
+    items: list[ListingTags]
+
+
 class ChatPlan(BaseModel):
     tools: list[str] = Field(default_factory=list)
     search: str | None = None

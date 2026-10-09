@@ -133,6 +133,7 @@ export type Alert = {
 
 export type Digest = {
   search_id: string;
+  brand?: string | null;
   headline: string;
   demand_signal: string;
   price_range_comment: string;
@@ -308,6 +309,22 @@ export const updateSearchSellerClient = (
     body: JSON.stringify({ ref, mode }),
   });
 
+export type Facet = { brand: string; count: number };
+
+export const fetchFacets = async (searchId: string): Promise<Facet[]> =>
+  (await getJson<Facet[]>(`/api/v1/searches/${searchId}/facets`)) ?? [];
+
+export async function fetchFacetsClient(searchId: string): Promise<Facet[]> {
+  try {
+    const response = await fetch(`${API_URL}/api/v1/searches/${searchId}/facets`, {
+      cache: "no-store",
+    });
+    return response.ok ? ((await response.json()) as Facet[]) : [];
+  } catch {
+    return [];
+  }
+}
+
 export const fetchSummary = (searchId: string) =>
   getJson<MarketSummary>(`/api/v1/searches/${searchId}/summary`);
 
@@ -326,6 +343,7 @@ export const fetchListings = async (
     fresh?: boolean;
     offset?: number;
     seller?: string;
+    brand?: string;
   } = {},
 ): Promise<Listing[]> => {
   const parts = [`limit=${options.limit ?? 0}`];
@@ -352,6 +370,9 @@ export const fetchListings = async (
   }
   if (options.seller) {
     parts.push(`seller=${encodeURIComponent(options.seller)}`);
+  }
+  if (options.brand) {
+    parts.push(`brand=${encodeURIComponent(options.brand)}`);
   }
   return (
     (await getJson<Listing[]>(`/api/v1/searches/${searchId}/listings?${parts.join("&")}`)) ??
@@ -478,9 +499,13 @@ export async function triggerCrawl(searchId: string): Promise<boolean> {
   }
 }
 
-export async function fetchDigestClient(searchId: string): Promise<Digest | null> {
+export async function fetchDigestClient(
+  searchId: string,
+  brand?: string | null,
+): Promise<Digest | null> {
   try {
-    const response = await fetch(`${API_URL}/api/v1/searches/${searchId}/digest`, {
+    const query = brand ? `?brand=${encodeURIComponent(brand)}` : "";
+    const response = await fetch(`${API_URL}/api/v1/searches/${searchId}/digest${query}`, {
       cache: "no-store",
     });
     if (!response.ok) {
@@ -515,9 +540,11 @@ export async function applyDigestSuggestions(
 
 export async function createDigest(
   searchId: string,
+  brand?: string | null,
 ): Promise<{ digest?: Digest; error?: string }> {
   try {
-    const response = await fetch(`${API_URL}/api/v1/searches/${searchId}/digest`, {
+    const query = brand ? `?brand=${encodeURIComponent(brand)}` : "";
+    const response = await fetch(`${API_URL}/api/v1/searches/${searchId}/digest${query}`, {
       method: "POST",
     });
     const body: unknown = await response.json().catch(() => null);

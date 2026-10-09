@@ -290,6 +290,12 @@ async def _collect(search_id: str) -> CrawlResult:
                 described = await _fetch_descriptions(session, result.search_id, transport)
             else:
                 described = 0
+            if settings.facets_ai_enabled:
+                from app.services.facets import tag_search_listings
+
+                tagged = await tag_search_listings(session, result.search_id)
+                if tagged:
+                    logger.info("facets: tagged %s listings", tagged)
             await progress.stage("moderation")
             moderation = await moderate_search(
                 session,

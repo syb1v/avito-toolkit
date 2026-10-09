@@ -268,6 +268,7 @@ async def list_search_listings(
     fresh: bool | None = None,
     offset: int = 0,
     seller: str | None = None,
+    brand: str | None = None,
 ) -> list[ListingRead]:
     """Выдача поиска. ``limit=0`` — без лимита; ``sort`` — цена/позиция/новизна/статус."""
     search = await session.get(Search, search_id)
@@ -300,6 +301,7 @@ async def list_search_listings(
             SearchListing.first_seen,
             Seller.name,
             Seller.url,
+            Listing.params,
         )
         .join(SearchListing, SearchListing.listing_id == Listing.id)
         .outerjoin(
@@ -478,6 +480,22 @@ async def update_search_seller(
     search.params = params
     await session.commit()
     return await _search_sellers(session, search)
+
+
+class FacetOut(BaseModel):
+    brand: str
+    count: int
+
+
+@router.get("/{search_id}/facets", response_model=list[FacetOut])
+async def list_facets(search_id: uuid.UUID, session: DbSession) -> list[FacetOut]:
+    """Бренды выдачи поиска с количеством (для чипов-фильтров и дайджеста)."""
+    search = await session.get(Search, search_id)
+    if search is None:
+        raise HTTPException(status_code=404, detail="search not found")
+    from app.services.facets import search_facets
+
+    return [FacetOut(**item) for item in await search_facets(session, search_id)]
 
 
 class ExclusionsRequest(BaseModel):

@@ -6,6 +6,8 @@ from app.ai.prompts import (
     DESCRIPTION_REVIEW_VERSION,
     DIGEST_SYSTEM_PROMPT,
     DIGEST_VERSION,
+    FACETS_SYSTEM_PROMPT,
+    FACETS_VERSION,
     MODERATION_SYSTEM_PROMPT,
     MODERATION_VERSION,
     PRICE_ADVISOR_SYSTEM_PROMPT,
@@ -16,6 +18,7 @@ from app.ai.prompts import (
     SEARCH_FILTERS_VERSION,
     build_description_review_prompt,
     build_digest_prompt,
+    build_facets_prompt,
     build_moderation_prompt,
     build_price_prompt,
     build_reprice_summary_prompt,
@@ -23,6 +26,7 @@ from app.ai.prompts import (
 )
 from app.ai.schemas import (
     DescriptionReviewBatch,
+    ListingTagsBatch,
     MarketDigest,
     ModerationBatch,
     PriceActionRecommendation,
@@ -143,4 +147,15 @@ async def generate_search_filters(
         task="search_filters",
         prompt_version=SEARCH_FILTERS_VERSION,
         max_tokens=2000,
+    )
+
+
+async def tag_listings_batch(*, items: list[tuple[int, str]]) -> LlmResult[ListingTagsBatch]:
+    return await complete_structured(
+        ListingTagsBatch,
+        system_prompt=FACETS_SYSTEM_PROMPT,
+        user_prompt=build_facets_prompt(items=items),
+        task="facets",
+        prompt_version=FACETS_VERSION,
+        max_tokens=1500,
     )

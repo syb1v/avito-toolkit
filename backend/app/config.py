@@ -93,6 +93,9 @@ class Settings(BaseSettings):
     reprice_auto_enabled: bool = False
     reprice_auto_cron: str = "0 0 * * *"
     reprice_summary_enabled: bool = True
+    facets_ai_enabled: bool = True
+    facets_ai_max_items: int = 60
+    facets_ai_batch_size: int = 15
     seller_edit_max_per_run: int = 5
     avito_edit_url_template: str = "https://www.avito.ru/items/edit/{item_id}"
     # Официальный API (developers.avito.ru): правки цен без браузера.

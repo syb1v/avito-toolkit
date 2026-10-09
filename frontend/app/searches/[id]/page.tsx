@@ -15,6 +15,7 @@ import {
   type ListingSort,
   fetchAccounts,
   fetchAlerts,
+  fetchFacets,
   fetchHistory,
   fetchListings,
   fetchSearchStats,
@@ -167,6 +168,7 @@ export default async function SearchDetailPage({
     fresh?: string;
     page?: string;
     seller?: string;
+    brand?: string;
   }>;
 }) {
   const [{ id }, query] = await Promise.all([params, searchParams]);
@@ -175,6 +177,7 @@ export default async function SearchDetailPage({
   const excludedOnly = query?.excluded === "1";
   const regionFilter = query?.region ?? null;
   const sellerFilter = query?.seller ?? null;
+  const brandFilter = query?.brand ?? null;
   const freshOnly = query?.fresh === "1";
   const pageNumber = Math.max(1, Number(query?.page) || 1);
   const sortParam = query?.sort ?? "position";
@@ -190,6 +193,7 @@ export default async function SearchDetailPage({
       excluded: excludedOnly ? "1" : null,
       region: regionFilter,
       seller: sellerFilter,
+      brand: brandFilter,
       sort: sortOption !== "position" ? sortOption : null,
       fresh: freshOnly ? "1" : null,
       page: pageNumber > 1 ? String(pageNumber) : null,
@@ -207,6 +211,7 @@ export default async function SearchDetailPage({
     return `/searches/${id}${suffix ? `?${suffix}` : ""}`;
   };
 
+  const facets = await fetchFacets(id);
   const [summary, history, alerts, listings, listingStats, allSearches, accounts] =
     await Promise.all([
     fetchSummary(id),
@@ -218,6 +223,7 @@ export default async function SearchDetailPage({
       excluded: excludedOnly ? true : undefined,
       region: regionFilter ?? undefined,
       seller: sellerFilter ?? undefined,
+      brand: brandFilter ?? undefined,
       sort: sortOption,
       fresh: freshOnly ? true : undefined,
       limit: LISTINGS_PAGE_SIZE,
@@ -542,6 +548,36 @@ export default async function SearchDetailPage({
                 ×
               </Link>
             </span>
+          ) : null}
+          {facets.length > 0 ? (
+            <>
+              <span className="text-[11px] uppercase tracking-wider text-neutral-600">
+                бренд:
+              </span>
+              <Link
+                href={hrefWith({ brand: null })}
+                className={`rounded-full border px-2.5 py-1 text-xs transition ${
+                  brandFilter === null
+                    ? "border-neutral-500 bg-neutral-800 text-neutral-100"
+                    : "border-neutral-800 text-neutral-400 hover:border-neutral-600"
+                }`}
+              >
+                Все
+              </Link>
+              {facets.map((facet) => (
+                <Link
+                  key={facet.brand}
+                  href={hrefWith({ brand: facet.brand })}
+                  className={`rounded-full border px-2.5 py-1 text-xs transition ${
+                    brandFilter === facet.brand
+                      ? "border-emerald-500/60 bg-emerald-500/15 text-emerald-100"
+                      : "border-neutral-800 text-neutral-400 hover:border-neutral-600"
+                  }`}
+                >
+                  {facet.brand} ({facet.count})
+                </Link>
+              ))}
+            </>
           ) : null}
         </div>
 

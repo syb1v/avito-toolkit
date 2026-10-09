@@ -45,6 +45,7 @@ class PriceSuggestionOut(BaseModel):
 
 class DigestOut(BaseModel):
     search_id: uuid.UUID
+    brand: str | None = None
     headline: str
     demand_signal: str
     price_range_comment: str
@@ -115,7 +116,9 @@ def _llm_configured(settings: Settings) -> bool:
 
 
 @router.post("/searches/{search_id}/digest", response_model=DigestOut)
-async def create_digest(search_id: uuid.UUID, session: DbSession) -> DigestOut:
+async def create_digest(
+    search_id: uuid.UUID, session: DbSession, brand: str | None = None
+) -> DigestOut:
     search = await session.get(Search, search_id)
     if search is None:
         raise HTTPException(status_code=404, detail="search not found")
@@ -165,6 +168,7 @@ async def create_digest(search_id: uuid.UUID, session: DbSession) -> DigestOut:
     digest = result.content
     out = DigestOut(
         search_id=search_id,
+        brand=brand,
         headline=digest.headline,
         demand_signal=digest.demand_signal,
         price_range_comment=digest.price_range_comment,
@@ -188,7 +192,7 @@ async def create_digest(search_id: uuid.UUID, session: DbSession) -> DigestOut:
     await save_artifact(
         session,
         kind="digest",
-        key=str(search_id),
+        key=f"{search_id}:{brand}" if brand else str(search_id),
         payload=out.model_dump(mode="json", exclude={"search_id", "created_at"}),
         model=result.model,
         cost_usd=result.cost_usd,
@@ -198,26 +202,36 @@ async def create_digest(search_id: uuid.UUID, session: DbSession) -> DigestOut:
     out.created_at = stored.created_at
     redis = Redis.from_url(get_settings().redis_url)
     try:
-        await publish(redis, "digest.new", search_id=str(search_id))
+        await publish(redis, "digest.new", search_id=str(search_id), brand=brand or "")
     finally:
         await redis.aclose()
     return out
 
 
 @router.get("/searches/{search_id}/digest", response_model=DigestOut)
-async def get_latest_digest(search_id: uuid.UUID, session: DbSession) -> DigestOut:
-    """Последний сохранённый дайджест — виден всем без повторной генерации."""
-    row = await session.scalar(
-        select(AiDigest)
-        .where(AiDigest.search_id == search_id)
-        .order_by(AiDigest.created_at.desc())
-        .limit(1)
+async def get_latest_digest(
+    search_id: uuid.UUID, session: DbSession, brand: str | None = None
+) -> DigestOut:
+    """Последний сохранённый дайджест (при brand — по бренду)."""
+    statement = select(AiDigest).where(AiDigest.search_id == search_id)
+    rows = (
+        (await session.execute(statement.order_by(AiDigest.created_at.desc()).limit(30)))
+        .scalars()
+        .all()
     )
+    wanted = brand or None
+    row = None
+    for candidate in rows:
+        stored_brand = (candidate.payload or {}).get("brand")
+        if (stored_brand or None) == wanted:
+            row = candidate
+            break
     if row is None:
         raise HTTPException(status_code=404, detail="digest not generated yet")
     payload = dict(row.payload or {})
     return DigestOut(
         search_id=search_id,
+        brand=(payload.get("brand") or None),
         headline=str(payload.get("headline", "")),
         demand_signal=str(payload.get("demand_signal", "")),
         price_range_comment=str(payload.get("price_range_comment", "")),
