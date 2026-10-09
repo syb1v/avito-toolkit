@@ -9,6 +9,8 @@
 
 ## [1.0.0] - 2026-10-09
 
+## [1.0.0] - 2026-10-09
+
 Первый релиз программы 1.0.0 (план фаз — [docs/v1-program.md](docs/v1-program.md)).
 Дальше — обычная семантика: фичи minor, фиксы patch.
 
@@ -887,7 +889,8 @@
 - Дашборд Next.js 16 + Tailwind 4 со статусом API и дорожной картой.
 - Документация: README, `docs/plan.md`, `.env.example`, MIT-лицензия.
 
-[Unreleased]: https://github.com/syb1v/avito-toolkit/compare/v0.40.0...HEAD
+[Unreleased]: https://github.com/syb1v/avito-toolkit/compare/v1.0.0...HEAD
+[1.0.0]: https://github.com/syb1v/avito-toolkit/compare/v0.40.0...v1.0.0
 [0.40.0]: https://github.com/syb1v/avito-toolkit/compare/v0.39.0...v0.40.0
 [0.39.0]: https://github.com/syb1v/avito-toolkit/compare/v0.38.0...v0.39.0
 [0.38.0]: https://github.com/syb1v/avito-toolkit/compare/v0.37.0...v0.38.0
