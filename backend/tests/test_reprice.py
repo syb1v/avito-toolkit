@@ -121,3 +121,18 @@ def test_search_params_exclude_regions() -> None:
     )
     assert params["regions"] == ["krasnodar"]
     assert params["exclude_regions"] == ["moskva", "spb"]
+
+
+def test_avito_api_helpers() -> None:
+    from app.config import Settings
+    from app.services.avito_api import api_configured, parse_error
+
+    assert not api_configured(Settings())
+    assert api_configured(Settings(avito_client_id="x", avito_client_secret="y"))
+
+    error = parse_error(403, '{"error":{"code":403,"message":"You are not item owner"}}')
+    assert error.code == 403
+    assert "not item owner" in error.message
+    plain = parse_error(500, "boom")
+    assert plain.code == 500
+    assert plain.message == "boom"

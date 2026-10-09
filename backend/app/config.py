@@ -93,6 +93,10 @@ class Settings(BaseSettings):
     reprice_summary_enabled: bool = True
     seller_edit_max_per_run: int = 5
     avito_edit_url_template: str = "https://www.avito.ru/items/edit/{item_id}"
+    # Официальный API (developers.avito.ru): правки цен без браузера.
+    avito_client_id: str | None = None
+    avito_client_secret: str | None = None
+    avito_api_base: str = "https://api.avito.ru"
 
     match_min_score: int = 75
     match_max_candidates: int = 300

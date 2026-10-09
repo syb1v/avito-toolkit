@@ -40,6 +40,7 @@ from app.services.account_care import (
 from app.services.accounts import account_for_search, resolve_profile_path
 from app.services.alerts import evaluate_search_alerts
 from app.services.analytics.service import recalc_daily_analytics
+from app.services.avito_api import AvitoApiError, api_configured, update_item_price
 from app.services.collector import CrawlResult, SearchCollector
 from app.services.cookies import apply_cookies_to_profile, parse_cookie_input
 from app.services.crawl_guard import CrawlGuard, classify_failure
@@ -522,6 +523,33 @@ async def _apply_listing_edit(edit_id: str, revert: bool) -> dict[str, object]:
                 edit.error = "у SKU нет ссылки/ID объявления Авито (импортируйте свой профиль)"
                 await session.commit()
                 return {"ok": False, "error": edit.error}
+
+            if api_configured(settings):
+                try:
+                    await update_item_price(redis, settings, item_id, target)
+                except AvitoApiError as error:
+                    logger.warning(
+                        "avito api edit item=%s failed (%s) — fallback to browser",
+                        item_id,
+                        error,
+                    )
+                else:
+                    edit.mode = "live"
+                    edit.status = "reverted" if revert else "applied"
+                    edit.error = None
+                    now = datetime.now(UTC)
+                    if revert:
+                        edit.reverted_at = now
+                    else:
+                        edit.applied_at = now
+                    our.price = target
+                    await session.commit()
+                    logger.info("listing edit %s via API: %s", edit.id, target)
+                    return {
+                        "ok": True,
+                        "mode": "api",
+                        "message": f"цена обновлена через API: {int(round(target))} ₽",
+                    }
 
             lock_key = f"crawl:account-lock:{account.id}"
             if not await redis.set(
