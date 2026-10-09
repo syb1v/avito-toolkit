@@ -7,6 +7,8 @@
 
 ## [Unreleased]
 
+## [0.31.1] - 2026-10-09
+
 ### Исправлено
 
 - Импорт xlsx: выгрузки Авито с битыми метаданными размеров листа читались
@@ -704,7 +706,8 @@
 - Дашборд Next.js 16 + Tailwind 4 со статусом API и дорожной картой.
 - Документация: README, `docs/plan.md`, `.env.example`, MIT-лицензия.
 
-[Unreleased]: https://github.com/syb1v/avito-toolkit/compare/v0.31.0...HEAD
+[Unreleased]: https://github.com/syb1v/avito-toolkit/compare/v0.31.1...HEAD
+[0.31.1]: https://github.com/syb1v/avito-toolkit/compare/v0.31.0...v0.31.1
 [0.31.0]: https://github.com/syb1v/avito-toolkit/compare/v0.30.0...v0.31.0
 [0.30.0]: https://github.com/syb1v/avito-toolkit/compare/v0.29.1...v0.30.0
 [0.29.1]: https://github.com/syb1v/avito-toolkit/compare/v0.29.0...v0.29.1
