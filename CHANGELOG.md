@@ -7,6 +7,8 @@
 
 ## [Unreleased]
 
+## [0.37.0] - 2026-10-09
+
 ### Добавлено
 
 - «Наши объявления» 2.0: фильтр (текст, статус, «с рекомендацией», «с правками»),
@@ -835,7 +837,8 @@
 - Дашборд Next.js 16 + Tailwind 4 со статусом API и дорожной картой.
 - Документация: README, `docs/plan.md`, `.env.example`, MIT-лицензия.
 
-[Unreleased]: https://github.com/syb1v/avito-toolkit/compare/v0.36.4...HEAD
+[Unreleased]: https://github.com/syb1v/avito-toolkit/compare/v0.37.0...HEAD
+[0.37.0]: https://github.com/syb1v/avito-toolkit/compare/v0.36.4...v0.37.0
 [0.36.4]: https://github.com/syb1v/avito-toolkit/compare/v0.36.3...v0.36.4
 [0.36.3]: https://github.com/syb1v/avito-toolkit/compare/v0.36.2...v0.36.3
 [0.36.2]: https://github.com/syb1v/avito-toolkit/compare/v0.36.1...v0.36.2
