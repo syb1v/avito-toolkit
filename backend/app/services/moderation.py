@@ -6,7 +6,7 @@ import random
 import re
 from collections import defaultdict
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from sqlalchemy import select, update
@@ -19,8 +19,13 @@ from app.ai.tasks import moderate_listings_batch, review_descriptions_batch
 from app.collectors.base import SourceAdapter
 from app.collectors.web.parsing import extract_description
 from app.config import get_settings
-from app.db.models import Listing, Search, SearchListing
+from app.db.models import Listing, ListingExclusion, Search, SearchListing
 from app.services.analytics.iqr import compute_price_stats
+from app.services.regions import (
+    exclude_regions_from_params,
+    matches_region,
+    regions_from_params,
+)
 from app.services.search_filter import (
     combined_text,
     desc_verdict_ok,
@@ -250,6 +255,31 @@ async def enrich_descriptions(
     return fetched
 
 
+def passes_base_filters(
+    *,
+    title: str,
+    description: str | None,
+    region: str | None,
+    params: dict | None,
+    manual_excluded: bool = False,
+) -> bool:
+    """Проходит ли объявление include/регион/ручные фильтры поиска (без стоп-слов).
+
+    Модерация и AI работают только с релевантной выдачей: лишние модели не должны
+    тратить токены и попадать в статистику.
+    """
+    if manual_excluded:
+        return False
+    groups = keywords_from_params(params)
+    excludes = exclude_keywords_from_params(params)
+    text = combined_text(title, description)
+    if groups and not matches_keyword_groups(text, groups):
+        return False
+    if first_matching_exclude(title, excludes) is not None:
+        return False
+    return matches_region(region, regions_from_params(params), exclude_regions_from_params(params))
+
+
 def _context_snippet(description: str, word: str, radius: int = 160) -> str:
     lowered = description.lower()
     index = lowered.find(word.lower())
@@ -274,23 +304,38 @@ async def moderate_search(
         return ModerationResult(total=0, flagged=0, ai_scored=0, described=0, median=None)
 
     search = await session.get(Search, search_id)
-    rows = (
-        await session.execute(
-            select(
-                Listing.id,
-                Listing.title,
-                Listing.current_price,
-                Listing.seller_id,
-                Listing.url,
-                Listing.description,
-                Listing.params,
-            )
-            .join(SearchListing, SearchListing.listing_id == Listing.id)
-            .where(SearchListing.search_id == search_id, Listing.status == "active")
+    search_params = search.params if search is not None else None
+    max_age_days = search_params.get("max_age_days") if isinstance(search_params, dict) else None
+    statement = (
+        select(
+            Listing.id,
+            Listing.title,
+            Listing.current_price,
+            Listing.seller_id,
+            Listing.url,
+            Listing.description,
+            Listing.params,
+            Listing.region,
         )
-    ).all()
+        .join(SearchListing, SearchListing.listing_id == Listing.id)
+        .where(SearchListing.search_id == search_id, Listing.status == "active")
+    )
+    if isinstance(max_age_days, int) and not isinstance(max_age_days, bool) and max_age_days > 0:
+        statement = statement.where(
+            SearchListing.first_seen >= datetime.now(UTC) - timedelta(days=max_age_days)
+        )
+    rows = (await session.execute(statement)).all()
     listing_rows: list[
-        tuple[int, str, float | None, int | None, str | None, str | None, dict | None]
+        tuple[
+            int,
+            str,
+            float | None,
+            int | None,
+            str | None,
+            str | None,
+            dict | None,
+            str | None,
+        ]
     ] = [
         (
             row[0],
@@ -300,8 +345,24 @@ async def moderate_search(
             row[4],
             row[5],
             row[6],
+            row[7],
         )
         for row in rows
+    ]
+    manual_rows = await session.execute(
+        select(ListingExclusion.listing_id).where(ListingExclusion.search_id == search_id)
+    )
+    manual_ids = {row[0] for row in manual_rows.all()}
+    listing_rows = [
+        row
+        for row in listing_rows
+        if passes_base_filters(
+            title=row[1],
+            description=row[5],
+            region=row[7],
+            params=search_params if isinstance(search_params, dict) else None,
+            manual_excluded=row[0] in manual_ids,
+        )
     ]
     prices = [row[2] for row in listing_rows if row[2] is not None]
     median = float(compute_price_stats(prices).median) if prices else None
@@ -314,7 +375,7 @@ async def moderate_search(
     if use_descriptions and transport is not None and median is not None:
         scored_candidates: list[tuple[float, float, int, str, str | None]] = []
         for row in listing_rows:
-            listing_id, title, price, _seller_id, url, description, _params = row
+            listing_id, title, price, _seller_id, url, description, _params, _region = row
             if description is not None:
                 continue
             verdict = evaluate_listing(title, None, price, median, clusters.get(listing_id, 0))
@@ -355,14 +416,119 @@ async def moderate_search(
                 row[4],
                 descriptions.get(row[0], row[5]),
                 row[6],
+                row[7],
             )
             for row in listing_rows
         ]
 
     now = datetime.now(UTC)
+    use_ai = settings.moderation_ai_enabled if ai is None else ai
+    ai_scored = 0
+    ai_tokens_in = 0
+    ai_tokens_out = 0
+    ai_cost_usd = 0.0
+    desc_ok_ids: set[tuple[int, str]] = set()
+    desc_reviewed = 0
+    if (
+        use_ai
+        and search is not None
+        and settings.moderation_description_review_enabled
+        and settings.deepseek_api_key
+    ):
+        groups = keywords_from_params(search.params)
+        excludes = exclude_keywords_from_params(search.params)
+        params_by_id = {row[0]: row[6] for row in listing_rows}
+        review_candidates: list[tuple[int, str, str, str]] = []
+        for (
+            listing_id,
+            title,
+            _price,
+            _seller,
+            _url,
+            description,
+            listing_params,
+            _region,
+        ) in listing_rows:
+            if not description:
+                continue
+            text = combined_text(title or "", description)
+            word = first_matching_exclude(text, excludes)
+            if word is None or first_matching_exclude(title or "", excludes) is not None:
+                continue
+            if groups and not matches_keyword_groups(text, groups):
+                continue
+            if desc_verdict_ok(listing_params, word):
+                continue
+            review_candidates.append(
+                (listing_id, title or "", word, _context_snippet(description, word))
+            )
+        limited_review = review_candidates[: settings.moderation_description_review_max_items]
+        for batch in _chunks(limited_review, settings.moderation_description_review_batch_size):
+            try:
+                review = await review_descriptions_batch(query=search.name, items=list(batch))
+            except LlmNotConfiguredError:
+                break
+            except Exception as error:
+                logger.warning("AI description review failed: %s", error)
+                break
+            await record_llm_run(
+                session,
+                task="description_context",
+                result=review,
+                prompt_version=DESCRIPTION_REVIEW_VERSION,
+            )
+            ai_tokens_in += review.tokens_in or 0
+            ai_tokens_out += review.tokens_out or 0
+            ai_cost_usd += review.cost_usd or 0.0
+            decisions = {item.listing_id: item for item in review.content.items}
+            for listing_id, _title, word, _snippet in batch:
+                review_decision = decisions.get(listing_id)
+                if review_decision is None:
+                    continue
+                stored = params_by_id.get(listing_id)
+                new_params = dict(stored) if isinstance(stored, dict) else {}
+                new_params["desc_verdict"] = {
+                    "ok": not review_decision.actually_excluded,
+                    "word": word,
+                    "reason": review_decision.reason,
+                    "at": now.isoformat(),
+                }
+                await session.execute(
+                    update(Listing).where(Listing.id == listing_id).values(params=new_params)
+                )
+                if not review_decision.actually_excluded:
+                    desc_ok_ids.add((listing_id, word))
+                desc_reviewed += 1
+
+    def _desc_pass(
+        row: tuple[
+            int,
+            str,
+            float | None,
+            int | None,
+            str | None,
+            str | None,
+            dict | None,
+            str | None,
+        ],
+    ) -> bool:
+        listing_id, title, _price, _seller, _url, description, row_params, _region = row
+        word = first_matching_exclude(combined_text(title or "", description), excludes)
+        if word is None:
+            return True
+        if first_matching_exclude(title or "", excludes) is not None:
+            return False
+        return (listing_id, word) in desc_ok_ids or desc_verdict_ok(
+            row_params if isinstance(row_params, dict) else None, word
+        )
+
+    listing_rows = [row for row in listing_rows if _desc_pass(row)]
+    prices = [row[2] for row in listing_rows if row[2] is not None]
+    median = float(compute_price_stats(prices).median) if prices else None
+    clusters = detect_clusters([(row[0], row[1], row[2], row[3]) for row in listing_rows])
     verdicts: dict[int, Verdict] = {}
     candidates_ai: list[tuple[int, str, float | None, str | None]] = []
-    for listing_id, title, price, _seller_id, _url, description, _params in listing_rows:
+    for listing_id, title, price, _seller_id, _url, description, _params, _region in listing_rows:
         verdict = evaluate_listing(
             title,
             description,
@@ -394,11 +560,6 @@ async def moderate_search(
             )
         )
 
-    use_ai = settings.moderation_ai_enabled if ai is None else ai
-    ai_scored = 0
-    ai_tokens_in = 0
-    ai_tokens_out = 0
-    ai_cost_usd = 0.0
     if use_ai and candidates_ai and median is not None and settings.deepseek_api_key:
         limited = candidates_ai[: settings.moderation_max_ai_items]
         for batch in _chunks(limited, settings.moderation_ai_batch_size):
@@ -457,67 +618,6 @@ async def moderate_search(
                     reasons=merged_reasons,
                     score=round(score, 3),
                 )
-
-    desc_reviewed = 0
-    if (
-        use_ai
-        and search is not None
-        and settings.moderation_description_review_enabled
-        and settings.deepseek_api_key
-    ):
-        groups = keywords_from_params(search.params)
-        excludes = exclude_keywords_from_params(search.params)
-        params_by_id = {row[0]: row[6] for row in listing_rows}
-        review_candidates: list[tuple[int, str, str, str]] = []
-        for listing_id, title, _price, _seller, _url, description, listing_params in listing_rows:
-            if not description:
-                continue
-            text = combined_text(title or "", description)
-            word = first_matching_exclude(text, excludes)
-            if word is None or first_matching_exclude(title or "", excludes) is not None:
-                continue
-            if groups and not matches_keyword_groups(text, groups):
-                continue
-            if desc_verdict_ok(listing_params, word):
-                continue
-            review_candidates.append(
-                (listing_id, title or "", word, _context_snippet(description, word))
-            )
-        limited_review = review_candidates[: settings.moderation_description_review_max_items]
-        for batch in _chunks(limited_review, settings.moderation_description_review_batch_size):
-            try:
-                review = await review_descriptions_batch(query=search.name, items=list(batch))
-            except LlmNotConfiguredError:
-                break
-            except Exception as error:
-                logger.warning("AI description review failed: %s", error)
-                break
-            await record_llm_run(
-                session,
-                task="description_context",
-                result=review,
-                prompt_version=DESCRIPTION_REVIEW_VERSION,
-            )
-            ai_tokens_in += review.tokens_in or 0
-            ai_tokens_out += review.tokens_out or 0
-            ai_cost_usd += review.cost_usd or 0.0
-            decisions = {item.listing_id: item for item in review.content.items}
-            for listing_id, _title, word, _snippet in batch:
-                review_decision = decisions.get(listing_id)
-                if review_decision is None:
-                    continue
-                stored = params_by_id.get(listing_id)
-                new_params = dict(stored) if isinstance(stored, dict) else {}
-                new_params["desc_verdict"] = {
-                    "ok": not review_decision.actually_excluded,
-                    "word": word,
-                    "reason": review_decision.reason,
-                    "at": now.isoformat(),
-                }
-                await session.execute(
-                    update(Listing).where(Listing.id == listing_id).values(params=new_params)
-                )
-                desc_reviewed += 1
 
     await session.flush()
     categories: dict[str, int] = defaultdict(int)

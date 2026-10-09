@@ -104,3 +104,44 @@ def test_moderation_prompt_lists_items_with_descriptions() -> None:
     assert "111" in prompt and "222" in prompt
     assert "полный аналог" in prompt
     assert "35000" in prompt
+
+
+def test_passes_base_filters_respects_keywords_and_region() -> None:
+    from app.services.moderation import passes_base_filters
+
+    params = {
+        "keyword_groups": [["beoplay"], ["eleven"]],
+        "exclude_keywords": ["копия"],
+    }
+    assert passes_base_filters(
+        title="B&O Beoplay Eleven Natural",
+        description=None,
+        region="moskva",
+        params=params,
+    )
+    assert not passes_base_filters(
+        title="B&O Beoplay HX",
+        description="отличные наушники",
+        region="moskva",
+        params=params,
+    )
+    assert not passes_base_filters(
+        title="Beoplay Eleven копия",
+        description=None,
+        region="moskva",
+        params=params,
+    )
+    assert not passes_base_filters(
+        title="Beoplay Eleven",
+        description=None,
+        region="moskva",
+        params=params,
+        manual_excluded=True,
+    )
+    region_params = {**params, "regions": ["spb"]}
+    assert not passes_base_filters(
+        title="Beoplay Eleven",
+        description=None,
+        region="moskva",
+        params=region_params,
+    )
