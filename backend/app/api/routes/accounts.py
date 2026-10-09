@@ -33,6 +33,7 @@ class AccountCreate(BaseModel):
     proxy_label: str | None = None
     api_client_id: str | None = Field(default=None, max_length=128)
     api_client_secret: str | None = None
+    api_user_id: int | None = None
 
 
 class AccountUpdate(BaseModel):
@@ -43,6 +44,7 @@ class AccountUpdate(BaseModel):
     proxy_label: str | None = None
     api_client_id: str | None = None
     api_client_secret: str | None = None
+    api_user_id: int | None = None
 
 
 class AccountCookiesIn(BaseModel):
@@ -195,9 +197,10 @@ async def create_account(payload: AccountCreate, session: DbSession) -> AccountO
         raise HTTPException(status_code=422, detail=str(error)) from error
     api_user_id: int | None = None
     if payload.api_client_id and payload.api_client_secret:
-        api_user_id = await validate_api_credentials(
+        self_id = await validate_api_credentials(
             payload.api_client_id, payload.api_client_secret
         )
+        api_user_id = payload.api_user_id or self_id
     account = AvitoAccount(
         name=name,
         profile_dir=await unique_profile_dir(session, name),
@@ -247,9 +250,10 @@ async def update_account(
         account.api_client_id = payload.api_client_id
         account.api_client_secret = payload.api_client_secret
         if payload.api_client_id and payload.api_client_secret:
-            account.api_user_id = await validate_api_credentials(
+            self_id = await validate_api_credentials(
                 payload.api_client_id, payload.api_client_secret
             )
+            account.api_user_id = payload.api_user_id or self_id
         else:
             account.api_user_id = None
     await session.commit()

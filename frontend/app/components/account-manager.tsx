@@ -37,6 +37,7 @@ export function AccountManager({ initial }: { initial: Account[] }) {
   const [addApiMode, setAddApiMode] = useState(false);
   const [addClientId, setAddClientId] = useState("");
   const [addClientSecret, setAddClientSecret] = useState("");
+  const [addApiUserId, setAddApiUserId] = useState("");
   const [cookieFor, setCookieFor] = useState<Account | null>(null);
   const [cookieText, setCookieText] = useState("");
   const [fresh, setFresh] = useState(true);
@@ -80,6 +81,10 @@ export function AccountManager({ initial }: { initial: Account[] }) {
       proxy_label: addApiMode ? null : addProxy || null,
       api_client_id: addApiMode ? addClientId.trim() : null,
       api_client_secret: addApiMode ? addClientSecret.trim() : null,
+      api_user_id:
+        addApiMode && addApiUserId.trim()
+          ? Number(addApiUserId.replace(/\D/g, ""))
+          : null,
     });
     setBusy(null);
     if (!result.ok) {
@@ -91,6 +96,7 @@ export function AccountManager({ initial }: { initial: Account[] }) {
     setAddProxy("");
     setAddClientId("");
     setAddClientSecret("");
+    setAddApiUserId("");
     setAddOpen(false);
     toast.push(
       "success",
@@ -488,17 +494,29 @@ make account-cookies name="Аккаунт 2" BROWSER=brave`}
                     </span>
                   ) : null}
                 </div>
-                <p className="mt-1 font-mono text-[11px] text-neutral-500">
-                  {account.profile_dir}
-                  {!account.profile_exists ? " · профиль ещё не создан" : ""}
-                </p>
-                {!account.profile_exists ? (
-                  <p className="mt-1 text-[11px] text-amber-300/80">
-                    Профиля на сервере нет: залейте cookies кнопкой «Cookies» или
-                    скопируйте каталог профиля с машины, где Авито уже работает.
+                {account.api_configured ? (
+                  <p className="mt-1 text-xs text-neutral-500">
+                    официальный API-аккаунт: cookies, профиль и прокси не нужны
                   </p>
-                ) : null}
-                <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-neutral-500">
+                ) : (
+                  <>
+                    <p className="mt-1 font-mono text-[11px] text-neutral-500">
+                      {account.profile_dir}
+                      {!account.profile_exists ? " · профиль ещё не создан" : ""}
+                    </p>
+                    {!account.profile_exists ? (
+                      <p className="mt-1 text-[11px] text-amber-300/80">
+                        Профиля на сервере нет: залейте cookies кнопкой «Cookies» или
+                        скопируйте каталог профиля с машины, где Авито уже работает.
+                      </p>
+                    ) : null}
+                  </>
+                )}
+                <div
+                  className={`mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-neutral-500 ${
+                    account.api_configured ? "hidden" : ""
+                  }`}
+                >
                   <span>поисков: {account.searches_count}</span>
                   <span
                     className={
@@ -564,6 +582,8 @@ make account-cookies name="Аккаунт 2" BROWSER=brave`}
                 </div>
               </div>
               <div className="flex flex-wrap gap-2">
+                {!account.api_configured ? (
+                  <>
                 <button
                   type="button"
                   onClick={() => check(account)}
@@ -608,6 +628,8 @@ make account-cookies name="Аккаунт 2" BROWSER=brave`}
                 >
                   Прокси
                 </button>
+                  </>
+                ) : null}
                 <button
                   type="button"
                   onClick={() => toggle(account)}
@@ -736,6 +758,16 @@ make account-cookies name="Аккаунт 2" BROWSER=brave`}
                   onChange={(event) => setAddClientSecret(event.target.value)}
                   type="password"
                   placeholder="••••••••"
+                  className={input}
+                />
+              </label>
+              <label className="flex flex-col gap-1 text-xs text-neutral-400">
+                user id (необязательно)
+                <input
+                  value={addApiUserId}
+                  onChange={(event) => setAddApiUserId(event.target.value)}
+                  placeholder="подтянется автоматически из API"
+                  inputMode="numeric"
                   className={input}
                 />
               </label>

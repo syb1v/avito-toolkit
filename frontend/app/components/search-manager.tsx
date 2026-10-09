@@ -39,7 +39,65 @@ export function SearchManager({
   const router = useRouter();
   const toast = useToast();
   const confirm = useConfirm();
+  const [filterText, setFilterText] = useState("");
+  const [statusFilter, setStatusFilter] = useState<"all" | "active" | "paused">("all");
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [bulkBusy, setBulkBusy] = useState(false);
+
+  function toggleSelected(id: string) {
+    setSelected((current) => {
+      const next = new Set(current);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  }
+
+  async function crawlSelected() {
+    const ids = [...selected];
+    if (ids.length === 0) {
+      return;
+    }
+    const ok = await confirm({
+      title: `Запустить обход: ${ids.length}?`,
+      text: "Обходы встанут в очередь. Учтите дневной лимит аккаунта (~80 страниц): часть может быть отложена.",
+      confirmLabel: "Запустить",
+    });
+    if (!ok) {
+      return;
+    }
+    setBulkBusy(true);
+    let started = 0;
+    for (const id of ids) {
+      if (await triggerCrawl(id)) {
+        started += 1;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 300));
+    }
+    setBulkBusy(false);
+    setSelected(new Set());
+    toast.push(
+      started > 0 ? "success" : "error",
+      started > 0 ? `Обходов поставлено: ${started} из ${ids.length}` : "Не удалось запустить обходы",
+    );
+    await refresh();
+  }
   const [items, setItems] = useState(initial);
+
+  const visibleItems = items.filter((search) => {
+    if (statusFilter === "active" && !search.is_active) {
+      return false;
+    }
+    if (statusFilter === "paused" && search.is_active) {
+      return false;
+    }
+    const needle = filterText.trim().toLowerCase();
+    return !needle || search.name.toLowerCase().includes(needle);
+  });
+
   const [target, setTarget] = useState<{ search: Search | null } | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
 
@@ -117,8 +175,27 @@ export function SearchManager({
             text="Поиск — это ссылка на выдачу Авито и правила, что считать вашим товаром. «В названии обязательно» — слова, которые должны быть (каждая строка обязательна, варианты — через запятую). «Не учитывать» — слова-исключения. Страницы — сколько пролистать за один раз. Свежесть — брать только недавно появившиеся объявления. Города — где искать и какие города не учитывать."
           />
         </div>
-        <div className="flex items-center gap-3">
-          <span className="text-xs text-neutral-500">{items.length} шт.</span>
+        <div className="flex flex-wrap items-center gap-3">
+          <input
+            value={filterText}
+            onChange={(event) => setFilterText(event.target.value)}
+            placeholder="Фильтр по названию"
+            className="rounded-lg border border-neutral-800 bg-neutral-950 px-3 py-1.5 text-xs text-neutral-200 outline-none focus:border-sky-500/60"
+          />
+          <select
+            value={statusFilter}
+            onChange={(event) =>
+              setStatusFilter(event.target.value as "all" | "active" | "paused")
+            }
+            className="rounded-lg border border-neutral-800 bg-neutral-950 px-2 py-1.5 text-xs text-neutral-200 outline-none focus:border-sky-500/60"
+          >
+            <option value="all">все</option>
+            <option value="active">активные</option>
+            <option value="paused">на паузе</option>
+          </select>
+          <span className="text-xs text-neutral-500">
+            {visibleItems.length} из {items.length}
+          </span>
           <ImportSearchesModal accounts={accounts} />
           <button
             type="button"
@@ -138,8 +215,32 @@ export function SearchManager({
         onSaved={refresh}
       />
 
+      {selected.size > 0 ? (
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-sky-500/30 bg-sky-500/10 px-4 py-2 text-xs text-sky-100">
+          <span>выбрано поисков: {selected.size}</span>
+          <span className="flex gap-2">
+            <button
+              type="button"
+              disabled={bulkBusy}
+              onClick={crawlSelected}
+              className="rounded-lg border border-sky-500/40 bg-sky-500/15 px-3 py-1 text-xs text-sky-100 transition hover:bg-sky-500/25 disabled:opacity-50"
+            >
+              {bulkBusy ? "Запускаю…" : "Запустить обход выбранных"}
+            </button>
+            <button
+              type="button"
+              disabled={bulkBusy}
+              onClick={() => setSelected(new Set())}
+              className="rounded-lg border border-neutral-700 px-3 py-1 text-xs text-neutral-300 transition hover:border-neutral-500 disabled:opacity-50"
+            >
+              Снять выделение
+            </button>
+          </span>
+        </div>
+      ) : null}
+
       <ul className="grid gap-3 sm:grid-cols-2 sm:gap-4">
-        {items.map((search) => {
+        {visibleItems.map((search) => {
           const includeCount = includeGroupsOf(search.params).length;
           const excludeCount = excludeWordsOf(search.params).length;
           const city = typeof search.params?.city === "string" ? search.params.city : "";
@@ -152,7 +253,14 @@ export function SearchManager({
               className="flex flex-col rounded-xl border border-neutral-800 bg-neutral-900/60 p-4 sm:p-5"
             >
               <div className="flex items-start justify-between gap-3">
-                <Link href={`/searches/${search.id}`} className="min-w-0">
+                <input
+                  type="checkbox"
+                  checked={selected.has(search.id)}
+                  onChange={() => toggleSelected(search.id)}
+                  className="mt-1"
+                  title="Выбрать для массового обхода"
+                />
+                <Link href={`/searches/${search.id}`} className="min-w-0 flex-1">
                   <p className="font-medium hover:underline">{search.name}</p>
                   <p className="mt-1 truncate text-xs text-neutral-500">{search.url}</p>
                 </Link>
