@@ -425,6 +425,7 @@ async def _search_sellers(session: DbSession, search: Search) -> SearchSellersOu
     sellers = [
         SearchSellerOut(seller_id=row[0], name=row[1], url=row[2], count=int(row[3] or 0))
         for row in rows.all()
+        if row[1] or row[2]
     ]
     return SearchSellersOut(
         sellers=sellers,
