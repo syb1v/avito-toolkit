@@ -36,6 +36,19 @@ class RepriceSummary(BaseModel):
     items: list[RepriceSummaryItem]
 
 
+class ChatPlan(BaseModel):
+    tools: list[str] = Field(default_factory=list)
+    search: str | None = None
+    action_type: Literal["crawl", "digest", "clear_alerts", "manual_edit"] | None = None
+    action_search: str | None = None
+    action_sku: str | None = None
+    action_price: float | None = None
+
+
+class ChatAnswer(BaseModel):
+    answer: str
+
+
 class SearchFilterItem(BaseModel):
     avito_id: int | None = None
     query: str = Field(..., description="поисковая строка Авито, 2–5 слов, без цветов")

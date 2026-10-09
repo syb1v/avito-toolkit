@@ -29,6 +29,7 @@ export function SkuModal({
 }) {
   const [matches, setMatches] = useState<OurMatch[] | null>(null);
   const [advice, setAdvice] = useState<PriceAdvice | null>(null);
+  const [adviceCached, setAdviceCached] = useState(false);
   const [adviceBusy, setAdviceBusy] = useState(false);
   const toast = useToast();
 
@@ -44,15 +45,16 @@ export function SkuModal({
     };
   }, [sku]);
 
-  async function explain() {
+  async function explain(refresh = false) {
     setAdviceBusy(true);
-    const result = await createAdviceClient(sku);
+    const result = await createAdviceClient(sku, refresh);
     setAdviceBusy(false);
     if (result.error) {
       toast.push("error", result.error);
       return;
     }
     setAdvice(result.advice ?? null);
+    setAdviceCached(Boolean(result.cached));
   }
 
   const target = recommendation?.clamped_price ?? null;
@@ -132,10 +134,10 @@ export function SkuModal({
             <button
               type="button"
               disabled={adviceBusy}
-              onClick={explain}
+              onClick={() => explain(advice !== null)}
               className="rounded-lg border border-violet-500/40 bg-violet-500/10 px-2.5 py-1 text-xs text-violet-200 transition hover:bg-violet-500/20 disabled:opacity-50"
             >
-              {adviceBusy ? "AI думает…" : advice ? "Объяснить ещё раз" : "Объяснить через AI"}
+              {adviceBusy ? "AI думает…" : advice ? "Объяснить заново" : "Объяснить через AI"}
             </button>
           </div>
           {advice ? (
@@ -143,6 +145,9 @@ export function SkuModal({
               <p>
                 AI предлагает {formatPrice(advice.recommended_price)} · уверенность{" "}
                 {formatPercent(advice.confidence_score)}
+                {adviceCached ? (
+                  <span className="ml-2 text-xs text-neutral-500">(сохранённый ответ)</span>
+                ) : null}
               </p>
               <ul className="mt-1 list-disc space-y-1 pl-5 text-xs text-neutral-400">
                 {advice.justification_points.map((point) => (

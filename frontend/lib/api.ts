@@ -764,6 +764,82 @@ export const applyImportFileClient = (
     body: JSON.stringify(payload),
   });
 
+export type ChatSession = {
+  id: string;
+  title: string;
+  created_at: string;
+  updated_at: string;
+};
+
+export type ChatMessageOut = {
+  id: string;
+  session_id: string;
+  role: "user" | "assistant" | "tool";
+  content: string;
+  tool_name: string | null;
+  tool_payload: Record<string, unknown> | null;
+  created_at: string;
+};
+
+export type ChatReply = {
+  message: ChatMessageOut;
+  tool_trace: { name: string; ok: boolean; error?: string }[];
+  pending_action: {
+    type: string;
+    label: string;
+    search?: string | null;
+    sku?: string | null;
+    price?: number | null;
+  } | null;
+};
+
+export async function fetchChatSessionsClient(): Promise<ChatSession[]> {
+  try {
+    const response = await fetch(`${API_URL}/api/v1/chat/sessions`, { cache: "no-store" });
+    return response.ok ? ((await response.json()) as ChatSession[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+export const createChatSessionClient = () =>
+  mutate<ChatSession>("/api/v1/chat/sessions", { method: "POST", body: "{}" });
+
+export const deleteChatSessionClient = (id: string) =>
+  mutate<void>(`/api/v1/chat/sessions/${id}`, { method: "DELETE" });
+
+export const clearChatSessionClient = (id: string) =>
+  mutate<ChatSession>(`/api/v1/chat/sessions/${id}/clear`, { method: "POST" });
+
+export async function fetchChatMessagesClient(id: string): Promise<ChatMessageOut[]> {
+  try {
+    const response = await fetch(`${API_URL}/api/v1/chat/sessions/${id}/messages`, {
+      cache: "no-store",
+    });
+    return response.ok ? ((await response.json()) as ChatMessageOut[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+export const sendChatMessageClient = (id: string, text: string) =>
+  mutate<ChatReply>(`/api/v1/chat/sessions/${id}/messages`, {
+    method: "POST",
+    body: JSON.stringify({ text }),
+  });
+
+export const runChatActionClient = (payload: {
+  session_id: string;
+  action_type: string;
+  search?: string | null;
+  sku?: string | null;
+  price?: number | null;
+}) =>
+  mutate<ChatMessageOut>("/api/v1/chat/actions", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+
 export type OurMatch = {
   listing_id: number;
   title: string;
@@ -798,10 +874,13 @@ export type PriceAdvice = {
 
 export async function createAdviceClient(
   sku: string,
-): Promise<{ advice?: PriceAdvice; error?: string }> {
+  refresh = false,
+): Promise<{ advice?: PriceAdvice; cached?: boolean; error?: string }> {
   try {
     const response = await fetch(
-      `${API_URL}/api/v1/our-listings/${encodeURIComponent(sku)}/advice`,
+      `${API_URL}/api/v1/our-listings/${encodeURIComponent(sku)}/advice?refresh=${
+        refresh ? "1" : "0"
+      }`,
       { method: "POST" },
     );
     const body: unknown = await response.json().catch(() => null);
@@ -812,11 +891,12 @@ export async function createAdviceClient(
           : `HTTP ${response.status}`;
       return { error: detail };
     }
-    const ai = body && typeof body === "object" ? (body as { ai?: PriceAdvice }).ai : null;
+    const parsed = body as { ai?: PriceAdvice; ai_cached?: boolean } | null;
+    const ai = parsed?.ai ?? null;
     if (!ai) {
       return { error: "AI-совет недоступен (нет ключа или данных)" };
     }
-    return { advice: ai };
+    return { advice: ai, cached: Boolean(parsed?.ai_cached) };
   } catch {
     return { error: "API недоступен" };
   }

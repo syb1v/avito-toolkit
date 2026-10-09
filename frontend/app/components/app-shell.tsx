@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { useState } from "react";
 
 import { AlertsBell } from "@/app/components/alerts-bell";
+import { ChatButton } from "@/app/components/chat-panel";
 import { API_URL } from "@/lib/api";
 import { useLiveConnected } from "@/lib/events";
 
@@ -103,6 +104,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 />
                 {live ? "live" : "офлайн"}
               </span>
+              <ChatButton />
               <AlertsBell />
             </div>
           </div>

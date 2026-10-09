@@ -8,6 +8,8 @@ MODERATION_VERSION = "v2"
 DESCRIPTION_REVIEW_VERSION = "v2"
 REPRICE_SUMMARY_VERSION = "v2"
 SEARCH_FILTERS_VERSION = "v3"
+CHAT_PLAN_VERSION = "v1"
+CHAT_ANSWER_VERSION = "v1"
 
 PRICE_ADVISOR_SYSTEM_PROMPT = """
 Пиши простым человеческим языком: без технических кодов, английских
@@ -238,4 +240,40 @@ def build_search_filters_prompt(
         "Наши товары (JSON):\n["
         + ",\n ".join(lines)
         + "]\n\nВерни query, keyword_groups и exclude_keywords по каждому avito_id."
+    )
+
+
+def build_chat_plan_prompt(
+    *,
+    text: str,
+    history: list[tuple[str, str]],
+    tools: str,
+    actions: list[str],
+) -> str:
+    history_text = "\n".join(f"{role}: {content}" for role, content in history[-8:])
+    return (
+        f"Доступные инструменты данных:\n{tools}\n\n"
+        f"Доступные действия (по подтверждению): {', '.join(actions)}\n\n"
+        f"История диалога:\n{history_text or '- нет'}\n\n"
+        f"Запрос пользователя: {text}\n\n"
+        "Верни JSON: tools (что вызвать), search (имя/часть имени поиска при необходимости), "
+        "action_type/action_search/action_sku/action_price — если просят действие."
+    )
+
+
+def build_chat_answer_prompt(
+    *,
+    text: str,
+    history: list[tuple[str, str]],
+    tool_data: dict,
+) -> str:
+    import json as _json
+
+    history_text = "\n".join(f"{role}: {content}" for role, content in history[-8:])
+    data_text = _json.dumps(tool_data, ensure_ascii=False, default=str)[:6000]
+    return (
+        f"История диалога:\n{history_text or '- нет'}\n\n"
+        f"Данные из системы (JSON):\n{data_text or '{}'}\n\n"
+        f"Запрос пользователя: {text}\n\n"
+        "Ответь простым языком. Если в данных есть действие — скажи, что оно ждёт подтверждения."
     )

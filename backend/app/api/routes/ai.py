@@ -15,6 +15,7 @@ from app.api.deps import DbSession
 from app.api.schemas import PositionOut, PriceStatsOut
 from app.config import Settings, get_settings
 from app.db.models import AiDigest, ListingEdit, LlmRun, OurListing, Search
+from app.services.ai_center import latest_artifact, save_artifact
 from app.services.analytics.service import (
     build_search_summary,
     fetch_daily_history,
@@ -90,6 +91,7 @@ class AdviceOut(BaseModel):
     requires_approval: bool
     llm_configured: bool
     ai: PriceActionOut | None
+    ai_cached: bool = False
     position: PositionOut
 
 
@@ -183,6 +185,14 @@ async def create_digest(search_id: uuid.UUID, session: DbSession) -> DigestOut:
         model=result.model,
     )
     session.add(stored)
+    await save_artifact(
+        session,
+        kind="digest",
+        key=str(search_id),
+        payload=out.model_dump(mode="json", exclude={"search_id", "created_at"}),
+        model=result.model,
+        cost_usd=result.cost_usd,
+    )
     await session.commit()
     await session.refresh(stored)
     out.created_at = stored.created_at
@@ -295,9 +305,15 @@ async def apply_digest_suggestions(search_id: uuid.UUID, session: DbSession) -> 
     return ApplySuggestionsOut(created=len(created_skus), skipped=skipped, skus=created_skus)
 
 
+ADVICE_CACHE_HOURS = 24
+
+
 @router.post("/our-listings/{sku}/advice", response_model=AdviceOut)
 async def create_advice(
-    sku: str, session: DbSession, search_id: uuid.UUID | None = None
+    sku: str,
+    session: DbSession,
+    search_id: uuid.UUID | None = None,
+    refresh: bool = False,
 ) -> AdviceOut:
     our = await session.get(OurListing, sku)
     if our is None:
@@ -332,7 +348,18 @@ async def create_advice(
 
     llm_configured = _llm_configured(settings)
     ai: PriceActionOut | None = None
-    if llm_configured:
+    ai_cached = False
+    if not refresh:
+        cached = await latest_artifact(
+            session, kind="advice_ai", key=sku, max_age_hours=ADVICE_CACHE_HOURS
+        )
+        if cached is not None and isinstance(cached.payload, dict):
+            try:
+                ai = PriceActionOut(**cached.payload)
+                ai_cached = True
+            except Exception:  # noqa: BLE001 — битый кэш пересчитаем
+                ai = None
+    if llm_configured and ai is None:
         try:
             llm_result = await advise_price(
                 title=our.title,
@@ -358,6 +385,15 @@ async def create_advice(
                 justification_points=recommendation.justification_points,
                 risk_assessment=recommendation.risk_assessment,
             )
+            await save_artifact(
+                session,
+                kind="advice_ai",
+                key=sku,
+                payload=ai.model_dump(),
+                model=llm_result.model,
+                cost_usd=llm_result.cost_usd,
+            )
+            await session.commit()
 
     return AdviceOut(
         sku=sku,
@@ -369,6 +405,7 @@ async def create_advice(
         requires_approval=target.requires_approval,
         llm_configured=llm_configured,
         ai=ai,
+        ai_cached=ai_cached,
         position=PositionOut(
             our_price=position.our_price,
             matched_count=position.matched_count,

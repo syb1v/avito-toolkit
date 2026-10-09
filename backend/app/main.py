@@ -10,6 +10,7 @@ from app.api.routes import (
     ai,
     alerts,
     analytics,
+    chat,
     dashboard,
     health,
     imports,
@@ -50,6 +51,7 @@ def create_app() -> FastAPI:
     application.include_router(matching.router, prefix="/api/v1")
     application.include_router(imports.router, prefix="/api/v1")
     application.include_router(ws.router, prefix="/api/v1")
+    application.include_router(chat.router, prefix="/api/v1")
     application.include_router(alerts.router, prefix="/api/v1")
     application.include_router(ai.router, prefix="/api/v1")
     application.include_router(dashboard.router, prefix="/api/v1")
