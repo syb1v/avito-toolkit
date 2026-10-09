@@ -36,6 +36,18 @@ class RepriceSummary(BaseModel):
     items: list[RepriceSummaryItem]
 
 
+class ConsensusItem(BaseModel):
+    sku: str
+    price: float = Field(..., gt=0, description="Предлагаемая цена, руб.")
+    confidence: float = Field(..., ge=0.0, le=1.0)
+    reason: str = Field(..., description="Коротко: почему такая цена")
+
+
+class ConsensusPlan(BaseModel):
+    headline: str
+    items: list[ConsensusItem] = Field(default_factory=list)
+
+
 class AgentPriceAction(BaseModel):
     sku: str
     suggestion: str = Field(..., description="Что сделать с ценой: цифра и краткая причина")

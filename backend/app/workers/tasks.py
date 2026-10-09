@@ -1049,3 +1049,28 @@ def agent_reports() -> None:
     """Ночные отчёты агентов по категориям."""
     result = asyncio.run(_run_agent_reports())
     logger.info("agent reports: %s", result)
+
+
+async def _orchestrator_run() -> dict[str, object]:
+    """Ночной прогон оркестратора субагентов."""
+    redis = Redis.from_url(get_settings().redis_url)
+    session_factory = async_sessionmaker(get_engine(), expire_on_commit=False)
+    try:
+        from app.services.orchestrator import run_orchestrator
+
+        async with session_factory() as session:
+            result = await run_orchestrator(session, redis)
+            logger.info("orchestrator: %s", {k: result.get(k) for k in ("headline", "decision_id")})
+            return {
+                "decision_id": result.get("decision_id"),
+                "items": len(result.get("items") or []),
+            }
+    finally:
+        await redis.aclose()
+        await dispose_engine()
+
+
+@dramatiq.actor(queue_name="analytics", max_retries=1, time_limit=ANALYTICS_TIME_LIMIT_MS)
+def orchestrator_run() -> None:
+    """Ночной консенсус субагентов."""
+    asyncio.run(_orchestrator_run())

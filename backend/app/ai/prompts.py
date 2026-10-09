@@ -12,6 +12,7 @@ CHAT_PLAN_VERSION = "v1"
 CHAT_ANSWER_VERSION = "v1"
 FACETS_VERSION = "v1"
 AGENT_REPORT_VERSION = "v1"
+CONSENSUS_VERSION = "v1"
 
 PRICE_ADVISOR_SYSTEM_PROMPT = """
 Пиши простым человеческим языком: без технических кодов, английских
@@ -307,4 +308,16 @@ def build_agent_prompt(*, name: str, category: str, criteria: str, data: str) ->
         f"Данные системы (JSON):\n{data}\n\n"
         "Верни headline (одна строка), market_view (3–6 предложений простым языком), "
         "price_actions (по нашим товарам: sku, suggestion, confidence) и risks."
+    )
+
+
+def build_consensus_prompt(*, reports: str, our_items: str) -> str:
+    return (
+        "Отчёты агентов по категориям (JSON):\n"
+        + reports
+        + "\n\nНаши товары (sku, название, текущая цена):\n"
+        + our_items
+        + "\n\nСобери единый план по ценам: только для наших SKU, цена числом, "
+        "уверенность и короткая причина простым языком. Если рекомендации агентов "
+        "противоречат — выбери безопасный вариант. Верни headline и items."
     )

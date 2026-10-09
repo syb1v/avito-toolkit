@@ -6,9 +6,13 @@ import { useToast } from "@/app/components/toast";
 import { InfoHint } from "@/app/components/info-hint";
 import {
   createAgentPlaybookClient,
+  decideAgentDecisionClient,
   deleteAgentPlaybookClient,
   fetchAgentPlaybooksClient,
+  fetchDecisionsClient,
   runAgentPlaybookClient,
+  runOrchestratorClient,
+  type AgentDecision,
   type AgentPlaybook,
   type AgentReportOut,
 } from "@/lib/api";
@@ -21,6 +25,8 @@ export function AgentsPanel() {
   const [notes, setNotes] = useState("");
   const [busyId, setBusyId] = useState<string | null>(null);
   const [report, setReport] = useState<{ name: string; data: AgentReportOut } | null>(null);
+  const [decisions, setDecisions] = useState<AgentDecision[]>([]);
+  const [orchestrating, setOrchestrating] = useState(false);
   const toast = useToast();
 
   async function load() {
@@ -29,7 +35,35 @@ export function AgentsPanel() {
 
   useEffect(() => {
     load();
+    fetchDecisionsClient().then(setDecisions);
   }, []);
+
+  async function orchestrate() {
+    setOrchestrating(true);
+    const result = await runOrchestratorClient();
+    setOrchestrating(false);
+    if (result.error) {
+      toast.push("error", result.error);
+      return;
+    }
+    toast.push("success", "Субагенты собрали консенсус — проверьте предложение");
+    setDecisions(await fetchDecisionsClient());
+  }
+
+  async function decide(decision: AgentDecision, action: "approve" | "reject") {
+    const result = await decideAgentDecisionClient(decision.id, action);
+    if (!result.ok) {
+      toast.push("error", result.error);
+      return;
+    }
+    toast.push(
+      "success",
+      action === "approve"
+        ? `План принят — ${result.data.comment ?? "правки созданы"}`
+        : "Предложение отклонено",
+    );
+    setDecisions(await fetchDecisionsClient());
+  }
 
   async function create() {
     if (!name.trim() || !category.trim()) {
@@ -74,7 +108,18 @@ export function AgentsPanel() {
             text="Плейбук — ваши критерии по категории (целевые цены, конкуренты, что важно). Агент собирает рынок и ваши товары по категории и даёт отчёт простым языком. Ночью отчёты обновляются автоматически; задел под локальные модели — LLM_LOCAL_BASE_URL."
           />
         </div>
-        <span className="text-xs text-neutral-500">{playbooks.length} плейбуков</span>
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-xs text-neutral-500">{playbooks.length} плейбуков</span>
+          <button
+            type="button"
+            disabled={orchestrating || playbooks.length === 0}
+            onClick={orchestrate}
+            title="Запустить всех агентов параллельно и собрать единый план цен"
+            className="rounded-lg border border-sky-500/40 bg-sky-500/10 px-3 py-1.5 text-xs text-sky-200 transition hover:bg-sky-500/20 disabled:opacity-50"
+          >
+            {orchestrating ? "Субагенты работают…" : "🧠 Собрать консенсус (субагенты)"}
+          </button>
+        </div>
       </div>
 
       {playbooks.length > 0 ? (
@@ -153,6 +198,67 @@ export function AgentsPanel() {
           Добавить плейбук
         </button>
       </div>
+
+      {decisions.length > 0 ? (
+        <div className="mt-4 flex flex-col gap-2">
+          <p className="text-xs uppercase tracking-wider text-neutral-500">
+            Предложения субагентов
+          </p>
+          {decisions.map((decision) => (
+            <div
+              key={decision.id}
+              className={`rounded-lg border p-3 text-sm ${
+                decision.status === "proposed"
+                  ? "border-sky-500/25 bg-sky-500/5"
+                  : "border-neutral-800 bg-neutral-950/40"
+              }`}
+            >
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <p className="text-neutral-200">
+                  {decision.payload.headline ?? "План по ценам"}
+                  <span className="ml-2 text-xs text-neutral-500">
+                    {decision.status === "proposed"
+                      ? "ждёт решения"
+                      : decision.status === "approved"
+                        ? `принято (${decision.comment ?? ""})`
+                        : "отклонено"}{" "}
+                    · агенты: {(decision.payload.agents ?? []).join(", ")}
+                  </span>
+                </p>
+                {decision.status === "proposed" ? (
+                  <span className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => decide(decision, "approve")}
+                      className="rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-3 py-1 text-xs text-emerald-200 transition hover:bg-emerald-500/20"
+                    >
+                      Одобрить план
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => decide(decision, "reject")}
+                      className="rounded-lg border border-neutral-700 px-3 py-1 text-xs text-neutral-300 transition hover:border-neutral-500"
+                    >
+                      Отклонить
+                    </button>
+                  </span>
+                ) : null}
+              </div>
+              {(decision.payload.items ?? []).length > 0 ? (
+                <ul className="mt-2 list-disc space-y-1 pl-5 text-xs text-neutral-300">
+                  {(decision.payload.items ?? []).slice(0, 8).map((item) => (
+                    <li key={item.sku}>
+                      {item.title.slice(0, 60)}: {item.current_price.toFixed(0)} →{" "}
+                      <b>{item.suggested_price.toFixed(0)} ₽</b> ({item.delta_pct > 0 ? "+" : ""}
+                      {item.delta_pct.toFixed(1)}%) — {item.reason}
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
+            </div>
+          ))}
+        </div>
+      ) : null}
 
       {report ? (
         <div className="mt-4 rounded-lg border border-violet-500/25 bg-violet-500/5 p-3 text-sm text-neutral-200">

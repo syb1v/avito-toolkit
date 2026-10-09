@@ -867,6 +867,58 @@ export async function runAgentPlaybookClient(
 export const deleteAgentPlaybookClient = (id: string) =>
   mutate<void>(`/api/v1/agent/playbooks/${id}`, { method: "DELETE" });
 
+export type AgentDecision = {
+  id: string;
+  status: string;
+  payload: {
+    headline?: string;
+    items?: {
+      sku: string;
+      title: string;
+      current_price: number;
+      suggested_price: number;
+      delta_pct: number;
+      confidence: number;
+      reason: string;
+    }[];
+    agents?: string[];
+  };
+  comment: string | null;
+  created_at: string;
+  decided_at: string | null;
+};
+
+export async function runOrchestratorClient(): Promise<{ error?: string }> {
+  try {
+    const response = await fetch(`${API_URL}/api/v1/agent/orchestrator/run`, { method: "POST" });
+    if (response.ok) {
+      return {};
+    }
+    const body: unknown = await response.json().catch(() => null);
+    const detail =
+      body && typeof body === "object" && "detail" in body
+        ? String((body as { detail: unknown }).detail)
+        : `HTTP ${response.status}`;
+    return { error: detail };
+  } catch {
+    return { error: "API недоступен" };
+  }
+}
+
+export async function fetchDecisionsClient(): Promise<AgentDecision[]> {
+  try {
+    const response = await fetch(`${API_URL}/api/v1/agent/decisions?limit=10`, {
+      cache: "no-store",
+    });
+    return response.ok ? ((await response.json()) as AgentDecision[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+export const decideAgentDecisionClient = (id: string, action: "approve" | "reject") =>
+  mutate<AgentDecision>(`/api/v1/agent/decisions/${id}/${action}`, { method: "POST" });
+
 export type ChatSession = {
   id: string;
   title: string;

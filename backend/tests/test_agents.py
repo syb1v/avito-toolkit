@@ -26,3 +26,21 @@ def test_build_agent_prompt_contains_criteria() -> None:
     assert "Devialet агент" in prompt
     assert "целевая цена" in prompt
     assert "price_actions" in prompt
+
+
+def test_report_source_and_consensus_prompt() -> None:
+    from app.ai.prompts import build_consensus_prompt
+    from app.services.orchestrator import report_source
+
+    reports = [
+        {"playbook": {"name": "Devialet агент"}, "price_actions": [{"sku": "avito-1"}]},
+        {"playbook": {"name": "B&O агент"}, "price_actions": [{"sku": "avito-2"}]},
+    ]
+    assert report_source(reports, "avito-2") == "B&O агент"
+    assert report_source(reports, "нет") is None
+
+    prompt = build_consensus_prompt(
+        reports='[{"headline": "ок"}]', our_items="- avito-1: товар — 100 ₽"
+    )
+    assert "единый план" in prompt or "Собери" in prompt
+    assert "avito-1" in prompt

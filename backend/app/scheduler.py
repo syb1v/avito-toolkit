@@ -152,6 +152,18 @@ def _agent_reports_check() -> None:
         logger.exception("agent reports enqueue failed")
 
 
+def _orchestrator_check() -> None:
+    """Ставит ночной прогон оркестратора субагентов."""
+
+    from app.workers.tasks import orchestrator_run
+
+    try:
+        orchestrator_run.send()
+        logger.info("orchestrator job sent")
+    except Exception:
+        logger.exception("orchestrator enqueue failed")
+
+
 def _load_searches() -> list[tuple[str, str]]:
     async def _load() -> list[tuple[str, str]]:
         session_factory = get_session_factory()
@@ -246,6 +258,13 @@ def main() -> None:
         replace_existing=True,
     )
     logger.info("agent reports scheduled: %s UTC", settings.agent_reports_cron)
+    scheduler.add_job(
+        _orchestrator_check,
+        CronTrigger.from_crontab(settings.orchestrator_cron, timezone="UTC"),
+        id="orchestrator",
+        replace_existing=True,
+    )
+    logger.info("orchestrator scheduled: %s UTC", settings.orchestrator_cron)
     if settings.account_warmup_enabled:
         scheduler.add_job(
             _enqueue_warmups,

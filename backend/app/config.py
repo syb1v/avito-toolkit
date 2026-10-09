@@ -97,6 +97,7 @@ class Settings(BaseSettings):
     llm_local_base_url: str = ""
     llm_local_model: str = ""
     agent_reports_cron: str = "30 1 * * *"
+    orchestrator_cron: str = "0 2 * * *"
     facets_ai_enabled: bool = True
     facets_ai_max_items: int = 60
     facets_ai_batch_size: int = 15
