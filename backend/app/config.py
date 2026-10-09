@@ -73,6 +73,8 @@ class Settings(BaseSettings):
     telegram_login: str = "admin"
     telegram_password: str | None = None
     telegram_session_days: int = 30
+    # Публичный адрес панели для ссылок в Telegram (например, http://150.241.87.50)
+    panel_public_url: str = ""
     # Watchdog: воркер считается живым, если heartbeat не старше окна
     worker_alive_window_seconds: int = 120
     watchdog_interval_minutes: int = 5

@@ -4,6 +4,7 @@ from app.telegram_bot import (
     main_keyboard,
     search_keyboard,
     searches_keyboard,
+    subs_keyboard,
 )
 
 
@@ -13,7 +14,7 @@ def _callbacks(keyboard: dict) -> list[str]:
 
 def test_main_keyboard_has_all_sections() -> None:
     callbacks = _callbacks(main_keyboard())
-    assert callbacks == ["st", "se", "al", "h"]
+    assert callbacks == ["st", "se", "al", "h", "subs"]
 
 
 def test_searches_keyboard_prefixes_and_menu() -> None:
@@ -36,3 +37,12 @@ def test_alerts_keyboard_has_refresh_and_clear() -> None:
 def test_back_keyboard_target() -> None:
     assert _callbacks(back_keyboard()) == ["m"]
     assert _callbacks(back_keyboard("al")) == ["al"]
+
+
+def test_subs_keyboard_toggles() -> None:
+    keyboard = subs_keyboard({"ai_balance_low"})
+    callbacks = _callbacks(keyboard)
+    assert "sub:ai_balance_low" in callbacks
+    assert callbacks[-1] == "m"
+    first = keyboard["inline_keyboard"][0][0]["text"]
+    assert "✅" in first or "⬜" in first

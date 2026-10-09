@@ -47,7 +47,7 @@ export function AiSpendPanel({ initial }: { initial?: Spend }) {
   const chartData = initial.daily.slice(-14);
 
   return (
-    <section className="rounded-xl border border-neutral-800 bg-neutral-900/60 p-4 sm:p-5">
+    <section id="ai" className="rounded-xl border border-neutral-800 bg-neutral-900/60 p-4 sm:p-5 scroll-mt-24">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex flex-wrap items-center gap-2">
           <h2 className="text-base font-medium sm:text-lg">Расходы на AI</h2>

@@ -6,6 +6,8 @@
 """
 
 import asyncio
+import html
+import json
 import logging
 import secrets
 from datetime import UTC, datetime
@@ -25,6 +27,96 @@ logger = logging.getLogger(__name__)
 AUTH_PREFIX = "tg:auth:"
 STATE_PREFIX = "tg:state:"
 LAST_ALERT_KEY = "tg:last_alert_ts"
+SUBS_PREFIX = "tg:subs:"
+
+ALERT_TITLES: dict[str, str] = {
+    "price_above_market": "Наша цена выше рынка",
+    "worker_down": "Воркер не отвечает",
+    "queue_backlog": "Очередь забита",
+    "account_stale": "Пора обновить вход (cookies)",
+    "proxy_dead": "Прокси не работают",
+    "ai_balance_low": "Заканчивается баланс AI",
+    "auto_reprice": "Итог ночных правок цен",
+}
+
+
+def esc(value: object) -> str:
+    return html.escape(str(value if value is not None else ""), quote=False)
+
+
+def panel_link(path: str) -> str | None:
+    base = get_settings().panel_public_url.rstrip("/")
+    if not base:
+        return None
+    return f"{base}{path}"
+
+
+def alert_panel_path(alert_type: str, payload: dict) -> str:
+    search_id = payload.get("search_id")
+    if alert_type == "price_above_market":
+        if isinstance(search_id, str) and search_id:
+            return f"/searches/{search_id}"
+        return "/our-listings"
+    if alert_type == "auto_reprice":
+        return "/our-listings"
+    if alert_type == "account_stale":
+        return "/#accounts"
+    if alert_type == "proxy_dead":
+        return "/#proxies"
+    if alert_type == "ai_balance_low":
+        return "/#ai"
+    return "/#alerts"
+
+
+def format_alert_text(alert_type: str, payload: dict, *, panel_url: str) -> str:
+    """HTML-текст уведомления простым языком, со ссылкой в панель."""
+    title = ALERT_TITLES.get(alert_type, alert_type)
+    lines = [f"🔔 <b>{esc(title)}</b>"]
+    if alert_type == "price_above_market":
+        name = payload.get("title") or payload.get("sku") or ""
+        if name:
+            lines.append(esc(name))
+        if payload.get("delta_pct") is not None:
+            lines.append(
+                f"наша {esc(payload.get('our_price'))} ₽ · рынок "
+                f"{esc(payload.get('market_median'))} ₽ · +{esc(payload.get('delta_pct'))}%"
+            )
+    elif alert_type == "auto_reprice":
+        headline = payload.get("headline")
+        if headline:
+            lines.append(esc(headline))
+        summary = f"применено {payload.get('applied', 0)} правок ({payload.get('mode', 'dry_run')})"
+        if payload.get("drafts"):
+            summary += f", ждут подтверждения: {payload['drafts']}"
+        if payload.get("failed"):
+            summary += f", ошибок: {payload['failed']}"
+        lines.append(esc(summary))
+    elif alert_type == "account_stale":
+        names = ", ".join(
+            str(item.get("name"))
+            for item in (payload.get("accounts") or [])[:5]
+            if isinstance(item, dict)
+        )
+        lines.append(f"Обновите cookies/вход: {esc(names or 'аккаунты')}")
+    elif alert_type == "proxy_dead":
+        lines.append("Все прокси недоступны или в блоке — проверьте панель «Прокси»")
+    elif alert_type == "ai_balance_low":
+        balance = payload.get("balance")
+        currency = payload.get("currency") or ""
+        if balance is not None:
+            lines.append(f"Остаток: {esc(balance)} {esc(currency)}".strip())
+        else:
+            lines.append("Пополните ключ AI API")
+    elif alert_type == "worker_down":
+        lines.append("Воркер не отвечает — проверьте сервер")
+    elif alert_type == "queue_backlog":
+        lines.append(f"Очередь: {esc(payload.get('queue_depth', '—'))} задач")
+    if panel_url:
+        link = panel_url.rstrip("/") + alert_panel_path(alert_type, payload)
+        lines.append(f'<a href="{esc(link)}">Открыть в панели</a>')
+    return "\n".join(lines)
+
+
 STATE_TTL_SECONDS = 600
 ALERT_BATCH = 5
 
@@ -40,6 +132,7 @@ def main_keyboard() -> dict[str, Any]:
                 {"text": "🔔 Алерты", "callback_data": "al"},
                 {"text": "❓ Помощь", "callback_data": "h"},
             ],
+            [{"text": "⚙️ Подписки", "callback_data": "subs"}],
         ]
     }
 
@@ -56,14 +149,29 @@ def searches_keyboard(rows: list[tuple[str, str]]) -> dict[str, Any]:
     return {"inline_keyboard": keyboard}
 
 
-def search_keyboard(prefix: str) -> dict[str, Any]:
-    return {
-        "inline_keyboard": [
-            [{"text": "🚀 Запустить обход", "callback_data": f"c:{prefix}"}],
-            [{"text": "📈 AI-дайджест", "callback_data": f"d:{prefix}"}],
-            [{"text": "⬅️ К поискам", "callback_data": "se"}],
+def search_keyboard(prefix: str, panel: str | None = None) -> dict[str, Any]:
+    rows: list[list[dict[str, str]]] = [
+        [{"text": "🚀 Запустить обход", "callback_data": f"c:{prefix}"}],
+        [{"text": "📈 AI-дайджест", "callback_data": f"d:{prefix}"}],
+    ]
+    if panel:
+        rows.append([{"text": "🌐 Открыть в панели", "url": panel}])
+    rows.append([{"text": "⬅️ К поискам", "callback_data": "se"}])
+    return {"inline_keyboard": rows}
+
+
+def subs_keyboard(subs: set[str]) -> dict[str, Any]:
+    rows = [
+        [
+            {
+                "text": f"{'✅' if alert_type in subs else '⬜️'} {title}",
+                "callback_data": f"sub:{alert_type}",
+            }
         ]
-    }
+        for alert_type, title in ALERT_TITLES.items()
+    ]
+    rows.append([{"text": "⬅️ Меню", "callback_data": "m"}])
+    return {"inline_keyboard": rows}
 
 
 def alerts_keyboard() -> dict[str, Any]:
@@ -91,6 +199,18 @@ class TelegramBot:
 
     async def start(self) -> None:
         settings = get_settings()
+        await self._api(
+            "setMyCommands",
+            {
+                "commands": [
+                    {"command": "menu", "description": "Меню"},
+                    {"command": "status", "description": "Статус системы"},
+                    {"command": "searches", "description": "Поиски"},
+                    {"command": "alerts", "description": "Алерты"},
+                    {"command": "logout", "description": "Выйти"},
+                ]
+            },
+        )
         self._redis = Redis.from_url(settings.redis_url)
         self._client = httpx.AsyncClient(
             base_url=f"https://api.telegram.org/bot{self._token}",
@@ -119,6 +239,7 @@ class TelegramBot:
         payload: dict[str, Any] = {
             "chat_id": chat_id,
             "text": text[:3900],
+            "parse_mode": "HTML",
             "disable_web_page_preview": True,
         }
         if keyboard is not None:
@@ -136,6 +257,7 @@ class TelegramBot:
             "chat_id": chat_id,
             "message_id": message_id,
             "text": text[:3900],
+            "parse_mode": "HTML",
             "disable_web_page_preview": True,
         }
         if keyboard is not None:
@@ -244,6 +366,28 @@ class TelegramBot:
                 await self._set_state(chat_id, "login")
                 await self._send(chat_id, "Неверный пароль. Начнём заново — введите логин:")
 
+    # --- подписки ------------------------------------------------------
+    async def _subs(self, chat_id: int) -> set[str]:
+        assert self._redis is not None
+        raw = await self._redis.get(f"{SUBS_PREFIX}{chat_id}")
+        if not raw:
+            return set(ALERT_TITLES)
+        try:
+            data = json.loads(raw)
+        except (TypeError, ValueError):
+            return set(ALERT_TITLES)
+        return {str(item) for item in data} if isinstance(data, list) else set(ALERT_TITLES)
+
+    async def _toggle_sub(self, chat_id: int, alert_type: str) -> set[str]:
+        assert self._redis is not None
+        subs = await self._subs(chat_id)
+        if alert_type in subs:
+            subs.discard(alert_type)
+        else:
+            subs.add(alert_type)
+        await self._redis.set(f"{SUBS_PREFIX}{chat_id}", json.dumps(sorted(subs)))
+        return subs
+
     # --- callbacks ----------------------------------------------------
     async def _handle_callback(self, callback: dict[str, Any]) -> None:
         callback_id = str(callback.get("id") or "")
@@ -280,6 +424,24 @@ class TelegramBot:
         elif data == "al":
             await self._edit(chat_id, message_id, await self._alerts_text(), alerts_keyboard())
             await self._answer(callback_id)
+        elif data == "subs":
+            subs = await self._subs(chat_id)
+            await self._edit(
+                chat_id,
+                message_id,
+                "🔔 <b>Подписки на уведомления</b>\nНажмите, чтобы включить или выключить тип.",
+                subs_keyboard(subs),
+            )
+            await self._answer(callback_id)
+        elif data.startswith("sub:"):
+            subs = await self._toggle_sub(chat_id, data[4:])
+            await self._edit(
+                chat_id,
+                message_id,
+                "🔔 <b>Подписки на уведомления</b>\nНажмите, чтобы включить или выключить тип.",
+                subs_keyboard(subs),
+            )
+            await self._answer(callback_id, "Сохранено")
         elif data == "acl":
             count = await self._count_new_alerts()
             if count == 0:
@@ -316,19 +478,25 @@ class TelegramBot:
 
     # --- data ---------------------------------------------------------
     @staticmethod
+    @staticmethod
     def _menu_text() -> str:
-        return "🤖 *Авито-тулкит*\n\nВсё управление — кнопками ниже. Команды не нужны."
+        base = "🤖 <b>Авито-тулкит</b>\n\nВсё управление — кнопками ниже. Команды не нужны."
+        panel = get_settings().panel_public_url.rstrip("/")
+        if panel:
+            base += f'\n\n🌐 Панель: <a href="{esc(panel)}">{esc(panel)}</a>'
+        return base
 
     @staticmethod
     def _help_text() -> str:
-        return (
-            "Как пользоваться:\n"
+        text = (
+            "<b>Как пользоваться</b>\n"
             "• 📊 Статус — поиски, лоты, воркер, очереди\n"
-            "• 🔍 Поиски — список; откройте поиск, чтобы запустить обход или "
-            "посмотреть дайджест\n"
-            "• 🔔 Алерты — последние события и очистка\n\n"
+            "• 🔍 Поиски — откройте поиск: обход, дайджест, ссылка в панель\n"
+            "• 🔔 Алерты — последние события; уведомления приходят сами\n"
+            "• ⚙️ Подписки — какие уведомления присылать\n\n"
             "Команды на всякий случай: /menu, /logout."
         )
+        return text
 
     async def _status_text(self) -> str:
         settings = get_settings()
@@ -402,12 +570,14 @@ class TelegramBot:
         state = "активен" if search.is_active else "на паузе"
         short = str(search.id)[:8]
         text = (
-            f"🔍 *{search.name[:60]}*\n\n"
+            f"🔍 <b>{esc(search.name[:60])}</b>\n\n"
             f"Статус: {state}\n"
-            f"Расписание: `{search.schedule_cron}`\n"
-            f"Ссылка: {search.url}"
+            f"Расписание: <code>{esc(search.schedule_cron)}</code>\n"
+            f"Ссылка: {esc(search.url)}"
         )
-        await self._edit(chat_id, message_id, text, search_keyboard(short))
+        await self._edit(
+            chat_id, message_id, text, search_keyboard(short, panel_link(f"/searches/{search.id}"))
+        )
         await self._answer(callback_id)
 
     async def _crawl(self, chat_id: int, message_id: int, prefix: str, callback_id: str) -> None:
@@ -428,7 +598,12 @@ class TelegramBot:
             f"Статус: {state}\n"
             f"🚀 Обход поставлен в очередь — прогресс смотрите в панели."
         )
-        await self._edit(chat_id, message_id, text, search_keyboard(str(search.id)[:8]))
+        await self._edit(
+            chat_id,
+            message_id,
+            text,
+            search_keyboard(str(search.id)[:8], panel_link(f"/searches/{search.id}")),
+        )
 
     async def _show_digest(
         self, chat_id: int, message_id: int, prefix: str, callback_id: str
@@ -468,7 +643,12 @@ class TelegramBot:
                 lines.append("Рекомендации:")
                 lines.extend(f"• {str(action)[:120]}" for action in actions[:5])
             text = "\n".join(lines)
-        await self._edit(chat_id, message_id, text, search_keyboard(str(search.id)[:8]))
+        await self._edit(
+            chat_id,
+            message_id,
+            text,
+            search_keyboard(str(search.id)[:8], panel_link(f"/searches/{search.id}")),
+        )
         await self._answer(callback_id)
 
     async def _alerts_text(self) -> str:
@@ -556,44 +736,27 @@ class TelegramBot:
             suffix = name.removeprefix(AUTH_PREFIX)
             if suffix.lstrip("-").isdigit():
                 chat_ids.append(int(suffix))
+        panel = get_settings().panel_public_url
         for alert in rows:
             payload = alert.payload or {}
-            title = payload.get("title") or payload.get("kind") or ""
-            text = f"🔔 {alert.type}: {str(title)[:80]}\n"
-            if payload.get("delta_pct") is not None:
-                text += (
-                    f"наша {payload.get('our_price')} ₽ · рынок {payload.get('market_median')} ₽\n"
+            text = format_alert_text(alert.type, payload, panel_url=panel)
+            rows_keyboard: list[list[dict[str, str]]] = []
+            if panel:
+                rows_keyboard.append(
+                    [
+                        {
+                            "text": "🌐 Открыть в панели",
+                            "url": panel.rstrip("/") + alert_panel_path(alert.type, payload),
+                        }
+                    ]
                 )
-            if alert.type == "worker_down":
-                text += "Воркер не отвечает — проверьте сервер.\n"
-            elif alert.type == "account_stale":
-                names = ", ".join(
-                    str(item.get("name"))
-                    for item in (payload.get("accounts") or [])[:5]
-                    if isinstance(item, dict)
-                )
-                text += f"Обновите cookies/вход: {names or 'аккаунты'}.\n"
-            elif alert.type == "proxy_dead":
-                text += "Все прокси мертвы или в антибот-блоке — проверьте панель «Прокси».\n"
-            elif alert.type == "auto_reprice":
-                text += (
-                    f"применено {payload.get('applied', 0)} правок"
-                    f" ({payload.get('mode', 'dry_run')})"
-                )
-                if payload.get("drafts"):
-                    text += f", ждут подтверждения: {payload['drafts']}"
-                if payload.get("failed"):
-                    text += f", ошибок: {payload['failed']}"
-                text += ".\n"
-            elif alert.type == "ai_balance_low":
-                balance = payload.get("balance")
-                currency = payload.get("currency") or ""
-                text += "Пополните AI API"
-                if balance is not None:
-                    text += f": остаток {balance} {currency}".rstrip()
-                text += ".\n"
+            rows_keyboard.append([{"text": "🔔 Все алерты", "callback_data": "al"}])
+            keyboard = {"inline_keyboard": rows_keyboard}
             for chat_id in chat_ids:
-                await self._send(chat_id, text, alerts_keyboard())
+                subs = await self._subs(chat_id)
+                if alert.type not in subs:
+                    continue
+                await self._send(chat_id, text, keyboard)
         newest = max(row.created_at for row in rows)
         await self._redis.set(LAST_ALERT_KEY, newest.timestamp())
 
