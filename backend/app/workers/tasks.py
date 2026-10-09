@@ -900,6 +900,7 @@ async def _auto_reprice() -> dict[str, object]:
                             applied += 1
                         else:
                             failed += 1
+                    await session.refresh(edit)
                     await asyncio.sleep(random.uniform(2.0, 5.0))
                 item_payload.append(
                     {
