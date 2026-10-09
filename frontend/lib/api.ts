@@ -639,6 +639,35 @@ export const restAccountClient = (id: string, minutes?: number) =>
 export const resumeAccountClient = (id: string) =>
   mutate<{ status: string }>(`/api/v1/accounts/${id}/resume`, { method: "POST" });
 
+export type OwnImportStatus = {
+  status: "idle" | "running" | "done" | "error";
+  created?: number;
+  updated?: number;
+  matched?: number;
+  total?: number;
+  error?: string;
+  items?: { sku: string; title: string; price: number }[];
+};
+
+export const startOwnImportClient = (id: string) =>
+  mutate<{ status: string }>(`/api/v1/accounts/${id}/import-listings`, {
+    method: "POST",
+  });
+
+export async function fetchOwnImportStatus(id: string): Promise<OwnImportStatus | null> {
+  try {
+    const response = await fetch(`${API_URL}/api/v1/accounts/${id}/import-listings`, {
+      cache: "no-store",
+    });
+    if (!response.ok) {
+      return null;
+    }
+    return (await response.json()) as OwnImportStatus;
+  } catch {
+    return null;
+  }
+}
+
 export const uploadAccountCookiesClient = (id: string, cookies: string, fresh = true) =>
   mutate<{ status: string }>(`/api/v1/accounts/${id}/cookies`, {
     method: "POST",

@@ -1,5 +1,6 @@
 import asyncio
 import importlib.util
+import json
 import logging
 import random
 import time
@@ -14,7 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from app.collectors.base import BotChallengeError, RateLimitedError, SourceAdapter
 from app.collectors.ratelimit import RedisRateLimiter
 from app.collectors.transport.http_cffi import HttpCffiTransport
-from app.collectors.web.parsing import parse_search_page
+from app.collectors.web.parsing import parse_profile_items, parse_search_page
 from app.config import get_settings
 from app.db.models import (
     AvitoAccount,
@@ -38,8 +39,9 @@ from app.services.analytics.service import recalc_daily_analytics
 from app.services.collector import CrawlResult, SearchCollector
 from app.services.cookies import apply_cookies_to_profile, parse_cookie_input
 from app.services.crawl_guard import CrawlGuard, classify_failure
-from app.services.matching import match_all_our_listings
+from app.services.matching import match_all_our_listings, match_our_listing
 from app.services.moderation import enrich_descriptions, moderate_search
+from app.services.our_listings import ImportRow, sku_for_item, upsert_our_listings
 from app.services.progress import CrawlProgress
 from app.services.proxy_pool import build_proxy_pool
 from app.services.regions import with_city
@@ -691,3 +693,100 @@ def apply_account_cookies(account_id: str, raw: str, fresh: bool = True) -> None
     """Загрузка cookies в аккаунт из UI: пишет в профиль и проверяет выдачу."""
     result = asyncio.run(_apply_account_cookies(account_id, raw, fresh))
     logger.info("account cookies applied: %s", result)
+
+
+OWN_IMPORT_KEY = "own-import:{account_id}"
+OWN_IMPORT_TTL_SECONDS = 3600
+OWN_PROFILE_URL = "https://www.avito.ru/profile/items"
+OWN_IMPORT_MAX_PAGES = 5
+
+
+async def _import_own_listings(account_id: str) -> dict[str, object]:
+    """Импорт своих объявлений со страницы профиля через аккаунт (cookies+proxy)."""
+    settings = get_settings()
+    redis = Redis.from_url(settings.redis_url)
+    session_factory = async_sessionmaker(get_engine(), expire_on_commit=False)
+    transport: SourceAdapter | None = None
+    key = OWN_IMPORT_KEY.format(account_id=account_id)
+    try:
+        async with session_factory() as session:
+            account = await session.get(AvitoAccount, uuid.UUID(account_id))
+            if account is None:
+                raise LookupError(f"account {account_id} not found")
+            await redis.set(key, json.dumps({"status": "running"}), ex=OWN_IMPORT_TTL_SECONDS)
+            if (account.proxy_url or "").startswith("socks5"):
+                raise RuntimeError(
+                    "прокси аккаунта — SOCKS5, браузер его не поддерживает: укажите HTTP-прокси"
+                )
+            transport = await _build_transport(
+                redis,
+                session,
+                user_data_dir=str(resolve_profile_path(account.profile_dir)),
+                proxy_url=account.proxy_url,
+            )
+            rows: list[ImportRow] = []
+            seen: set[int] = set()
+            for page in range(1, OWN_IMPORT_MAX_PAGES + 1):
+                page_html = await transport.fetch(f"{OWN_PROFILE_URL}?page={page}")
+                fresh = [
+                    item
+                    for item in parse_profile_items(page_html.body)
+                    if item.listing_id not in seen
+                ]
+                if not fresh:
+                    break
+                for item in fresh:
+                    seen.add(item.listing_id)
+                    if item.price is None:
+                        continue
+                    rows.append(
+                        ImportRow(
+                            sku=sku_for_item(item.listing_id),
+                            title=item.title,
+                            price=item.price,
+                            account=account.name,
+                            avito_item_id=item.listing_id,
+                            avito_url=item.url,
+                            avito_status="active",
+                        )
+                    )
+            result = await upsert_our_listings(session, rows)
+            matched = 0
+            for row in rows:
+                try:
+                    await match_our_listing(session, row.sku)
+                    matched += 1
+                except Exception as error:  # noqa: BLE001 — импорт важнее матчинга
+                    logger.warning("own import match failed %s: %s", row.sku, error)
+            await session.commit()
+            payload = {
+                "status": "done",
+                "created": result.created,
+                "updated": result.updated,
+                "matched": matched,
+                "total": len(rows),
+                "items": [{"sku": row.sku, "title": row.title, "price": row.price} for row in rows],
+            }
+            await redis.set(key, json.dumps(payload, ensure_ascii=False), ex=OWN_IMPORT_TTL_SECONDS)
+            return payload
+    except Exception as error:
+        await redis.set(
+            key,
+            json.dumps(
+                {"status": "error", "error": f"{type(error).__name__}: {error}"},
+                ensure_ascii=False,
+            ),
+            ex=OWN_IMPORT_TTL_SECONDS,
+        )
+        raise
+    finally:
+        if transport is not None:
+            await transport.close()
+        await redis.aclose()
+        await dispose_engine()
+
+
+@dramatiq.actor(queue_name="crawl", max_retries=1, time_limit=ANALYTICS_TIME_LIMIT_MS)
+def import_own_listings(account_id: str) -> None:
+    """Забирает свои объявления из профиля аккаунта в «Наши объявления»."""
+    asyncio.run(_import_own_listings(account_id))

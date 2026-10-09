@@ -1,3 +1,4 @@
+import json
 import uuid
 from datetime import UTC, datetime
 from typing import Any
@@ -209,6 +210,31 @@ async def delete_account(account_id: uuid.UUID, session: DbSession) -> None:
     account = await _load(session, account_id)
     await session.delete(account)
     await session.commit()
+
+
+@router.post("/{account_id}/import-listings", status_code=202)
+async def start_import_listings(account_id: uuid.UUID, session: DbSession) -> dict[str, Any]:
+    """Ставит импорт своих объявлений из профиля аккаунта."""
+    account = await _load(session, account_id)
+    from app.workers.tasks import import_own_listings as import_task
+
+    import_task.send(str(account.id))
+    return {"status": "started", "account_id": str(account.id)}
+
+
+@router.get("/{account_id}/import-listings")
+async def get_import_listings(account_id: uuid.UUID, session: DbSession) -> dict[str, Any]:
+    """Статус импорта своих объявлений (Redis, TTL 1 час)."""
+    await _load(session, account_id)
+    settings = get_settings()
+    redis = Redis.from_url(settings.redis_url)
+    try:
+        raw = await redis.get(f"own-import:{account_id}")
+    finally:
+        await redis.aclose()
+    if raw is None:
+        return {"status": "idle"}
+    return json.loads(raw)
 
 
 @router.post("/{account_id}/warmup", status_code=202)

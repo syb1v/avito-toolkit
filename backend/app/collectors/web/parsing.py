@@ -2,6 +2,7 @@ import json
 import re
 from collections.abc import Iterator
 from dataclasses import dataclass
+from html import unescape as html_unescape
 from typing import Any
 from urllib.parse import unquote, urljoin
 
@@ -29,6 +30,11 @@ LISTING_ID_PATTERNS = (
 INITIAL_DATA_PATTERN = re.compile(
     r"window\.__(?:initialData|initialData2)__\s*=\s*\"([^\"]+)\"", re.DOTALL
 )
+PROFILE_SNIPPET_MARKER = 'data-marker="item-snippet/'
+PROFILE_TITLE_PATTERN = re.compile(
+    r'<h4[^>]*>.*?<a[^>]*href="(/[^"]+)"[^>]*>([^<]+)</a>', re.DOTALL
+)
+PROFILE_PRICE_PATTERN = re.compile(r">([^<>]*₽)<")
 
 
 @dataclass(frozen=True, slots=True)
@@ -274,3 +280,42 @@ def extract_description(html_text: str) -> str | None:
                 if text:
                     return text[:MAX_DESCRIPTION_CHARS]
     return best[:MAX_DESCRIPTION_CHARS] if best else None
+
+
+def parse_profile_items(html_text: str) -> list[ParsedListing]:
+    """Свои объявления со страницы профиля (/profile/items).
+
+    Профиль верстается иначе, чем выдача: сниппеты `data-marker="item-snippet/{id}"`,
+    цена в `&nbsp;`. Объявления без цены (резюме, услуги) пропускаются.
+    """
+    items: list[ParsedListing] = []
+    seen: set[int] = set()
+    for chunk in html_text.split(PROFILE_SNIPPET_MARKER)[1:]:
+        id_match = re.match(r"(\d+)", chunk)
+        if id_match is None:
+            continue
+        listing_id = int(id_match.group(1))
+        if listing_id in seen:
+            continue
+        title_match = PROFILE_TITLE_PATTERN.search(chunk)
+        if title_match is None:
+            continue
+        price: float | None = None
+        for raw in reversed(PROFILE_PRICE_PATTERN.findall(chunk)):
+            digits = re.sub(r"\D", "", html_unescape(raw))
+            if digits:
+                price = float(digits)
+                break
+        if price is None or price <= 0:
+            continue
+        seen.add(listing_id)
+        items.append(
+            ParsedListing(
+                listing_id=listing_id,
+                title=html_unescape(title_match.group(2)).strip(),
+                price=price,
+                url=urljoin(AVITO_WEB_BASE, title_match.group(1)),
+                position=len(items) + 1,
+            )
+        )
+    return items

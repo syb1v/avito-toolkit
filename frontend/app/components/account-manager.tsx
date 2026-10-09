@@ -10,6 +10,8 @@ import { useToast } from "@/app/components/toast";
 import {
   type Account,
   checkAccountClient,
+  fetchOwnImportStatus,
+  startOwnImportClient,
   createAccountClient,
   deleteAccountClient,
   fetchAccounts,
@@ -178,6 +180,35 @@ export function AccountManager({ initial }: { initial: Account[] }) {
     }
     toast.push("success", `Аккаунт «${account.name}» удалён`);
     await refresh();
+  }
+
+  async function importOwnListings(account: Account) {
+    setBusy(account.id);
+    const started = await startOwnImportClient(account.id);
+    if (!started.ok || started.data.status !== "started") {
+      toast.push("error", "Не удалось запустить импорт объявлений");
+      setBusy(null);
+      return;
+    }
+    for (let attempt = 0; attempt < 40; attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 3000));
+      const status = await fetchOwnImportStatus(account.id);
+      if (status?.status === "done") {
+        toast.push(
+          "success",
+          `«${account.name}»: объявлений ${status.total ?? 0} (+${status.created ?? 0}, обновлено ${
+            status.updated ?? 0
+          }), матчей ${status.matched ?? 0}`,
+        );
+        router.refresh();
+        break;
+      }
+      if (status?.status === "error") {
+        toast.push("error", `Импорт не удался: ${status.error ?? "ошибка"}`);
+        break;
+      }
+    }
+    setBusy(null);
   }
 
   async function warmup(account: Account) {
@@ -573,6 +604,15 @@ make account-cookies name="Аккаунт 2" BROWSER=brave`}
                   className={btn}
                 >
                   {account.role === "seller" ? "Сделать поисковиком" : "Сделать продавцом"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => importOwnListings(account)}
+                  disabled={busy === account.id}
+                  title="Забрать свои объявления из профиля этого аккаунта"
+                  className="rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-3 py-1 text-xs text-emerald-200 transition hover:bg-emerald-500/20 disabled:opacity-50"
+                >
+                  {busy === account.id ? "…" : "Мои объявления"}
                 </button>
                 <button
                   type="button"

@@ -102,3 +102,25 @@ def test_malformed_initial_data_falls_back_to_dom() -> None:
 
 def test_empty_html_returns_empty_list() -> None:
     assert parse_search_page("") == []
+
+
+def test_parse_profile_items_own_listings() -> None:
+    from app.collectors.web.parsing import parse_profile_items
+
+    html = (
+        '<div data-marker="item-snippet/111"><h4 class="x">'
+        '<a href="/krasnodar/audio/thing_111" class="y">B&amp;O Beoplay Eleven</a></h4>'
+        '<p class="price">40&nbsp;000 ₽</p></div>'
+        '<div data-marker="item-snippet/222"><h4>'
+        '<a href="/krasnodar/rezume/it_222">Резюме</a></h4><p>договорная</p></div>'
+        '<div data-marker="item-snippet/333"><h4>'
+        '<a href="/krasnodar/audio/other_333">Другой товар</a></h4>'
+        '<p class="price">55 000 ₽</p></div>'
+    )
+    items = parse_profile_items(html)
+    assert [(item.listing_id, item.title, item.price) for item in items] == [
+        (111, "B&O Beoplay Eleven", 40000.0),
+        (333, "Другой товар", 55000.0),
+    ]
+    assert items[0].url == "https://www.avito.ru/krasnodar/audio/thing_111"
+    assert items[1].position == 2
