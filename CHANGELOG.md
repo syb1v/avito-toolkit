@@ -7,6 +7,8 @@
 
 ## [Unreleased]
 
+## [0.33.1] - 2026-10-09
+
 ### Исправлено
 
 - AI-фильтры падали на обрезанном JSON: лимит ответа для генерации фильтров
@@ -762,7 +764,8 @@
 - Дашборд Next.js 16 + Tailwind 4 со статусом API и дорожной картой.
 - Документация: README, `docs/plan.md`, `.env.example`, MIT-лицензия.
 
-[Unreleased]: https://github.com/syb1v/avito-toolkit/compare/v0.33.0...HEAD
+[Unreleased]: https://github.com/syb1v/avito-toolkit/compare/v0.33.1...HEAD
+[0.33.1]: https://github.com/syb1v/avito-toolkit/compare/v0.33.0...v0.33.1
 [0.33.0]: https://github.com/syb1v/avito-toolkit/compare/v0.32.3...v0.33.0
 [0.32.3]: https://github.com/syb1v/avito-toolkit/compare/v0.32.2...v0.32.3
 [0.32.2]: https://github.com/syb1v/avito-toolkit/compare/v0.32.1...v0.32.2
