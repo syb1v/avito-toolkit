@@ -16,7 +16,7 @@ import {
   type ImportFileRow,
 } from "@/lib/api";
 import { formatPrice } from "@/lib/format";
-import { REGION_OPTIONS } from "@/lib/regions";
+import { RegionPicker } from "@/app/components/region-picker";
 
 const PAGE_SIZE = 20;
 const MAX_ITEMS = 20;
@@ -66,7 +66,8 @@ export function ImportSearchesModal({ accounts }: { accounts: Account[] }) {
   const [aiBusy, setAiBusy] = useState(false);
   const [applyBusy, setApplyBusy] = useState(false);
   const [accountId, setAccountId] = useState("");
-  const [region, setRegion] = useState("");
+  const [regions, setRegions] = useState<string[]>([]);
+  const [excludeRegions, setExcludeRegions] = useState<string[]>([]);
   const inputRef = useRef<HTMLInputElement>(null);
   const router = useRouter();
   const toast = useToast();
@@ -176,7 +177,8 @@ export function ImportSearchesModal({ accounts }: { accounts: Account[] }) {
     const result = await applyImportFileClient(parsed.token, {
       items,
       account_id: accountId || null,
-      regions: region ? [region] : [],
+      regions,
+      exclude_regions: excludeRegions,
     });
     setApplyBusy(false);
     if (!result.ok) {
@@ -279,21 +281,22 @@ export function ImportSearchesModal({ accounts }: { accounts: Account[] }) {
                 выбрано {selected.size}
               </span>
               <div className="flex flex-wrap items-center gap-3">
-                <label className="flex items-center gap-2">
-                  Регион поиска
-                  <select
-                    value={region}
-                    onChange={(event) => setRegion(event.target.value)}
-                    className="rounded-lg border border-neutral-800 bg-neutral-950 px-2 py-1 text-xs text-neutral-200 outline-none focus:border-sky-500/60"
-                  >
-                    <option value="">— вся Россия —</option>
-                    {REGION_OPTIONS.map((option) => (
-                      <option key={option.slug} value={option.slug}>
-                        {option.name}
-                      </option>
-                    ))}
-                  </select>
-                </label>
+                <div className="flex items-center gap-2">
+                  <span>Регионы</span>
+                  <RegionPicker
+                    value={regions}
+                    onChange={setRegions}
+                    emptyLabel="Вся Россия"
+                  />
+                </div>
+                <div className="flex items-center gap-2">
+                  <span>Исключить</span>
+                  <RegionPicker
+                    value={excludeRegions}
+                    onChange={setExcludeRegions}
+                    emptyLabel="Ничего"
+                  />
+                </div>
                 <label className="flex items-center gap-2">
                   Аккаунт для обходов
                   <select

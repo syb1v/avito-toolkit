@@ -55,6 +55,29 @@ class ProxyEntry:
         return f"{STATE_PREFIX}{digest}"
 
 
+def pick_http_sibling(proxy_url: str | None, entries: list[ProxyEntry]) -> str | None:
+    """HTTP-двойник SOCKS5-прокси (браузер не умеет socks5 с авторизацией).
+
+    Ищем включённый http(s)-прокси с тем же хостом/логином/паролем.
+    """
+    if not proxy_url or not proxy_url.startswith("socks"):
+        return None
+    try:
+        source = parse_proxy_entry(proxy_url)
+    except ProxyParseError:
+        return None
+    for candidate in entries:
+        if candidate.scheme.startswith("socks"):
+            continue
+        if (
+            candidate.host == source.host
+            and candidate.username == source.username
+            and candidate.password == source.password
+        ):
+            return candidate.url
+    return None
+
+
 def _build_url(
     scheme: str,
     host: str,
@@ -460,3 +483,22 @@ async def build_proxy_pool(redis: Redis, session: Any, *, force: bool = False) -
         max_failures=settings.proxy_max_failures,
         antibot_cooldown_seconds=settings.proxy_antibot_cooldown_seconds,
     )
+
+
+async def browser_proxy_url(session: Any, proxy_url: str | None) -> str | None:
+    """Для браузерных задач: socks5 с авторизацией заменяем на HTTP-двойник, если он есть."""
+    if not proxy_url or not proxy_url.startswith("socks"):
+        return proxy_url
+    from sqlalchemy import select
+
+    from app.db.models import Proxy
+
+    rows = (await session.execute(select(Proxy).where(Proxy.enabled.is_(True)))).scalars().all()
+    entries: list[ProxyEntry] = []
+    for row in rows:
+        try:
+            entries.append(parse_proxy_entry(row.url))
+        except ProxyParseError:
+            continue
+    sibling = pick_http_sibling(proxy_url, entries)
+    return sibling or proxy_url

@@ -575,6 +575,16 @@ class TelegramBot:
                 text += f"Обновите cookies/вход: {names or 'аккаунты'}.\n"
             elif alert.type == "proxy_dead":
                 text += "Все прокси мертвы или в антибот-блоке — проверьте панель «Прокси».\n"
+            elif alert.type == "auto_reprice":
+                text += (
+                    f"применено {payload.get('applied', 0)} правок"
+                    f" ({payload.get('mode', 'dry_run')})"
+                )
+                if payload.get("drafts"):
+                    text += f", ждут подтверждения: {payload['drafts']}"
+                if payload.get("failed"):
+                    text += f", ошибок: {payload['failed']}"
+                text += ".\n"
             elif alert.type == "ai_balance_low":
                 balance = payload.get("balance")
                 currency = payload.get("currency") or ""

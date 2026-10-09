@@ -21,6 +21,7 @@ from app.collectors.transport.http_cffi import HttpCffiTransport
 from app.collectors.web.parsing import parse_profile_items, parse_search_page
 from app.config import get_settings
 from app.db.models import (
+    Alert,
     AvitoAccount,
     Listing,
     ListingEdit,
@@ -46,7 +47,7 @@ from app.services.matching import match_all_our_listings, match_our_listing
 from app.services.moderation import enrich_descriptions, moderate_search
 from app.services.our_listings import ImportRow, sku_for_item, upsert_our_listings
 from app.services.progress import CrawlProgress
-from app.services.proxy_pool import build_proxy_pool
+from app.services.proxy_pool import browser_proxy_url, build_proxy_pool
 from app.services.recommendations import build_recommendations
 from app.services.regions import with_city
 from app.services.reprice import (
@@ -62,6 +63,7 @@ CRAWL_TIME_LIMIT_MS = 30 * 60 * 1000
 ANALYTICS_TIME_LIMIT_MS = 10 * 60 * 1000
 ACCOUNT_LOCK_TTL_SECONDS = 35 * 60
 ACCOUNT_CHECK_URL = "https://www.avito.ru/all?q=iphone"
+SELLER_PROFILE_URL = "https://www.avito.ru/profile"
 HAS_BROWSER = importlib.util.find_spec("patchright") is not None
 
 
@@ -75,6 +77,8 @@ async def _build_transport(
     settings = get_settings()
     mode = settings.crawl_transport.strip().lower()
     # Закреплённый за аккаунтом прокси важнее общего пула: cookies+IP — одна связка.
+    # Браузер не умеет socks5 с авторизацией — берём HTTP-двойник, если он есть.
+    browser_proxy = await browser_proxy_url(session, proxy_url)
     pool = None if proxy_url else await build_proxy_pool(redis, session)
     http = HttpCffiTransport(proxy=proxy_url) if proxy_url else HttpCffiTransport(proxy_pool=pool)
     if mode == "http":
@@ -86,7 +90,7 @@ async def _build_transport(
     from app.collectors.transport.hybrid import HybridTransport
 
     browser = BrowserTransport(
-        proxy=proxy_url,
+        proxy=browser_proxy,
         proxy_pool=pool,
         block_resources=settings.browser_block_resources,
         user_data_dir=user_data_dir,
@@ -532,7 +536,7 @@ async def _apply_listing_edit(edit_id: str, revert: bool) -> dict[str, object]:
             screenshot_dir = profile_dir.parent / "edits"
             outcome = await apply_price_edit(
                 profile_dir=str(profile_dir),
-                proxy_url=account.proxy_url,
+                proxy_url=await browser_proxy_url(session, account.proxy_url),
                 page_url=build_edit_url(item_id),
                 new_price=target,
                 screenshot_dir=str(screenshot_dir),
@@ -600,6 +604,9 @@ async def _warmup_account(account_id: str) -> dict[str, object]:
             ok = True
             error_text: str | None = None
             try:
+                if account.role == "seller":
+                    await transport.fetch(SELLER_PROFILE_URL, expect_items=False)
+                    await asyncio.sleep(random.uniform(3.0, 6.0))
                 await transport.fetch(WARMUP_URL, expect_items=False)
                 await asyncio.sleep(random.uniform(3.0, 6.0))
                 search = await session.scalar(
@@ -923,6 +930,23 @@ async def _auto_reprice() -> dict[str, object]:
                 "headline": headline,
                 "items": item_payload,
             }
+            if created:
+                session.add(
+                    Alert(
+                        type="auto_reprice",
+                        payload={
+                            "kind": "auto_reprice",
+                            "title": headline or "Ночной прогон авто-правок",
+                            "mode": mode,
+                            "created": len(created),
+                            "applied": applied,
+                            "drafts": payload["drafts"],
+                            "failed": failed,
+                        },
+                        status="new",
+                    )
+                )
+                await session.commit()
             await save_last_run(redis, payload)
             logger.info(
                 "auto-reprice done: %s",

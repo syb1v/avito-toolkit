@@ -157,6 +157,7 @@ def search_params(
     keyword_groups: list[list[str]] | None,
     exclude_keywords: list[str] | None,
     regions: list[str] | None = None,
+    exclude_regions: list[str] | None = None,
 ) -> dict[str, object]:
     params: dict[str, object] = {
         "keyword_groups": keyword_groups or [[query]] if query else [],
@@ -164,6 +165,8 @@ def search_params(
     }
     if regions:
         params["regions"] = regions
+    if exclude_regions:
+        params["exclude_regions"] = exclude_regions
     return params
 
 

@@ -92,3 +92,32 @@ def test_auto_reprice_prompt_contains_metrics() -> None:
     assert "avito-1" in prompt
     assert "100 → стало 105" in prompt
     assert "медиана 110" in prompt
+
+
+def test_pick_http_sibling_for_socks5() -> None:
+    from app.services.proxy_pool import parse_proxy_entry, pick_http_sibling
+
+    entries = [
+        parse_proxy_entry("http://user:pass@gate.psnode.me:3130"),
+        parse_proxy_entry("socks5://user:pass@gate2.psnode.me:1081"),
+    ]
+    assert (
+        pick_http_sibling("socks5://user:pass@gate.psnode.me:1081", entries)
+        == "http://user:pass@gate.psnode.me:3130"
+    )
+    assert pick_http_sibling("socks5://user:other@gate.psnode.me:1081", entries) is None
+    assert pick_http_sibling("http://user:pass@gate.psnode.me:3130", entries) is None
+
+
+def test_search_params_exclude_regions() -> None:
+    from app.services.import_file import search_params
+
+    params = search_params(
+        query="beoplay eleven",
+        keyword_groups=[["beoplay eleven"]],
+        exclude_keywords=["black"],
+        regions=["krasnodar"],
+        exclude_regions=["moskva", "spb"],
+    )
+    assert params["regions"] == ["krasnodar"]
+    assert params["exclude_regions"] == ["moskva", "spb"]

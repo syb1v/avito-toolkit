@@ -71,6 +71,7 @@ class ApplyIn(BaseModel):
     account_id: uuid.UUID | None = None
     schedule_cron: str = DEFAULT_CRON
     regions: list[str] = Field(default_factory=list)
+    exclude_regions: list[str] = Field(default_factory=list)
 
 
 class ApplyOut(BaseModel):
@@ -239,6 +240,7 @@ async def apply_import(token: str, payload: ApplyIn, session: DbSession) -> Appl
                     keyword_groups=item.keyword_groups,
                     exclude_keywords=item.exclude_keywords,
                     regions=payload.regions,
+                    exclude_regions=payload.exclude_regions,
                 ),
                 schedule_cron=payload.schedule_cron or DEFAULT_CRON,
                 priority=100,
