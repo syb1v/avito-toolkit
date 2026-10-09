@@ -14,14 +14,7 @@ import {
   type Recommendation,
 } from "@/lib/api";
 import { formatPercent, formatPrice } from "@/lib/format";
-
-const STRATEGY_LABELS: Record<string, string> = {
-  undercut_p25: "Демпинг P25−1%",
-  match_median: "По медиане",
-  premium_p75: "Премиум P75",
-  keep_current: "Держать цену",
-  manual: "Своя цена",
-};
+import { STRATEGY_LABELS } from "@/lib/terms";
 
 export function SkuModal({
   sku,

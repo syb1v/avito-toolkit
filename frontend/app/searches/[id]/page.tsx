@@ -9,6 +9,7 @@ import { ListingActions } from "@/app/components/listing-actions";
 import { PriceChart } from "@/app/components/price-chart";
 import { RegionFilter } from "@/app/components/region-filter";
 import { SellersPanel } from "@/app/components/sellers-panel";
+import { Tabs } from "@/app/components/tabs";
 import { StatCard } from "@/app/components/stat-card";
 import {
   type ListingSort,
@@ -286,6 +287,14 @@ export default async function SearchDetailPage({
         </a>
       </header>
 
+      <Tabs
+        tabs={[
+          {
+            id: "overview",
+            label: "Обзор",
+            content: (
+              <>
+
       <CrawlPanel searchId={id} />
 
       <section className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-6">
@@ -325,9 +334,7 @@ export default async function SearchDetailPage({
 
       <AlertsPanel alerts={alerts.filter((alert) => alert.status === "new")} searchId={id} />
 
-      <DigestPanel searchId={id} />
 
-      <SellersPanel searchId={id} />
 
       <section className="rounded-xl border border-neutral-800 bg-neutral-900/60 p-4 sm:p-5">
         <div className="flex items-center">
@@ -418,7 +425,14 @@ export default async function SearchDetailPage({
         </h2>
         <PriceChart data={history} />
       </section>
-
+              </>
+            ),
+          },
+          {
+            id: "listings",
+            label: "Выдача",
+            content: (
+              <>
       <section className="rounded-xl border border-neutral-800">
         <div className="flex flex-wrap items-center justify-between gap-3 px-4 pt-4 sm:px-5">
           <div className="flex items-center">
@@ -754,6 +768,22 @@ export default async function SearchDetailPage({
           </div>
         </div>
       </section>
+              </>
+            ),
+          },
+          {
+            id: "digest",
+            label: "Дайджест",
+            content: <DigestPanel searchId={id} />,
+          },
+          {
+            id: "sellers",
+            label: "Продавцы",
+            content: <SellersPanel searchId={id} />,
+          },
+        ]}
+      />
+
     </main>
   );
 }

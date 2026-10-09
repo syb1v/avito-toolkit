@@ -11,14 +11,7 @@ import { useConfirm } from "@/app/components/confirm";
 import { useToast } from "@/app/components/toast";
 import { InfoHint } from "@/app/components/info-hint";
 import { formatRelativeTime } from "@/lib/format";
-
-const STATUS_LABELS: Record<string, string> = {
-  draft: "черновик",
-  approved: "одобрено",
-  applied: "применено",
-  reverted: "откачено",
-  failed: "ошибка",
-};
+import { EDIT_STATUS_LABELS as STATUS_LABELS } from "@/lib/terms";
 
 export function AutoRepricePanel() {
   const [state, setState] = useState<AutoRepriceState | null>(null);

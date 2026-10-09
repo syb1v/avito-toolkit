@@ -12,23 +12,10 @@ import {
   type Recommendation,
 } from "@/lib/api";
 import { formatPercent, formatPrice } from "@/lib/format";
-
-const STRATEGY_LABELS: Record<string, string> = {
-  undercut_p25: "Демпинг P25−1%",
-  match_median: "По медиане",
-  premium_p75: "Премиум P75",
-  keep_current: "Держать цену",
-  manual: "Своя цена",
-};
-
-const EDIT_STATUS_LABELS: Record<string, string> = {
-  draft: "черновик",
-  approved: "одобрено",
-  applied: "применено",
-  reverted: "откачено",
-  rejected: "отклонено",
-  failed: "ошибка",
-};
+import {
+  EDIT_STATUS_LABELS,
+  STRATEGY_LABELS,
+} from "@/lib/terms";
 
 function DeltaText({ deltaPct }: { deltaPct: number | null }) {
   if (deltaPct === null) {

@@ -14,12 +14,7 @@ import {
   fetchSearches,
 } from "@/lib/api";
 import { formatPercent, formatPrice, formatRelativeTime } from "@/lib/format";
-
-const ALERT_LABELS: Record<string, string> = {
-  price_above_market: "Наша цена выше рынка",
-  worker_down: "Воркер не отвечает",
-  queue_backlog: "Очередь забита",
-};
+import { ALERT_TYPE_LABELS } from "@/lib/terms";
 
 export default async function Home({
   searchParams,
@@ -68,9 +63,13 @@ export default async function Home({
 
       <SystemStatusPanel initial={dashboard} />
 
-      <AccountManager initial={accounts} />
+      <section id="accounts" className="scroll-mt-24">
+        <AccountManager initial={accounts} />
+      </section>
 
-      <ProxyPanel />
+      <section id="proxies" className="scroll-mt-24">
+        <ProxyPanel />
+      </section>
 
       <section className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
         <StatCard
@@ -102,7 +101,8 @@ export default async function Home({
 
       <AiSpendPanel initial={dashboard?.ai_spend} />
 
-      {stats.latest_alerts.length > 0 ? (
+      <section id="alerts" className="scroll-mt-24 flex flex-col gap-3">
+        {stats.latest_alerts.length > 0 ? (
         <section className="rounded-xl border border-amber-500/25 bg-amber-500/5 p-4 sm:p-5">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <h2 className="text-base font-medium text-amber-200 sm:text-lg">
@@ -138,7 +138,7 @@ export default async function Home({
                 >
                   <div className="min-w-0">
                     <p className="font-medium text-amber-100">
-                      {ALERT_LABELS[alert.type] ?? alert.type}
+                      {ALERT_TYPE_LABELS[alert.type] ?? alert.type}
                       <span className="ml-2 text-[11px] font-normal text-neutral-500">
                         {formatRelativeTime(alert.created_at)}
                       </span>
@@ -165,9 +165,16 @@ export default async function Home({
             })}
           </ul>
         </section>
-      ) : null}
+      ) : (
+        <p className="rounded-xl border border-neutral-800 bg-neutral-900/60 p-4 text-sm text-neutral-500">
+          Новых алертов нет — всё спокойно.
+        </p>
+      )}
+      </section>
 
-      <SearchManager initial={searches} accounts={accounts} editId={edit ?? null} />
+      <section id="searches" className="flex flex-col gap-4 scroll-mt-24">
+        <SearchManager initial={searches} accounts={accounts} editId={edit ?? null} />
+      </section>
     </main>
   );
 }

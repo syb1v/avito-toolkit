@@ -10,17 +10,7 @@ import {
 } from "@/lib/api";
 import { useToast } from "@/app/components/toast";
 import { formatPercent, formatPrice } from "@/lib/format";
-
-const STATUS_LABELS: Record<string, string> = {
-  draft: "черновик",
-  approved: "одобрено",
-  applying: "применяется",
-  applied: "применено",
-  reverting: "откат",
-  reverted: "откачено",
-  rejected: "отклонено",
-  failed: "ошибка",
-};
+import { EDIT_STATUS_LABELS as STATUS_LABELS } from "@/lib/terms";
 
 const STATUS_STYLES: Record<string, string> = {
   draft: "border-amber-500/30 bg-amber-500/10 text-amber-200",

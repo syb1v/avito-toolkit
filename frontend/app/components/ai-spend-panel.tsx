@@ -13,13 +13,7 @@ import {
 
 import { fetchAiBalanceClient, type AiBalance, type Dashboard } from "@/lib/api";
 import { formatRelativeTime } from "@/lib/format";
-
-const AI_TASK_LABELS: Record<string, string> = {
-  market_digest: "Дайджесты рынка",
-  listing_moderation: "Модерация объявлений",
-  description_context: "Проверка описаний",
-  price_advice: "Советы по цене",
-};
+import { AI_TASK_LABELS } from "@/lib/terms";
 
 type Spend = Dashboard["ai_spend"];
 
