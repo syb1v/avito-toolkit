@@ -1012,3 +1012,40 @@ async def _auto_reprice() -> dict[str, object]:
 def auto_reprice() -> None:
     """Ночной прогон авто-правок цен."""
     asyncio.run(_auto_reprice())
+
+
+async def _run_agent_reports() -> dict[str, object]:
+    """Ночной прогон агентов по всем активным плейбукам."""
+    redis = Redis.from_url(get_settings().redis_url)
+    session_factory = async_sessionmaker(get_engine(), expire_on_commit=False)
+    try:
+        from app.db.models import AgentPlaybook
+        from app.services.agents import run_agent
+
+        async with session_factory() as session:
+            playbooks = list(
+                (
+                    await session.execute(
+                        select(AgentPlaybook).where(AgentPlaybook.is_active.is_(True))
+                    )
+                ).scalars()
+            )
+            done = failed = 0
+            for playbook in playbooks:
+                try:
+                    await run_agent(session, redis, playbook)
+                    done += 1
+                except Exception as error:  # noqa: BLE001 — один упал, остальные едем
+                    failed += 1
+                    logger.warning("agent report failed for %s: %s", playbook.name, error)
+            return {"playbooks": len(playbooks), "done": done, "failed": failed}
+    finally:
+        await redis.aclose()
+        await dispose_engine()
+
+
+@dramatiq.actor(queue_name="analytics", max_retries=1, time_limit=ANALYTICS_TIME_LIMIT_MS)
+def agent_reports() -> None:
+    """Ночные отчёты агентов по категориям."""
+    result = asyncio.run(_run_agent_reports())
+    logger.info("agent reports: %s", result)

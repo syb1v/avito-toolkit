@@ -93,6 +93,10 @@ class Settings(BaseSettings):
     reprice_auto_enabled: bool = False
     reprice_auto_cron: str = "0 0 * * *"
     reprice_summary_enabled: bool = True
+    # Локальный рантайм (на будущее): OpenAI-совместимый endpoint (Ollama/MLX/vLLM)
+    llm_local_base_url: str = ""
+    llm_local_model: str = ""
+    agent_reports_cron: str = "30 1 * * *"
     facets_ai_enabled: bool = True
     facets_ai_max_items: int = 60
     facets_ai_batch_size: int = 15

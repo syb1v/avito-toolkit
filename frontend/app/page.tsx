@@ -1,6 +1,7 @@
 import Link from "next/link";
 
 import { AccountManager } from "@/app/components/account-manager";
+import { AgentsPanel } from "@/app/components/agents-panel";
 import { AiSpendPanel } from "@/app/components/ai-spend-panel";
 import { ClearAlertsButton } from "@/app/components/clear-alerts-button";
 import { ProxyPanel } from "@/app/components/proxy-panel";
@@ -100,6 +101,8 @@ export default async function Home({
       </section>
 
       <AiSpendPanel initial={dashboard?.ai_spend} />
+
+      <AgentsPanel />
 
       <section id="alerts" className="scroll-mt-24 flex flex-col gap-3">
         {stats.latest_alerts.length > 0 ? (

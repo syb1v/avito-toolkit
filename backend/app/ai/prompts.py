@@ -11,6 +11,7 @@ SEARCH_FILTERS_VERSION = "v3"
 CHAT_PLAN_VERSION = "v1"
 CHAT_ANSWER_VERSION = "v1"
 FACETS_VERSION = "v1"
+AGENT_REPORT_VERSION = "v1"
 
 PRICE_ADVISOR_SYSTEM_PROMPT = """
 Пиши простым человеческим языком: без технических кодов, английских
@@ -296,4 +297,14 @@ def build_facets_prompt(*, items: list[tuple[int, str]]) -> str:
         "Объявления (JSON):\n["
         + ",\n ".join(lines)
         + "]\n\nВерни brand/model/color по каждому listing_id."
+    )
+
+
+def build_agent_prompt(*, name: str, category: str, criteria: str, data: str) -> str:
+    return (
+        f"Агент: {name}\nКатегория: {category}\n\n"
+        f"Критерии владельца:\n{criteria}\n\n"
+        f"Данные системы (JSON):\n{data}\n\n"
+        "Верни headline (одна строка), market_view (3–6 предложений простым языком), "
+        "price_actions (по нашим товарам: sku, suggestion, confidence) и risks."
     )

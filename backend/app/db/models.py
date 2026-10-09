@@ -341,3 +341,17 @@ class AiFeedback(Base):
     rating: Mapped[int] = mapped_column(Integer)
     comment: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class AgentPlaybook(Base):
+    """Критерии владельца по категории для агента рынка (подготовка к агентам)."""
+
+    __tablename__ = "agent_playbooks"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    name: Mapped[str] = mapped_column(String(120))
+    category: Mapped[str] = mapped_column(String(120))
+    criteria: Mapped[dict] = mapped_column(JSONB, default=dict)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

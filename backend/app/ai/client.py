@@ -50,9 +50,11 @@ async def complete_structured[T: BaseModel](
 
     import litellm
 
-    response_format, schema_instruction = prepare_response_format(settings.llm_model, schema)
+    model, extra = resolve_model(settings)
+    response_format, schema_instruction = prepare_response_format(model, schema)
     response = await litellm.acompletion(
-        model=settings.llm_model,
+        model=model,
+        **extra,
         messages=[
             {"role": "system", "content": f"{system_prompt}{schema_instruction}"},
             {"role": "user", "content": user_prompt},
@@ -73,8 +75,25 @@ async def complete_structured[T: BaseModel](
         cost_usd = None
     return LlmResult(
         content=schema.model_validate_json(content),
-        model=settings.llm_model,
+        model=model,
         tokens_in=getattr(usage, "prompt_tokens", None),
         tokens_out=getattr(usage, "completion_tokens", None),
         cost_usd=cost_usd,
     )
+
+
+def resolve_model(settings: object) -> tuple[str, dict[str, str]]:
+    """Модель и параметры подключения: локальный OpenAI-совместимый или облако.
+
+    Локальный рантайм (Ollama/MLX/vLLM) подключается переменными
+    LLM_LOCAL_BASE_URL/LLM_LOCAL_MODEL и используется как провайдер по умолчанию,
+    когда задан; иначе — облачная модель LLM_MODEL.
+    """
+    base_url = getattr(settings, "llm_local_base_url", "") or ""
+    local_model = getattr(settings, "llm_local_model", "") or ""
+    if base_url and local_model:
+        return (
+            local_model if "/" in local_model else f"openai/{local_model}",
+            {"api_base": base_url, "api_key": "local"},
+        )
+    return getattr(settings, "llm_model", "deepseek/deepseek-chat"), {}

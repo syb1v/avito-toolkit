@@ -791,6 +791,82 @@ export const applyImportFileClient = (
     body: JSON.stringify(payload),
   });
 
+export type AgentPlaybook = {
+  id: string;
+  name: string;
+  category: string;
+  criteria: Record<string, unknown>;
+  is_active: boolean;
+  last_headline: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type AgentReportOut = {
+  headline: string;
+  market_view: string;
+  price_actions: { sku: string; suggestion: string; confidence: number }[];
+  risks: string[];
+};
+
+export async function fetchAgentPlaybooksClient(): Promise<AgentPlaybook[]> {
+  try {
+    const response = await fetch(`${API_URL}/api/v1/agent/playbooks`, { cache: "no-store" });
+    return response.ok ? ((await response.json()) as AgentPlaybook[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+export async function createAgentPlaybookClient(payload: {
+  name: string;
+  category: string;
+  criteria: Record<string, unknown>;
+}): Promise<{ playbook?: AgentPlaybook; error?: string }> {
+  try {
+    const response = await fetch(`${API_URL}/api/v1/agent/playbooks`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    const body: unknown = await response.json().catch(() => null);
+    if (!response.ok) {
+      const detail =
+        body && typeof body === "object" && "detail" in body
+          ? String((body as { detail: unknown }).detail)
+          : `HTTP ${response.status}`;
+      return { error: detail };
+    }
+    return { playbook: body as AgentPlaybook };
+  } catch {
+    return { error: "API недоступен" };
+  }
+}
+
+export async function runAgentPlaybookClient(
+  id: string,
+): Promise<{ report?: AgentReportOut; error?: string }> {
+  try {
+    const response = await fetch(`${API_URL}/api/v1/agent/playbooks/${id}/run`, {
+      method: "POST",
+    });
+    const body: unknown = await response.json().catch(() => null);
+    if (!response.ok) {
+      const detail =
+        body && typeof body === "object" && "detail" in body
+          ? String((body as { detail: unknown }).detail)
+          : `HTTP ${response.status}`;
+      return { error: detail };
+    }
+    return { report: body as AgentReportOut };
+  } catch {
+    return { error: "API недоступен" };
+  }
+}
+
+export const deleteAgentPlaybookClient = (id: string) =>
+  mutate<void>(`/api/v1/agent/playbooks/${id}`, { method: "DELETE" });
+
 export type ChatSession = {
   id: string;
   title: string;

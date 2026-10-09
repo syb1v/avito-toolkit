@@ -36,6 +36,19 @@ class RepriceSummary(BaseModel):
     items: list[RepriceSummaryItem]
 
 
+class AgentPriceAction(BaseModel):
+    sku: str
+    suggestion: str = Field(..., description="Что сделать с ценой: цифра и краткая причина")
+    confidence: float = Field(..., ge=0.0, le=1.0)
+
+
+class AgentReport(BaseModel):
+    headline: str
+    market_view: str
+    price_actions: list[AgentPriceAction] = Field(default_factory=list)
+    risks: list[str] = Field(default_factory=list)
+
+
 class ListingTags(BaseModel):
     listing_id: int
     brand: str = Field(..., description="Бренд: Bang & Olufsen, Devialet, Apple… или «Другое»")

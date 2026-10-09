@@ -140,6 +140,18 @@ def _auto_reprice_check() -> None:
         logger.exception("auto-reprice enqueue failed")
 
 
+def _agent_reports_check() -> None:
+    """Ставит ночной прогон агентов по категориям."""
+
+    from app.workers.tasks import agent_reports
+
+    try:
+        agent_reports.send()
+        logger.info("agent reports job sent")
+    except Exception:
+        logger.exception("agent reports enqueue failed")
+
+
 def _load_searches() -> list[tuple[str, str]]:
     async def _load() -> list[tuple[str, str]]:
         session_factory = get_session_factory()
@@ -227,6 +239,13 @@ def main() -> None:
         replace_existing=True,
     )
     logger.info("auto-reprice scheduled: %s UTC", settings.reprice_auto_cron)
+    scheduler.add_job(
+        _agent_reports_check,
+        CronTrigger.from_crontab(settings.agent_reports_cron, timezone="UTC"),
+        id="agent-reports",
+        replace_existing=True,
+    )
+    logger.info("agent reports scheduled: %s UTC", settings.agent_reports_cron)
     if settings.account_warmup_enabled:
         scheduler.add_job(
             _enqueue_warmups,
