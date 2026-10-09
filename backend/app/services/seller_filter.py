@@ -36,7 +36,12 @@ def ref_matches_seller(ref: str, *, name: str | None, url: str | None) -> bool:
             listing_url = url.lower().split("?")[0].rstrip("/")
             if listing_url == link:
                 return True
-            tail = link.rsplit("/", 1)[-1]
+            if "/user/" in link:
+                tail = link.split("/user/", 1)[1].split("/", 1)[0]
+            elif "/brands/" in link:
+                tail = link.split("/brands/", 1)[1].split("/", 1)[0]
+            else:
+                tail = link.rstrip("/").rsplit("/", 1)[-1]
             if tail and len(tail) >= 6 and tail in listing_url:
                 return True
         return False
