@@ -7,6 +7,8 @@
 
 ## [Unreleased]
 
+## [0.38.0] - 2026-10-09
+
 ### Добавлено
 
 - Фильтр поисков (название, активные/на паузе) и **массовый обход**: чекбоксы
@@ -846,7 +848,8 @@
 - Дашборд Next.js 16 + Tailwind 4 со статусом API и дорожной картой.
 - Документация: README, `docs/plan.md`, `.env.example`, MIT-лицензия.
 
-[Unreleased]: https://github.com/syb1v/avito-toolkit/compare/v0.37.0...HEAD
+[Unreleased]: https://github.com/syb1v/avito-toolkit/compare/v0.38.0...HEAD
+[0.38.0]: https://github.com/syb1v/avito-toolkit/compare/v0.37.0...v0.38.0
 [0.37.0]: https://github.com/syb1v/avito-toolkit/compare/v0.36.4...v0.37.0
 [0.36.4]: https://github.com/syb1v/avito-toolkit/compare/v0.36.3...v0.36.4
 [0.36.3]: https://github.com/syb1v/avito-toolkit/compare/v0.36.2...v0.36.3
