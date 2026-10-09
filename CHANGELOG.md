@@ -7,6 +7,8 @@
 
 ## [Unreleased]
 
+## [0.28.0] - 2026-10-09
+
 ### Добавлено
 
 - **«Мои объявления»** — кнопка у аккаунта: забирает свои объявления из профиля
@@ -651,7 +653,8 @@
 - Дашборд Next.js 16 + Tailwind 4 со статусом API и дорожной картой.
 - Документация: README, `docs/plan.md`, `.env.example`, MIT-лицензия.
 
-[Unreleased]: https://github.com/syb1v/avito-toolkit/compare/v0.27.1...HEAD
+[Unreleased]: https://github.com/syb1v/avito-toolkit/compare/v0.28.0...HEAD
+[0.28.0]: https://github.com/syb1v/avito-toolkit/compare/v0.27.1...v0.28.0
 [0.27.1]: https://github.com/syb1v/avito-toolkit/compare/v0.27.0...v0.27.1
 [0.27.0]: https://github.com/syb1v/avito-toolkit/compare/v0.26.0...v0.27.0
 [0.26.0]: https://github.com/syb1v/avito-toolkit/compare/v0.25.0...v0.26.0
