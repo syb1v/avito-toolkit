@@ -705,6 +705,7 @@ export const applyImportFileClient = (
       exclude_keywords: string[];
     }[];
     account_id?: string | null;
+    regions?: string[];
   },
 ) =>
   mutate<ImportApplyResult>(`/api/v1/searches/import-file/${token}/apply`, {

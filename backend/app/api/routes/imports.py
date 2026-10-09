@@ -70,6 +70,7 @@ class ApplyIn(BaseModel):
     items: list[ApplyItem] = Field(..., min_length=1)
     account_id: uuid.UUID | None = None
     schedule_cron: str = DEFAULT_CRON
+    regions: list[str] = Field(default_factory=list)
 
 
 class ApplyOut(BaseModel):
@@ -211,18 +212,21 @@ async def apply_import(token: str, payload: ApplyIn, session: DbSession) -> Appl
         if account is None:
             raise HTTPException(status_code=404, detail="аккаунт не найден")
 
+    city = payload.regions[0] if len(payload.regions) == 1 else None
     existing_urls = {
         row[0]
         for row in (
             await session.execute(
-                select(Search.url).where(Search.url.in_([search_url(item.query) for item in items]))
+                select(Search.url).where(
+                    Search.url.in_([search_url(item.query, city) for item in items])
+                )
             )
         ).all()
     }
     created_searches = skipped = 0
     import_rows: list[ImportRow] = []
     for item in items:
-        url = search_url(item.query)
+        url = search_url(item.query, city)
         if url in existing_urls:
             skipped += 1
             continue
@@ -234,6 +238,7 @@ async def apply_import(token: str, payload: ApplyIn, session: DbSession) -> Appl
                     query=item.query,
                     keyword_groups=item.keyword_groups,
                     exclude_keywords=item.exclude_keywords,
+                    regions=payload.regions,
                 ),
                 schedule_cron=payload.schedule_cron or DEFAULT_CRON,
                 priority=100,

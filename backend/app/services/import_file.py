@@ -165,8 +165,9 @@ def search_params(
     return params
 
 
-def search_url(query: str) -> str:
-    return f"https://www.avito.ru/all?q={quote(query)}"
+def search_url(query: str, city: str | None = None) -> str:
+    section = city or "all"
+    return f"https://www.avito.ru/{section}?q={quote(query)}"
 
 
 async def save_staging(redis: Redis, rows: list[FileRow]) -> str:

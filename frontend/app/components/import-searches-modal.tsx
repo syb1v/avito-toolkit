@@ -16,6 +16,7 @@ import {
   type ImportFileRow,
 } from "@/lib/api";
 import { formatPrice } from "@/lib/format";
+import { REGION_OPTIONS } from "@/lib/regions";
 
 const PAGE_SIZE = 20;
 const MAX_ITEMS = 20;
@@ -65,6 +66,7 @@ export function ImportSearchesModal({ accounts }: { accounts: Account[] }) {
   const [aiBusy, setAiBusy] = useState(false);
   const [applyBusy, setApplyBusy] = useState(false);
   const [accountId, setAccountId] = useState("");
+  const [region, setRegion] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
   const router = useRouter();
   const toast = useToast();
@@ -174,6 +176,7 @@ export function ImportSearchesModal({ accounts }: { accounts: Account[] }) {
     const result = await applyImportFileClient(parsed.token, {
       items,
       account_id: accountId || null,
+      regions: region ? [region] : [],
     });
     setApplyBusy(false);
     if (!result.ok) {
@@ -275,21 +278,38 @@ export function ImportSearchesModal({ accounts }: { accounts: Account[] }) {
                 Всего строк: {parsed.total} · к созданию можно выбрать до {MAX_ITEMS},
                 выбрано {selected.size}
               </span>
-              <label className="flex items-center gap-2">
-                Аккаунт для обходов
-                <select
-                  value={accountId}
-                  onChange={(event) => setAccountId(event.target.value)}
-                  className="rounded-lg border border-neutral-800 bg-neutral-950 px-2 py-1 text-xs text-neutral-200 outline-none focus:border-sky-500/60"
-                >
-                  <option value="">— по умолчанию —</option>
-                  {searcherAccounts.map((account) => (
-                    <option key={account.id} value={account.id}>
-                      {account.name}
-                    </option>
-                  ))}
-                </select>
-              </label>
+              <div className="flex flex-wrap items-center gap-3">
+                <label className="flex items-center gap-2">
+                  Регион поиска
+                  <select
+                    value={region}
+                    onChange={(event) => setRegion(event.target.value)}
+                    className="rounded-lg border border-neutral-800 bg-neutral-950 px-2 py-1 text-xs text-neutral-200 outline-none focus:border-sky-500/60"
+                  >
+                    <option value="">— вся Россия —</option>
+                    {REGION_OPTIONS.map((option) => (
+                      <option key={option.slug} value={option.slug}>
+                        {option.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="flex items-center gap-2">
+                  Аккаунт для обходов
+                  <select
+                    value={accountId}
+                    onChange={(event) => setAccountId(event.target.value)}
+                    className="rounded-lg border border-neutral-800 bg-neutral-950 px-2 py-1 text-xs text-neutral-200 outline-none focus:border-sky-500/60"
+                  >
+                    <option value="">— по умолчанию —</option>
+                    {searcherAccounts.map((account) => (
+                      <option key={account.id} value={account.id}>
+                        {account.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </div>
             </div>
 
             <div className="overflow-x-auto rounded-lg border border-neutral-800">
