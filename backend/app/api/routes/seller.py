@@ -53,6 +53,17 @@ class CreateEditsOut(BaseModel):
     items: list[EditOut]
 
 
+class ManualEditIn(BaseModel):
+    sku: str = Field(min_length=1, max_length=64)
+    price: float = Field(gt=0, le=100_000_000)
+
+
+class ManualEditOut(BaseModel):
+    edit: EditOut
+    applied: bool
+    requires_approval: bool
+
+
 async def _overview_map(session: DbSession) -> dict[str, str]:
     rows = await session.execute(select(OurListing.sku, OurListing.title))
     return {row[0]: row[1] for row in rows.all()}
@@ -137,6 +148,48 @@ async def create_edits(payload: CreateEditsIn, session: DbSession) -> CreateEdit
         await session.refresh(edit)
     return CreateEditsOut(
         created=len(created), items=[_row(edit, titles.get(edit.sku)) for edit in created]
+    )
+
+
+@router.post("/manual", response_model=ManualEditOut, status_code=201)
+async def create_manual_edit(payload: ManualEditIn, session: DbSession) -> ManualEditOut:
+    """Ручная цена: создаёт правку и сразу ставит её в очередь применения."""
+    settings = get_settings()
+    our = await session.get(OurListing, payload.sku)
+    if our is None:
+        raise HTTPException(status_code=404, detail=f"our listing {payload.sku} not found")
+    open_rows = await session.execute(
+        select(ListingEdit.id).where(
+            ListingEdit.sku == payload.sku, ListingEdit.status.in_(OPEN_STATUSES)
+        )
+    )
+    if open_rows.first() is not None:
+        raise HTTPException(
+            status_code=409, detail="по этому SKU уже есть открытая правка — закройте её"
+        )
+    old_price = float(our.price)
+    target = float(payload.price)
+    delta_pct = 0.0 if old_price <= 0 else (target - old_price) / old_price * 100
+    requires_approval = abs(delta_pct) > settings.reprice_hitl_threshold_pct
+    edit = ListingEdit(
+        sku=payload.sku,
+        old_price=old_price,
+        target_price=target,
+        delta_pct=delta_pct,
+        strategy="manual",
+        status="draft" if requires_approval else "approved",
+        mode=settings.seller_edit_mode,
+    )
+    session.add(edit)
+    await session.commit()
+    await session.refresh(edit)
+    if edit.status == "approved":
+        _enqueue(edit.id, revert=False)
+    titles = await _overview_map(session)
+    return ManualEditOut(
+        edit=_row(edit, titles.get(edit.sku)),
+        applied=edit.status == "approved",
+        requires_approval=requires_approval,
     )
 
 

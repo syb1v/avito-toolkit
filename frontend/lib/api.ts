@@ -564,10 +564,13 @@ export const fetchEdits = async (): Promise<EditsList> =>
     items: [],
   };
 
-export const fetchEditsClient = async (sku?: string): Promise<EditsList | null> => {
+export const fetchEditsClient = async (sku?: string, limit = 50): Promise<EditsList | null> => {
   try {
-    const query = sku ? `?sku=${encodeURIComponent(sku)}` : "";
-    const response = await fetch(`${API_URL}/api/v1/our-listings/edits${query}`, {
+    const params = new URLSearchParams({ limit: String(limit) });
+    if (sku) {
+      params.set("sku", sku);
+    }
+    const response = await fetch(`${API_URL}/api/v1/our-listings/edits?${params}`, {
       cache: "no-store",
     });
     if (!response.ok) {
@@ -758,6 +761,74 @@ export const applyImportFileClient = (
   mutate<ImportApplyResult>(`/api/v1/searches/import-file/${token}/apply`, {
     method: "POST",
     body: JSON.stringify(payload),
+  });
+
+export type OurMatch = {
+  listing_id: number;
+  title: string;
+  price: number | null;
+  url: string | null;
+  status: string;
+  similarity_score: number;
+};
+
+export async function fetchMatchesClient(sku: string): Promise<OurMatch[]> {
+  try {
+    const response = await fetch(
+      `${API_URL}/api/v1/our-listings/${encodeURIComponent(sku)}/matches`,
+      { cache: "no-store" },
+    );
+    if (!response.ok) {
+      return [];
+    }
+    return (await response.json()) as OurMatch[];
+  } catch {
+    return [];
+  }
+}
+
+export type PriceAdvice = {
+  recommended_price: number;
+  pricing_strategy: string;
+  confidence_score: number;
+  justification_points: string[];
+  risk_assessment: string;
+};
+
+export async function createAdviceClient(
+  sku: string,
+): Promise<{ advice?: PriceAdvice; error?: string }> {
+  try {
+    const response = await fetch(
+      `${API_URL}/api/v1/our-listings/${encodeURIComponent(sku)}/advice`,
+      { method: "POST" },
+    );
+    const body: unknown = await response.json().catch(() => null);
+    if (!response.ok) {
+      const detail =
+        body && typeof body === "object" && "detail" in body
+          ? String((body as { detail: unknown }).detail)
+          : `HTTP ${response.status}`;
+      return { error: detail };
+    }
+    const ai = body && typeof body === "object" ? (body as { ai?: PriceAdvice }).ai : null;
+    if (!ai) {
+      return { error: "AI-совет недоступен (нет ключа или данных)" };
+    }
+    return { advice: ai };
+  } catch {
+    return { error: "API недоступен" };
+  }
+}
+
+export const createManualEditClient = (sku: string, price: number) =>
+  mutate<{
+    edit: ListingEdit;
+    applied: boolean;
+    requires_approval: boolean;
+  }>("/api/v1/our-listings/edits/manual", {
+    method: "POST",
+    body: JSON.stringify({ sku, price }),
   });
 
 export const createEditsClient = (payload: { sku?: string; max_items?: number }) =>

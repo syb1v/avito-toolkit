@@ -2,7 +2,12 @@
 
 import { useCallback, useEffect, useState } from "react";
 
-import { editActionClient, fetchEditsClient, type ListingEdit } from "@/lib/api";
+import {
+  createManualEditClient,
+  editActionClient,
+  fetchEditsClient,
+  type ListingEdit,
+} from "@/lib/api";
 import { useToast } from "@/app/components/toast";
 import { formatPercent, formatPrice } from "@/lib/format";
 
@@ -29,6 +34,7 @@ const STATUS_STYLES: Record<string, string> = {
 export function SkuEdits({ sku }: { sku: string }) {
   const [items, setItems] = useState<ListingEdit[] | null>(null);
   const [busy, setBusy] = useState(false);
+  const [manualPrice, setManualPrice] = useState("");
   const toast = useToast();
 
   const load = useCallback(async () => {
@@ -56,6 +62,29 @@ export function SkuEdits({ sku }: { sku: string }) {
       toast.push("success", `Правка ${labels[action] ?? action}`);
       await load();
     }
+  }
+
+  async function submitManual() {
+    const value = Number(manualPrice.replace(/\s/g, "").replace(",", "."));
+    if (!Number.isFinite(value) || value <= 0) {
+      toast.push("error", "Укажите цену числом");
+      return;
+    }
+    setBusy(true);
+    const result = await createManualEditClient(sku, value);
+    setBusy(false);
+    if (!result.ok) {
+      toast.push("error", result.error);
+      return;
+    }
+    setManualPrice("");
+    toast.push(
+      "success",
+      result.data.applied
+        ? "Своя цена создана и поставлена в очередь применения"
+        : "Своя цена сохранена черновиком — нужно подтверждение",
+    );
+    await load();
   }
 
   if (items === null) {
@@ -136,6 +165,23 @@ export function SkuEdits({ sku }: { sku: string }) {
             всего правок: {items.length}
           </span>
         ) : null}
+      </div>
+      <div className="flex flex-wrap items-center gap-2">
+        <input
+          value={manualPrice}
+          onChange={(event) => setManualPrice(event.target.value)}
+          placeholder="своя цена, ₽"
+          inputMode="numeric"
+          className="w-32 rounded border border-neutral-800 bg-neutral-950 px-2 py-1 text-xs text-neutral-200 outline-none focus:border-sky-500/60"
+        />
+        <button
+          type="button"
+          disabled={busy || !manualPrice.trim()}
+          onClick={submitManual}
+          className="rounded-lg border border-violet-500/40 bg-violet-500/10 px-2.5 py-1 text-xs text-violet-200 transition hover:bg-violet-500/20 disabled:opacity-50"
+        >
+          Поставить свою цену
+        </button>
       </div>
     </div>
   );

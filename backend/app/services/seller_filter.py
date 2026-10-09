@@ -67,13 +67,11 @@ def seller_filter_reason(
 ) -> str | None:
     """None — продавец проходит; иначе 'excluded' или 'not_target'."""
     if exclude_refs and any(
-        ref_matches_seller(ref, name=name, url=url, seller_id=seller_id)
-        for ref in exclude_refs
+        ref_matches_seller(ref, name=name, url=url, seller_id=seller_id) for ref in exclude_refs
     ):
         return "excluded"
     if target_refs and not any(
-        ref_matches_seller(ref, name=name, url=url, seller_id=seller_id)
-        for ref in target_refs
+        ref_matches_seller(ref, name=name, url=url, seller_id=seller_id) for ref in target_refs
     ):
         return "not_target"
     return None
