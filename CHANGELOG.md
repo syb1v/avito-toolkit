@@ -7,6 +7,8 @@
 
 ## [Unreleased]
 
+## [0.36.3] - 2026-10-09
+
 ### Добавлено
 
 - Сбор продавцов из выдачи: из карточек извлекаются ссылка `/user/{hash}` и имя
@@ -820,7 +822,8 @@
 - Дашборд Next.js 16 + Tailwind 4 со статусом API и дорожной картой.
 - Документация: README, `docs/plan.md`, `.env.example`, MIT-лицензия.
 
-[Unreleased]: https://github.com/syb1v/avito-toolkit/compare/v0.36.2...HEAD
+[Unreleased]: https://github.com/syb1v/avito-toolkit/compare/v0.36.3...HEAD
+[0.36.3]: https://github.com/syb1v/avito-toolkit/compare/v0.36.2...v0.36.3
 [0.36.2]: https://github.com/syb1v/avito-toolkit/compare/v0.36.1...v0.36.2
 [0.36.1]: https://github.com/syb1v/avito-toolkit/compare/v0.36.0...v0.36.1
 [0.36.0]: https://github.com/syb1v/avito-toolkit/compare/v0.35.0...v0.36.0
