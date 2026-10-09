@@ -19,7 +19,7 @@ import { formatPrice } from "@/lib/format";
 import { RegionPicker } from "@/app/components/region-picker";
 
 const PAGE_SIZE = 20;
-const MAX_ITEMS = 20;
+const BATCH = 20;
 
 function usableRow(row: ImportFileRow): row is ImportFileRow & { avito_id: number; price: number } {
   return row.avito_id !== null && row.price !== null && row.price > 0;
@@ -109,59 +109,71 @@ export function ImportSearchesModal({ accounts }: { accounts: Account[] }) {
       if (next.has(row.avito_id)) {
         next.delete(row.avito_id);
       } else {
-        if (next.size >= MAX_ITEMS) {
-          toast.push("info", `За один раз можно создать до ${MAX_ITEMS} поисков`);
-          return current;
-        }
         next.add(row.avito_id);
       }
       return next;
     });
   }
 
+  function chunk<T>(items: T[], size: number): T[][] {
+    const chunks: T[][] = [];
+    for (let index = 0; index < items.length; index += size) {
+      chunks.push(items.slice(index, index + size));
+    }
+    return chunks;
+  }
+
   async function generateFilters(ids: number[]) {
     if (!parsed || ids.length === 0) {
-      return;
+      return [];
     }
     setAiBusy(true);
-    const result = await generateImportFiltersClient(parsed.token, ids);
-    setAiBusy(false);
-    if (!result.ok) {
-      toast.push("error", result.error);
-      return;
-    }
     const merged = { ...filters };
-    for (const item of result.data.items) {
-      merged[item.avito_id] = item;
+    let generated = 0;
+    for (const part of chunk(ids, BATCH)) {
+      const result = await generateImportFiltersClient(parsed.token, part);
+      if (!result.ok) {
+        toast.push("error", result.error);
+        break;
+      }
+      for (const item of result.data.items) {
+        merged[item.avito_id] = item;
+        if (item.generated) {
+          generated += 1;
+        }
+      }
     }
+    setAiBusy(false);
     setFilters(merged);
-    const generated = result.data.items.filter((item) => item.generated).length;
-    toast.push(
-      generated > 0 ? "success" : "info",
-      generated > 0
-        ? `AI-фильтры готовы для ${generated} товаров — проверьте и поправьте`
-        : "AI недоступен — подставлены простые фильтры, можно поправить руками",
-    );
+    if (generated > 0) {
+      toast.push("success", `AI-фильтры готовы для ${generated} товаров — проверьте и поправьте`);
+    } else {
+      toast.push("info", "AI недоступен — подставлены простые фильтры, можно поправить руками");
+    }
+    return merged;
   }
 
   async function apply() {
     if (!parsed || selectedRows.length === 0) {
       return;
     }
+    setApplyBusy(true);
     const missing = selectedRows.filter((row) => !filters[row.avito_id]);
-    if (missing.length > 0) {
-      await generateFilters(missing.map((row) => row.avito_id));
-    }
+    const fresh = missing.length > 0 ? await generateFilters(missing.map((row) => row.avito_id)) : filters;
     const ok = await confirm({
-      title: "Создать поиски?",
-      text: `Будет создано ${selectedRows.length} поисков (cron раз в сутки) и столько же позиций в «Наши объявления». AI-фильтры применятся как показано в таблице.`,
+      title: `Создать поиски: ${selectedRows.length}?`,
+      text:
+        selectedRows.length > 20
+          ? `Будет создано ${selectedRows.length} поисков и столько же SKU. Обходы распределятся по минутам и часам, но учтите лимит аккаунта (~80 стр./день) — за разумное время обойдутся не все сразу.`
+          : `Будет создано ${selectedRows.length} поисков (cron раз в сутки) и столько же позиций в «Наши объявления». AI-фильтры применятся как показано в таблице.`,
       confirmLabel: "Создать",
     });
     if (!ok) {
+      setApplyBusy(false);
       return;
     }
     const items = selectedRows.map((row) => {
-      const filter = filters[row.avito_id];
+      const filter = fresh[row.avito_id];
       const edit = edits[row.avito_id] ?? {};
       return {
         avito_id: row.avito_id,
@@ -169,26 +181,33 @@ export function ImportSearchesModal({ accounts }: { accounts: Account[] }) {
         price: row.price,
         status: row.status,
         query: edit.query ?? filter?.query ?? row.title.slice(0, 80),
-        keyword_groups: parseInclude(includeText(filter, edit.include) || row.title.slice(0, 80)),
-        exclude_keywords: parseExclude(excludeText(filter, edit.exclude)),
+        keyword_groups: parseInclude(includeText(filter!, edit.include) || row.title.slice(0, 80)),
+        exclude_keywords: parseExclude(excludeText(filter!, edit.exclude)),
       };
     });
-    setApplyBusy(true);
-    const result = await applyImportFileClient(parsed.token, {
-      items,
-      account_id: accountId || null,
-      regions,
-      exclude_regions: excludeRegions,
-    });
-    setApplyBusy(false);
-    if (!result.ok) {
-      toast.push("error", result.error);
-      return;
+    const totals = { searches: 0, created: 0, updated: 0, matched: 0, skipped: 0 };
+    let failed = 0;
+    for (const part of chunk(items, BATCH)) {
+      const result = await applyImportFileClient(parsed.token, {
+        items: part,
+        account_id: accountId || null,
+        regions,
+        exclude_regions: excludeRegions,
+      });
+      if (!result.ok) {
+        failed += part.length;
+        continue;
+      }
+      totals.searches += result.data.created_searches;
+      totals.created += result.data.created_listings;
+      totals.updated += result.data.updated_listings;
+      totals.matched += result.data.matched;
+      totals.skipped += result.data.skipped;
     }
-    const data = result.data;
+    setApplyBusy(false);
     toast.push(
-      "success",
-      `Поисков: ${data.created_searches} (пропущено дублей: ${data.skipped}), SKU: +${data.created_listings}/${data.updated_listings}, матчей: ${data.matched}`,
+      failed > 0 ? "info" : "success",
+      `Поисков: ${totals.searches} (дублей: ${totals.skipped}), SKU: +${totals.created}/${totals.updated}, матчей: ${totals.matched}${failed > 0 ? `, ошибок: ${failed}` : ""}`,
     );
     setOpen(false);
     reset();
@@ -277,8 +296,7 @@ export function ImportSearchesModal({ accounts }: { accounts: Account[] }) {
           <div className="flex flex-col gap-3">
             <div className="flex flex-wrap items-center justify-between gap-3 text-xs text-neutral-400">
               <span>
-                Всего строк: {parsed.total} · к созданию можно выбрать до {MAX_ITEMS},
-                выбрано {selected.size}
+                Всего строк: {parsed.total} · выбрано {selected.size}
               </span>
               <div className="flex flex-wrap items-center gap-3">
                 <div className="flex items-center gap-2">
@@ -319,7 +337,32 @@ export function ImportSearchesModal({ accounts }: { accounts: Account[] }) {
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-neutral-800 text-left text-xs uppercase tracking-wider text-neutral-500">
-                    <th className="px-3 py-2 font-medium"> </th>
+                    <th className="px-3 py-2 font-medium">
+                      <input
+                        type="checkbox"
+                        title="Выбрать страницу"
+                        checked={
+                          pageRows.filter(usableRow).length > 0 &&
+                          pageRows
+                            .filter(usableRow)
+                            .every((row) => selected.has(row.avito_id))
+                        }
+                        onChange={(event) => {
+                          const ids = pageRows.filter(usableRow).map((row) => row.avito_id);
+                          setSelected((current) => {
+                            const next = new Set(current);
+                            for (const id of ids) {
+                              if (event.target.checked) {
+                                next.add(id);
+                              } else {
+                                next.delete(id);
+                              }
+                            }
+                            return next;
+                          });
+                        }}
+                      />
+                    </th>
                     <th className="px-3 py-2 font-medium">Товар</th>
                     <th className="px-3 py-2 text-right font-medium">Цена</th>
                     <th className="px-3 py-2 font-medium">Статус</th>
@@ -446,19 +489,36 @@ export function ImportSearchesModal({ accounts }: { accounts: Account[] }) {
                   →
                 </button>
               </div>
-              <button
-                type="button"
-                onClick={() => {
-                  const pageIds = pageRows
-                    .filter(usableRow)
-                    .map((row) => row.avito_id)
-                    .slice(0, MAX_ITEMS);
-                  setSelected(new Set(pageIds));
-                }}
-                className="rounded border border-neutral-700 px-2 py-1 hover:border-neutral-500"
-              >
-                Выбрать страницу
-              </button>
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-neutral-500">
+                  выбрано {selected.size} из {usable.length}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setSelected(new Set(usable.map((row) => row.avito_id)))}
+                  className="rounded border border-neutral-700 px-2 py-1 hover:border-neutral-500"
+                >
+                  Выбрать всё
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const ids = pageRows.filter(usableRow).map((row) => row.avito_id);
+                    setSelected(new Set(ids));
+                  }}
+                  className="rounded border border-neutral-700 px-2 py-1 hover:border-neutral-500"
+                >
+                  Только страницу
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSelected(new Set())}
+                  disabled={selected.size === 0}
+                  className="rounded border border-neutral-700 px-2 py-1 hover:border-neutral-500 disabled:opacity-40"
+                >
+                  Снять выделение
+                </button>
+              </div>
             </div>
           </div>
         )}

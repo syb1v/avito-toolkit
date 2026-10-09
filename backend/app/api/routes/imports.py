@@ -231,6 +231,12 @@ async def apply_import(token: str, payload: ApplyIn, session: DbSession) -> Appl
         if url in existing_urls:
             skipped += 1
             continue
+        if payload.schedule_cron == DEFAULT_CRON and len(items) > 5:
+            # распределяем обходы по минутам/часам, чтобы не бить одним залпом
+            slot = created_searches
+            schedule = f"{slot % 60} {2 + (slot // 60) % 20} * * *"
+        else:
+            schedule = payload.schedule_cron or DEFAULT_CRON
         session.add(
             Search(
                 name=item.title[:255],
@@ -242,7 +248,7 @@ async def apply_import(token: str, payload: ApplyIn, session: DbSession) -> Appl
                     regions=payload.regions,
                     exclude_regions=payload.exclude_regions,
                 ),
-                schedule_cron=payload.schedule_cron or DEFAULT_CRON,
+                schedule_cron=schedule,
                 priority=100,
                 is_active=True,
                 account_id=account.id if account is not None else None,
