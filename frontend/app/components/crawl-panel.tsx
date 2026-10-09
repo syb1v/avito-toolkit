@@ -3,11 +3,12 @@
 import { useCallback, useEffect, useState } from "react";
 
 import { fetchProgressClient, triggerCrawl, type SearchProgress } from "@/lib/api";
+import { useEvents } from "@/lib/events";
 import { useToast } from "@/app/components/toast";
 import { InfoHint } from "@/app/components/info-hint";
 import { formatRelativeTime } from "@/lib/format";
 
-const POLL_INTERVAL_MS = 3000;
+const POLL_INTERVAL_MS = 15000;
 
 const STAGE_LABELS: Record<string, string> = {
   queued: "В очереди",
@@ -62,6 +63,13 @@ export function CrawlPanel({ searchId }: { searchId: string }) {
       clearInterval(timer);
     };
   }, [searchId]);
+
+  useEvents(
+    (event) => {
+      load();
+    },
+    (event) => event.type === "crawl.updated" && event.payload.search_id === searchId,
+  );
 
   async function start() {
     setBusy(true);

@@ -8,6 +8,8 @@ from typing import Any
 
 from redis.asyncio import Redis
 
+from app.services.events import publish
+
 PROGRESS_TTL_SECONDS = 3600
 PROGRESS_KEY_PREFIX = "crawl:progress:"
 MAX_PAGES_KEY = "max_pages"
@@ -43,6 +45,7 @@ class CrawlProgress:
 
     def __init__(self, redis: Redis, search_id: uuid.UUID | str) -> None:
         self._redis = redis
+        self._search_id = str(search_id)
         self._key = progress_key(search_id)
 
     async def _write(self, mapping: dict[str, Any]) -> None:
@@ -51,6 +54,7 @@ class CrawlProgress:
             return
         await self._redis.hset(self._key, mapping=values)  # type: ignore[arg-type]
         await self._redis.expire(self._key, PROGRESS_TTL_SECONDS)
+        await publish(self._redis, "crawl.updated", search_id=str(self._search_id), **mapping)
 
     async def queued(self, search_name: str | None = None) -> None:
         """Сразу после постановки в очередь: UI видит «в очереди», а не пустоту."""

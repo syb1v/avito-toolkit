@@ -5,8 +5,9 @@ import { useEffect, useState } from "react";
 
 import { InfoHint } from "@/app/components/info-hint";
 import { fetchDashboardClient, type Dashboard } from "@/lib/api";
+import { useEvents } from "@/lib/events";
 
-const POLL_INTERVAL_MS = 5000;
+const POLL_INTERVAL_MS = 20000;
 
 const STAGE_LABELS: Record<string, string> = {
   crawl: "сбор страниц",
@@ -33,6 +34,21 @@ export function SystemStatusPanel({ initial }: { initial: Dashboard | null }) {
       clearInterval(timer);
     };
   }, []);
+
+  useEvents((event) => {
+    if (
+      event.type === "alert.new" ||
+      event.type === "reprice.run" ||
+      event.type === "sync.done" ||
+      event.type === "crawl.updated"
+    ) {
+      fetchDashboardClient().then((fresh) => {
+        if (fresh) {
+          setData(fresh);
+        }
+      });
+    }
+  });
 
   const workerAlive = data?.worker_alive ?? false;
   const queues = data?.queues ?? { crawl: 0, analytics: 0 };

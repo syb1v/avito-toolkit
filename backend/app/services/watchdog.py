@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
 from app.db.models import Alert
+from app.services.events import publish
 from app.services.health_alerts import (
     ACCOUNT_STALE,
     AI_BALANCE_LOW,
@@ -43,13 +44,19 @@ async def _sync_system_alert(
     alert_type: str,
     payload: dict[str, object],
     problem: bool,
-) -> None:
+    redis: Redis | None = None,
+) -> bool:
+    created = False
     if problem:
         if not await _has_open(session, alert_type):
             session.add(Alert(type=alert_type, payload=payload, status="new"))
             logger.warning("watchdog: %s (%s)", alert_type, payload.get("reason"))
+            created = True
     else:
         await _resolve_open(session, alert_type)
+    if created and redis is not None:
+        await publish(redis, "alert.new", alert_type=alert_type, source="watchdog")
+    return created
 
 
 async def run_watchdog(session: AsyncSession, redis: Redis) -> dict[str, object]:
@@ -102,6 +109,7 @@ async def run_watchdog(session: AsyncSession, redis: Redis) -> dict[str, object]
         ACCOUNT_STALE,
         {"kind": ACCOUNT_STALE, "accounts": stale_accounts, "checked_at": checked_at},
         bool(stale_accounts),
+        redis,
     )
     proxy_problem = await check_proxies(redis, session, settings)
     await _sync_system_alert(
@@ -109,6 +117,7 @@ async def run_watchdog(session: AsyncSession, redis: Redis) -> dict[str, object]
         PROXY_DEAD,
         {"kind": PROXY_DEAD, **(proxy_problem or {}), "checked_at": checked_at},
         proxy_problem is not None,
+        redis,
     )
     balance = await check_ai_balance(settings)
     await _sync_system_alert(
@@ -116,6 +125,7 @@ async def run_watchdog(session: AsyncSession, redis: Redis) -> dict[str, object]
         AI_BALANCE_LOW,
         {"kind": AI_BALANCE_LOW, **(balance or {}), "checked_at": checked_at},
         bool(balance and balance.get("low")),
+        redis,
     )
 
     await session.flush()

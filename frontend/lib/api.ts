@@ -986,6 +986,18 @@ export const setListingsExcludedClient = (
     },
   );
 
+export async function fetchRecentAlertsClient(): Promise<Alert[] | null> {
+  try {
+    const response = await fetch(`${API_URL}/api/v1/alerts?limit=30`, { cache: "no-store" });
+    if (!response.ok) {
+      return null;
+    }
+    return (await response.json()) as Alert[];
+  } catch {
+    return null;
+  }
+}
+
 export const clearAlertsClient = (payload: {
   search_id?: string | null;
   status?: string | null;

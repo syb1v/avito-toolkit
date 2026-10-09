@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 import {
   fetchAutoRepriceClient,
@@ -10,6 +10,7 @@ import {
 import { useConfirm } from "@/app/components/confirm";
 import { useToast } from "@/app/components/toast";
 import { InfoHint } from "@/app/components/info-hint";
+import { useEvents } from "@/lib/events";
 import { formatRelativeTime } from "@/lib/format";
 import { EDIT_STATUS_LABELS as STATUS_LABELS } from "@/lib/terms";
 
@@ -19,17 +20,22 @@ export function AutoRepricePanel() {
   const toast = useToast();
   const confirm = useConfirm();
 
-  useEffect(() => {
-    let cancelled = false;
-    fetchAutoRepriceClient().then((data) => {
-      if (!cancelled) {
-        setState(data);
-      }
-    });
-    return () => {
-      cancelled = true;
-    };
+  const reload = useCallback(async () => {
+    const data = await fetchAutoRepriceClient();
+    if (data) {
+      setState(data);
+    }
   }, []);
+
+  useEffect(() => {
+    reload();
+  }, [reload]);
+
+  useEvents((event) => {
+    if (event.type === "reprice.run") {
+      reload();
+    }
+  });
 
   async function patch(payload: { enabled?: boolean; live?: boolean }) {
     setBusy(true);

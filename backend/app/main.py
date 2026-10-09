@@ -17,6 +17,7 @@ from app.api.routes import (
     proxies,
     searches,
     seller,
+    ws,
 )
 from app.config import get_settings
 from app.db.session import dispose_engine
@@ -48,6 +49,7 @@ def create_app() -> FastAPI:
     application.include_router(analytics.router, prefix="/api/v1")
     application.include_router(matching.router, prefix="/api/v1")
     application.include_router(imports.router, prefix="/api/v1")
+    application.include_router(ws.router, prefix="/api/v1")
     application.include_router(alerts.router, prefix="/api/v1")
     application.include_router(ai.router, prefix="/api/v1")
     application.include_router(dashboard.router, prefix="/api/v1")

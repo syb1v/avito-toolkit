@@ -1,4 +1,7 @@
+import json
 from datetime import UTC, datetime
+
+import pytest
 
 from app.config import Settings
 from app.services.recommendations import Recommendation
@@ -145,3 +148,33 @@ def test_extract_item_price_variants() -> None:
     assert _extract_price({"price": {"value": 42000}}) == 42000.0
     assert _extract_price({"price": {"amount": "1500"}}) is None
     assert _extract_price({}) is None
+
+
+async def test_events_pubsub_roundtrip() -> None:
+    import asyncio
+
+    fakeredis = pytest.importorskip("fakeredis.aioredis")
+    from app.services.events import CHANNEL, publish
+
+    redis = fakeredis.FakeRedis()
+    try:
+        pubsub = redis.pubsub()
+        await pubsub.subscribe(CHANNEL)
+
+        async def read_one() -> dict:
+            async for item in pubsub.listen():
+                if item.get("type") == "message":
+                    return item
+            raise AssertionError("no message")
+
+        task = asyncio.create_task(read_one())
+        await publish(redis, "test.event", value=42)
+        message = await asyncio.wait_for(task, timeout=2)
+        assert message is not None
+        payload = json.loads(message["data"])
+        assert payload["type"] == "test.event"
+        assert payload["payload"]["value"] == 42
+        assert "ts" in payload
+        await pubsub.aclose()
+    finally:
+        await redis.aclose()

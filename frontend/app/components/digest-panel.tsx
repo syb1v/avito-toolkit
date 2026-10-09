@@ -13,6 +13,7 @@ import { useConfirm } from "@/app/components/confirm";
 import { useToast } from "@/app/components/toast";
 import { formatPrice, formatRelativeTime } from "@/lib/format";
 import { InfoHint } from "@/app/components/info-hint";
+import { useEvents } from "@/lib/events";
 
 const DEMAND_LABELS: Record<string, string> = {
   weak: "слабый спрос",
@@ -55,6 +56,17 @@ export function DigestPanel({ searchId }: { searchId: string }) {
     const timer = setInterval(() => setElapsed((value) => value + 1), 1000);
     return () => clearInterval(timer);
   }, [loading]);
+
+  useEvents(
+    (event) => {
+      fetchDigestClient(searchId).then((latest) => {
+        if (latest) {
+          setDigest(latest);
+        }
+      });
+    },
+    (event) => event.type === "digest.new" && event.payload.search_id === searchId,
+  );
 
   async function applySuggestions() {
     if (!digest) {

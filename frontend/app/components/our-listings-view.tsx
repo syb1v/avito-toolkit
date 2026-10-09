@@ -5,12 +5,15 @@ import { useEffect, useMemo, useState } from "react";
 import { InfoHint } from "@/app/components/info-hint";
 import { SkuEdits } from "@/app/components/sku-edits";
 import { SkuModal } from "@/app/components/sku-modal";
+import { useRouter } from "next/navigation";
+
 import {
   fetchEditsClient,
   type ListingEdit,
   type OurListingOverview,
   type Recommendation,
 } from "@/lib/api";
+import { useEvents } from "@/lib/events";
 import { formatPercent, formatPrice } from "@/lib/format";
 import {
   EDIT_STATUS_LABELS,
@@ -46,6 +49,22 @@ export function OurListingsView({
   const [onlyWithEdits, setOnlyWithEdits] = useState(false);
   const [edits, setEdits] = useState<ListingEdit[]>([]);
   const [selectedSku, setSelectedSku] = useState<string | null>(initialSku ?? null);
+  const router = useRouter();
+
+  useEvents((event) => {
+    if (
+      event.type === "edit.updated" ||
+      event.type === "reprice.run" ||
+      event.type === "sync.done"
+    ) {
+      fetchEditsClient(undefined, 200).then((data) => {
+        if (data) {
+          setEdits(data.items);
+        }
+      });
+      router.refresh();
+    }
+  });
 
   useEffect(() => {
     fetchEditsClient(undefined, 200).then((data) => {

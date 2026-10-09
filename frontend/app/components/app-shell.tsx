@@ -4,7 +4,9 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState } from "react";
 
+import { AlertsBell } from "@/app/components/alerts-bell";
 import { API_URL } from "@/lib/api";
+import { useLiveConnected } from "@/lib/events";
 
 const NAV_SECTIONS: { title: string; links: { href: string; label: string }[] }[] = [
   {
@@ -28,6 +30,7 @@ const NAV_SECTIONS: { title: string; links: { href: string; label: string }[] }[
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const [menuOpen, setMenuOpen] = useState(false);
+  const live = useLiveConnected();
 
   const navLinkClass = (href: string) => {
     const base = href.split("#")[0];
@@ -71,19 +74,37 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       </aside>
 
       <div className="flex min-h-screen flex-col">
-        <header className="sticky top-0 z-20 border-b border-neutral-800/80 bg-neutral-950/85 backdrop-blur lg:hidden">
-          <div className="flex items-center justify-between px-4 py-3">
-            <Link href="/" className="flex items-center gap-2 text-sm font-semibold">
-              <span className="inline-block h-2 w-2 rounded-full bg-emerald-400" />
-              avito-toolkit
-            </Link>
-            <button
-              type="button"
-              onClick={() => setMenuOpen((value) => !value)}
-              className="rounded-lg border border-neutral-800 px-3 py-1.5 text-xs text-neutral-300"
-            >
-              {menuOpen ? "Закрыть" : "Меню"}
-            </button>
+        <header className="sticky top-0 z-20 border-b border-neutral-800/80 bg-neutral-950/85 backdrop-blur">
+          <div className="flex items-center justify-between gap-3 px-4 py-2.5 sm:px-6">
+            <div className="flex items-center gap-3">
+              <Link href="/" className="flex items-center gap-2 text-sm font-semibold lg:hidden">
+                <span className="inline-block h-2 w-2 rounded-full bg-emerald-400" />
+                avito-toolkit
+              </Link>
+              <button
+                type="button"
+                onClick={() => setMenuOpen((value) => !value)}
+                className="rounded-lg border border-neutral-800 px-3 py-1.5 text-xs text-neutral-300 lg:hidden"
+              >
+                {menuOpen ? "Закрыть" : "Меню"}
+              </button>
+            </div>
+            <div className="flex items-center gap-2">
+              <span
+                className={`flex items-center gap-1.5 text-[11px] ${
+                  live ? "text-emerald-300/90" : "text-neutral-500"
+                }`}
+                title={live ? "Обновления в реальном времени" : "Переподключение к событиям…"}
+              >
+                <span
+                  className={`inline-block h-1.5 w-1.5 rounded-full ${
+                    live ? "bg-emerald-400" : "bg-neutral-600"
+                  }`}
+                />
+                {live ? "live" : "офлайн"}
+              </span>
+              <AlertsBell />
+            </div>
           </div>
           {menuOpen ? (
             <nav className="flex flex-col gap-1 border-t border-neutral-800 px-3 py-2">

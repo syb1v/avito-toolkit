@@ -20,6 +20,7 @@ from app.services.analytics.service import (
     fetch_daily_history,
     filtered_top_listings,
 )
+from app.services.events import publish
 from app.services.health_alerts import check_ai_balance
 from app.services.matching import build_our_position
 from app.services.pricing import RepricingContext, build_price_target
@@ -185,6 +186,11 @@ async def create_digest(search_id: uuid.UUID, session: DbSession) -> DigestOut:
     await session.commit()
     await session.refresh(stored)
     out.created_at = stored.created_at
+    redis = Redis.from_url(get_settings().redis_url)
+    try:
+        await publish(redis, "digest.new", search_id=str(search_id))
+    finally:
+        await redis.aclose()
     return out
 
 

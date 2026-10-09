@@ -51,6 +51,7 @@ from app.services.avito_api import (
 from app.services.collector import CrawlResult, SearchCollector
 from app.services.cookies import apply_cookies_to_profile, parse_cookie_input
 from app.services.crawl_guard import CrawlGuard, classify_failure
+from app.services.events import publish
 from app.services.matching import match_all_our_listings
 from app.services.moderation import enrich_descriptions, moderate_search
 from app.services.progress import CrawlProgress
@@ -301,8 +302,16 @@ async def _collect(search_id: str) -> CrawlResult:
             await progress.stage("matching")
             matched = await _match_if_needed(session)
             await progress.stage("alerts")
-            await evaluate_search_alerts(session, result.search_id)
+            created_alerts = await evaluate_search_alerts(session, result.search_id)
             await session.commit()
+            for alert in created_alerts:
+                await publish(
+                    redis,
+                    "alert.new",
+                    alert_id=str(alert.id),
+                    alert_type=alert.type,
+                    search_id=str(result.search_id),
+                )
             payload = result.to_dict()
             payload["ai"] = {
                 "scored": moderation.ai_scored,
@@ -540,6 +549,14 @@ async def _apply_listing_edit(edit_id: str, revert: bool) -> dict[str, object]:
                 edit.status = "failed"
                 edit.error = f"API Авито: {error.message}"
                 await session.commit()
+                await publish(
+                    redis,
+                    "edit.updated",
+                    edit_id=str(edit.id),
+                    sku=edit.sku,
+                    status="failed",
+                    error=edit.error,
+                )
                 return {"ok": False, "error": edit.error}
             edit.mode = "live"
             edit.status = "reverted" if revert else "applied"
@@ -551,6 +568,14 @@ async def _apply_listing_edit(edit_id: str, revert: bool) -> dict[str, object]:
                 edit.applied_at = now
             our.price = target
             await session.commit()
+            await publish(
+                redis,
+                "edit.updated",
+                edit_id=str(edit.id),
+                sku=edit.sku,
+                status=edit.status,
+                target_price=target,
+            )
             logger.info("listing edit %s via API: %s", edit.id, target)
             return {
                 "ok": True,
@@ -797,6 +822,14 @@ async def _sync_account_items(account_id: str) -> dict[str, object]:
                 "items": items[:200],
             }
             await redis.set(key, json.dumps(payload, ensure_ascii=False), ex=SYNC_TTL_SECONDS)
+            await publish(
+                redis,
+                "sync.done",
+                account_id=account_id,
+                total=payload["total"],
+                updated=payload["updated"],
+                failed=payload["failed"],
+            )
             return payload
     except Exception as error:
         await redis.set(

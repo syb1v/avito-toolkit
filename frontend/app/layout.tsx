@@ -3,6 +3,7 @@ import type { Metadata } from "next";
 import { AppShell } from "@/app/components/app-shell";
 import { ConfirmProvider } from "@/app/components/confirm";
 import { ToastProvider } from "@/app/components/toast";
+import { EventProvider } from "@/lib/events";
 
 import "./globals.css";
 
@@ -19,7 +20,9 @@ export default function RootLayout({
       <body className="min-h-screen bg-neutral-950 text-neutral-100 antialiased">
         <ToastProvider>
           <ConfirmProvider>
-            <AppShell>{children}</AppShell>
+            <EventProvider>
+              <AppShell>{children}</AppShell>
+            </EventProvider>
           </ConfirmProvider>
         </ToastProvider>
       </body>
