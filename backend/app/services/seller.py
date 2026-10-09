@@ -18,14 +18,22 @@ logger = logging.getLogger(__name__)
 
 ITEM_ID_RE = re.compile(r"_(\d{6,})(?:\?|$)")
 PRICE_SELECTORS = (
-    "input[data-marker='price/input']",
+    "input[data-marker='price']",
+    "input#price",
     "input[name='price']",
     "input[inputmode='numeric']",
 )
 SAVE_SELECTORS = (
+    "button[data-marker='item-edit/button-next']",
     "button[data-marker='submit-button']",
     "button:has-text('Сохранить')",
-    "button:has-text('Применить')",
+    "button:has-text('Опубликовать')",
+    "button:has-text('Далее')",
+)
+EXTRA_SAVE_SELECTORS = (
+    "button[data-marker='item-edit/button-next']",
+    "button:has-text('Опубликовать')",
+    "button:has-text('Сохранить')",
 )
 CHALLENGE_MARKERS = ("доступ ограничен", "проблема с ip", "hcaptcha", "войдите", "вход")
 
@@ -124,6 +132,7 @@ async def apply_price_edit(
                     screenshot_path=screenshot,
                 )
             await price_input.fill(target_text)
+            await price_input.press("Tab")
             await page.wait_for_timeout(500)
             save = await _first_locator(page, SAVE_SELECTORS)
             if save is None:
@@ -135,6 +144,15 @@ async def apply_price_edit(
                     screenshot_path=screenshot,
                 )
             await save.click()
+            await page.wait_for_timeout(2500)
+            # мастер может быть из двух шагов: «Далее» → «Опубликовать»
+            extra = await _first_locator(page, EXTRA_SAVE_SELECTORS)
+            if extra is not None:
+                try:
+                    if await extra.is_visible():
+                        await extra.click()
+                except Exception:  # noqa: BLE001 — второй шаг не обязателен
+                    pass
             await page.wait_for_timeout(4000)
             # проверяем результат: перезагружаем и сверяем значение поля
             await page.reload(wait_until="domcontentloaded", timeout=60000)
@@ -147,7 +165,8 @@ async def apply_price_edit(
                 except Exception:  # noqa: BLE001
                     actual = ""
             await page.screenshot(path=screenshot, full_page=True)
-            if actual and actual.replace(" ", "") != target_text:
+            actual_digits = re.sub(r"\D", "", actual or "")
+            if actual_digits and actual_digits != target_text:
                 return EditOutcome(
                     ok=False,
                     mode="live",

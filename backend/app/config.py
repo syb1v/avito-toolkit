@@ -92,7 +92,7 @@ class Settings(BaseSettings):
     reprice_auto_cron: str = "0 0 * * *"
     reprice_summary_enabled: bool = True
     seller_edit_max_per_run: int = 5
-    avito_edit_url_template: str = "https://www.avito.ru/profile/items/{item_id}/edit"
+    avito_edit_url_template: str = "https://www.avito.ru/items/edit/{item_id}"
 
     match_min_score: int = 75
     match_max_candidates: int = 300
