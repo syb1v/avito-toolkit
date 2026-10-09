@@ -6,6 +6,7 @@
 проверяем результат и делаем скриншот для аудита.
 """
 
+import contextlib
 import logging
 import re
 from dataclasses import dataclass
@@ -123,12 +124,10 @@ async def apply_price_edit(
                     screenshot_path=screenshot,
                 )
             # Форма редактирования грузится асинхронно (скелетоны) — ждём поле цены.
-            try:
+            with contextlib.suppress(Exception):
                 await page.wait_for_selector(
                     "input[data-marker='price'], input#price", timeout=25000
                 )
-            except Exception:  # noqa: BLE001 — селектор может не появиться, обработаем ниже
-                pass
             price_input = await _first_locator(page, PRICE_SELECTORS)
             if price_input is None:
                 await page.screenshot(path=screenshot, full_page=True)
