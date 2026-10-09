@@ -7,6 +7,8 @@
 
 ## [Unreleased]
 
+## [0.40.0] - 2026-10-09
+
 ### Изменено
 
 - **Разделение типов аккаунтов**: поисковик — только cookies (профиль, прокси,
@@ -868,7 +870,8 @@
 - Дашборд Next.js 16 + Tailwind 4 со статусом API и дорожной картой.
 - Документация: README, `docs/plan.md`, `.env.example`, MIT-лицензия.
 
-[Unreleased]: https://github.com/syb1v/avito-toolkit/compare/v0.39.0...HEAD
+[Unreleased]: https://github.com/syb1v/avito-toolkit/compare/v0.40.0...HEAD
+[0.40.0]: https://github.com/syb1v/avito-toolkit/compare/v0.39.0...v0.40.0
 [0.39.0]: https://github.com/syb1v/avito-toolkit/compare/v0.38.0...v0.39.0
 [0.38.0]: https://github.com/syb1v/avito-toolkit/compare/v0.37.0...v0.38.0
 [0.37.0]: https://github.com/syb1v/avito-toolkit/compare/v0.36.4...v0.37.0
