@@ -7,6 +7,8 @@
 
 ## [Unreleased]
 
+## [0.29.0] - 2026-10-09
+
 ### Добавлено
 
 - **Авто-правки цен**: ночное задание (cron `REPRICE_AUTO_CRON`, 03:00 МСК)
@@ -667,7 +669,8 @@
 - Дашборд Next.js 16 + Tailwind 4 со статусом API и дорожной картой.
 - Документация: README, `docs/plan.md`, `.env.example`, MIT-лицензия.
 
-[Unreleased]: https://github.com/syb1v/avito-toolkit/compare/v0.28.0...HEAD
+[Unreleased]: https://github.com/syb1v/avito-toolkit/compare/v0.29.0...HEAD
+[0.29.0]: https://github.com/syb1v/avito-toolkit/compare/v0.28.0...v0.29.0
 [0.28.0]: https://github.com/syb1v/avito-toolkit/compare/v0.27.1...v0.28.0
 [0.27.1]: https://github.com/syb1v/avito-toolkit/compare/v0.27.0...v0.27.1
 [0.27.0]: https://github.com/syb1v/avito-toolkit/compare/v0.26.0...v0.27.0
