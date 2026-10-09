@@ -54,6 +54,7 @@ export function OurListingsView({
 }) {
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState("");
+  const [accountFilter, setAccountFilter] = useState("");
   const [onlyRecommended, setOnlyRecommended] = useState(false);
   const [onlyWithEdits, setOnlyWithEdits] = useState(false);
   const [edits, setEdits] = useState<ListingEdit[]>([]);
@@ -91,6 +92,16 @@ export function OurListingsView({
     return [...values].sort();
   }, [rows]);
 
+  const accountOptions = useMemo(() => {
+    const values = new Set<string>();
+    for (const row of rows) {
+      if (row.account) {
+        values.add(row.account);
+      }
+    }
+    return [...values].sort();
+  }, [rows]);
+
   const filteredRows = useMemo(() => {
     const needle = query.trim().toLowerCase();
     return rows.filter((row) => {
@@ -100,6 +111,12 @@ export function OurListingsView({
       if (status && row.avito_status !== status) {
         return false;
       }
+      if (accountFilter) {
+        const account = row.account ?? "Без продавца";
+        if (account !== accountFilter) {
+          return false;
+        }
+      }
       if (onlyRecommended && !recommendedSkus.has(row.sku)) {
         return false;
       }
@@ -108,13 +125,17 @@ export function OurListingsView({
       }
       return true;
     });
-  }, [rows, query, status, onlyRecommended, onlyWithEdits, recommendedSkus, lastEditBySku]);
+  }, [
+    rows,
+    query,
+    status,
+    accountFilter,
+    onlyRecommended,
+    onlyWithEdits,
+    recommendedSkus,
+    lastEditBySku,
+  ]);
 
-  const visibleSkus = useMemo(() => new Set(filteredRows.map((row) => row.sku)), [filteredRows]);
-  const filteredRecommendations = useMemo(
-    () => recommendations.filter((item) => visibleSkus.has(item.sku)),
-    [recommendations, visibleSkus],
-  );
   const rowBySku = useMemo(() => {
     const map = new Map<string, OurListingOverview>();
     for (const row of rows) {
@@ -130,139 +151,93 @@ export function OurListingsView({
     return map;
   }, [recommendations]);
 
-  return (
-    <>
-      <section className="flex flex-wrap items-center gap-2 rounded-xl border border-neutral-800 bg-neutral-900/60 p-3">
-        <input
-          value={query}
-          onChange={(event) => setQuery(event.target.value)}
-          placeholder="Фильтр: название или SKU"
-          className="min-w-[220px] flex-1 rounded-lg border border-neutral-800 bg-neutral-950 px-3 py-1.5 text-sm text-neutral-200 outline-none focus:border-sky-500/60"
-        />
-        <select
-          value={status}
-          onChange={(event) => setStatus(event.target.value)}
-          className="rounded-lg border border-neutral-800 bg-neutral-950 px-2 py-1.5 text-xs text-neutral-200 outline-none focus:border-sky-500/60"
-        >
-          <option value="">любой статус</option>
-          {statusOptions.map((value) => (
-            <option key={value} value={value}>
-              {value}
-            </option>
-          ))}
-        </select>
-        <label className="flex items-center gap-1.5 text-xs text-neutral-400">
-          <input
-            type="checkbox"
-            checked={onlyRecommended}
-            onChange={(event) => setOnlyRecommended(event.target.checked)}
-          />
-          с рекомендацией
-        </label>
-        <label className="flex items-center gap-1.5 text-xs text-neutral-400">
-          <input
-            type="checkbox"
-            checked={onlyWithEdits}
-            onChange={(event) => setOnlyWithEdits(event.target.checked)}
-          />
-          с правками
-        </label>
-        <span className="text-xs text-neutral-500">
-          показано {filteredRows.length} из {rows.length}
-        </span>
-      </section>
+  const groups = useMemo(() => {
+    const map = new Map<string, { rows: OurListingOverview[]; recs: Recommendation[] }>();
+    for (const row of filteredRows) {
+      const key = row.account ?? "Без продавца";
+      const group = map.get(key) ?? { rows: [], recs: [] };
+      group.rows.push(row);
+      const rec = recBySku.get(row.sku);
+      if (rec) {
+        group.recs.push(rec);
+      }
+      map.set(key, group);
+    }
+    return [...map.entries()];
+  }, [filteredRows, recBySku]);
 
-      <section className="flex flex-col gap-4">
-        <div className="flex items-baseline justify-between gap-3">
-          <div className="flex items-center">
-            <h2 className="text-lg font-medium">Рекомендации по ценам</h2>
-            <InfoHint
-              title="Как выбирается стратегия"
-              text="По вымыванию спроса: горячий рынок (>35%) — премиум P75; вялый (<17.5%) — демпинг P25−1%; иначе медиана. Цена не опускается ниже себестоимости, шаг за раз ≤5%, при изменении больше 10% нужно подтверждение. Клик по карточке — детали, конкуренты и AI-обоснование."
-            />
-          </div>
-          <span className="text-xs text-neutral-500">
-            {filteredRecommendations.length} шт. с матчами
-          </span>
-        </div>
-        {filteredRecommendations.length === 0 ? (
-          <p className="rounded-xl border border-dashed border-neutral-800 p-5 text-sm text-neutral-500">
-            Ничего не найдено под фильтр — ослабьте условия или запустите матчинг после
-            обхода поисков.
-          </p>
-        ) : (
-          <ul className="grid gap-3 sm:grid-cols-2 sm:gap-4 lg:grid-cols-3">
-            {filteredRecommendations.map((item) => (
-              <li
-                key={item.sku}
-                className="flex flex-col gap-3 rounded-xl border border-neutral-800 bg-neutral-900/60 p-4 transition hover:border-neutral-600"
-              >
-                <button
-                  type="button"
-                  onClick={() => setSelectedSku(item.sku)}
-                  className="flex flex-col gap-3 text-left"
-                >
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="min-w-0">
-                      <p className="truncate font-medium" title={item.title}>
-                        {item.title}
-                      </p>
-                      <p className="font-mono text-xs text-neutral-500">{item.sku}</p>
-                    </div>
-                    <span className="whitespace-nowrap rounded-full border border-sky-500/30 bg-sky-500/10 px-2 py-0.5 text-xs text-sky-200">
-                      {STRATEGY_LABELS[item.strategy] ?? item.strategy}
-                    </span>
-                  </div>
-                  <div className="flex items-end justify-between gap-3">
-                    <div>
-                      <p className="text-xs text-neutral-500">Наша → цель</p>
-                      <p className="text-sm tabular-nums">
-                        {formatPrice(item.our_price)} →{" "}
-                        <span className="font-medium">{formatPrice(item.clamped_price)}</span>
-                      </p>
-                    </div>
-                    <DeltaText deltaPct={item.delta_pct} />
-                  </div>
-                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-neutral-500">
-                    <span>медиана: {formatPrice(item.market_median)}</span>
-                    <span>матчей: {item.matched_count}</span>
-                    {item.requires_approval ? (
-                      <span className="rounded-full border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-amber-200">
-                        нужно подтверждение
-                      </span>
-                    ) : null}
-                  </div>
-                </button>
-                <SkuEdits sku={item.sku} />
-                <button
-                  type="button"
-                  onClick={() => setSelectedSku(item.sku)}
-                  className="self-start text-xs text-sky-300/80 hover:underline"
-                >
-                  Подробнее: рынок, конкуренты, AI-обоснование →
-                </button>
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
+  function renderRecommendations(items: Recommendation[]) {
+    if (items.length === 0) {
+      return (
+        <p className="rounded-xl border border-dashed border-neutral-800 p-4 text-xs text-neutral-500">
+          Рекомендаций нет — нужны матчи с рынком (обход поисков + матчинг).
+        </p>
+      );
+    }
+    return (
+      <ul className="grid gap-3 sm:grid-cols-2 sm:gap-4 lg:grid-cols-3">
+        {items.map((item) => (
+          <li
+            key={item.sku}
+            className="flex flex-col gap-3 rounded-xl border border-neutral-800 bg-neutral-900/60 p-4 transition hover:border-neutral-600"
+          >
+            <button
+              type="button"
+              onClick={() => setSelectedSku(item.sku)}
+              className="flex flex-col gap-3 text-left"
+            >
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <p className="truncate font-medium" title={item.title}>
+                    {item.title}
+                  </p>
+                  <p className="font-mono text-xs text-neutral-500">{item.sku}</p>
+                </div>
+                <span className="whitespace-nowrap rounded-full border border-sky-500/30 bg-sky-500/10 px-2 py-0.5 text-xs text-sky-200">
+                  {STRATEGY_LABELS[item.strategy] ?? item.strategy}
+                </span>
+              </div>
+              <div className="flex items-end justify-between gap-3">
+                <div>
+                  <p className="text-xs text-neutral-500">Наша → цель</p>
+                  <p className="text-sm tabular-nums">
+                    {formatPrice(item.our_price)} →{" "}
+                    <span className="font-medium">{formatPrice(item.clamped_price)}</span>
+                  </p>
+                </div>
+                <DeltaText deltaPct={item.delta_pct} />
+              </div>
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-neutral-500">
+                <span>медиана: {formatPrice(item.market_median)}</span>
+                <span>матчей: {item.matched_count}</span>
+                {item.requires_approval ? (
+                  <span className="rounded-full border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-amber-200">
+                    нужно подтверждение
+                  </span>
+                ) : null}
+              </div>
+            </button>
+            <SkuEdits sku={item.sku} />
+            <button
+              type="button"
+              onClick={() => setSelectedSku(item.sku)}
+              className="self-start text-xs text-sky-300/80 hover:underline"
+            >
+              Подробнее: рынок, конкуренты, AI-обоснование →
+            </button>
+          </li>
+        ))}
+      </ul>
+    );
+  }
 
-      <section className="rounded-xl border border-neutral-800">
-        <div className="flex items-baseline justify-between gap-3 px-4 py-4 sm:px-5">
-          <div className="flex items-center">
-            <h2 className="text-lg font-medium">SKU</h2>
-            <InfoHint
-              title="Колонки таблицы"
-              text="Наша цена — из импорта/API. Медиана рынка — по сматченным конкурентам после IQR-фильтрации. Дельта = (наша − медиана) ÷ медиана. Матчей — сколько объявлений сопоставлено по названию. Клик по строке открывает карточку SKU."
-            />
-          </div>
-          <span className="text-xs text-neutral-500">{filteredRows.length} шт.</span>
-        </div>
-
+  function renderTable(items: OurListingOverview[]) {
+    return (
+      <div className="rounded-xl border border-neutral-800">
         <div className="hidden overflow-x-auto md:block">
           <table className="w-full text-sm">
             <thead>
-              <tr className="border-y border-neutral-800 text-left text-xs uppercase tracking-wider text-neutral-500">
+              <tr className="border-b border-neutral-800 text-left text-xs uppercase tracking-wider text-neutral-500">
                 <th className="px-5 py-3 font-medium">SKU</th>
                 <th className="px-5 py-3 font-medium">Объявление</th>
                 <th className="px-5 py-3 text-right font-medium">Наша цена</th>
@@ -274,7 +249,7 @@ export function OurListingsView({
               </tr>
             </thead>
             <tbody className="divide-y divide-neutral-800">
-              {filteredRows.map((row) => {
+              {items.map((row) => {
                 const lastEdit = lastEditBySku.get(row.sku);
                 return (
                   <tr
@@ -333,7 +308,7 @@ export function OurListingsView({
         </div>
 
         <ul className="flex flex-col divide-y divide-neutral-800 md:hidden">
-          {filteredRows.map((row) => {
+          {items.map((row) => {
             const lastEdit = lastEditBySku.get(row.sku);
             return (
               <li
@@ -359,7 +334,8 @@ export function OurListingsView({
                     наша: <span className="tabular-nums">{formatPrice(row.our_price)}</span>
                   </span>
                   <span>
-                    медиана: <span className="tabular-nums">{formatPrice(row.market_median)}</span>
+                    медиана:{" "}
+                    <span className="tabular-nums">{formatPrice(row.market_median)}</span>
                   </span>
                   <span>
                     дельта: <DeltaText deltaPct={row.delta_to_median_pct} />
@@ -375,7 +351,88 @@ export function OurListingsView({
             );
           })}
         </ul>
+      </div>
+    );
+  }
+
+  return (
+    <>
+      <section className="flex flex-wrap items-center gap-2 rounded-xl border border-neutral-800 bg-neutral-900/60 p-3">
+        <input
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+          placeholder="Фильтр: название или SKU"
+          className="min-w-[200px] flex-1 rounded-lg border border-neutral-800 bg-neutral-950 px-3 py-1.5 text-sm text-neutral-200 outline-none focus:border-sky-500/60"
+        />
+        <select
+          value={accountFilter}
+          onChange={(event) => setAccountFilter(event.target.value)}
+          className="rounded-lg border border-neutral-800 bg-neutral-950 px-2 py-1.5 text-xs text-neutral-200 outline-none focus:border-sky-500/60"
+        >
+          <option value="">все продавцы</option>
+          {accountOptions.map((value) => (
+            <option key={value} value={value}>
+              {value}
+            </option>
+          ))}
+        </select>
+        <select
+          value={status}
+          onChange={(event) => setStatus(event.target.value)}
+          className="rounded-lg border border-neutral-800 bg-neutral-950 px-2 py-1.5 text-xs text-neutral-200 outline-none focus:border-sky-500/60"
+        >
+          <option value="">любой статус</option>
+          {statusOptions.map((value) => (
+            <option key={value} value={value}>
+              {value}
+            </option>
+          ))}
+        </select>
+        <label className="flex items-center gap-1.5 text-xs text-neutral-400">
+          <input
+            type="checkbox"
+            checked={onlyRecommended}
+            onChange={(event) => setOnlyRecommended(event.target.checked)}
+          />
+          с рекомендацией
+        </label>
+        <label className="flex items-center gap-1.5 text-xs text-neutral-400">
+          <input
+            type="checkbox"
+            checked={onlyWithEdits}
+            onChange={(event) => setOnlyWithEdits(event.target.checked)}
+          />
+          с правками
+        </label>
+        <span className="text-xs text-neutral-500">
+          показано {filteredRows.length} из {rows.length}
+        </span>
       </section>
+
+      {groups.length === 0 ? (
+        <p className="rounded-xl border border-dashed border-neutral-800 p-5 text-sm text-neutral-500">
+          Ничего не найдено — ослабьте фильтры.
+        </p>
+      ) : (
+        groups.map(([accountName, group]) => (
+          <section key={accountName} className="flex flex-col gap-3">
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-neutral-800 pb-2">
+              <div className="flex items-center">
+                <h2 className="text-lg font-medium">Продавец: {accountName}</h2>
+                <InfoHint
+                  title="Как выбирается стратегия"
+                  text="По вымыванию спроса: горячий рынок (>35%) — премиум P75; вялый (<17.5%) — демпинг P25−1%; иначе медиана. Шаг за раз ≤5%, при изменении больше 10% — подтверждение. Клик по карточке или строке — детали, конкуренты и AI-обоснование."
+                />
+              </div>
+              <span className="text-xs text-neutral-500">
+                {group.rows.length} SKU · рекомендаций {group.recs.length}
+              </span>
+            </div>
+            {renderRecommendations(group.recs)}
+            {renderTable(group.rows)}
+          </section>
+        ))
+      )}
 
       {selectedSku ? (
         <SkuModal

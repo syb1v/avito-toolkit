@@ -196,6 +196,16 @@ export function SearchManager({
           <span className="text-xs text-neutral-500">
             {visibleItems.length} из {items.length}
           </span>
+          <button
+            type="button"
+            disabled={visibleItems.length === 0}
+            onClick={() =>
+              setSelected(new Set(visibleItems.map((search) => search.id)))
+            }
+            className="rounded-lg border border-neutral-700 px-3 py-1.5 text-xs text-neutral-300 transition hover:border-neutral-500 disabled:opacity-50"
+          >
+            Выбрать всё ({visibleItems.length})
+          </button>
           <ImportSearchesModal accounts={accounts} />
           <button
             type="button"

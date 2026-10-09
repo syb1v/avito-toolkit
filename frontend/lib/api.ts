@@ -155,6 +155,7 @@ export type OurListingOverview = {
   title: string;
   our_price: number;
   cost_price: number | null;
+  account: string | null;
   is_active: boolean;
   avito_status: string | null;
   avito_url: string | null;
