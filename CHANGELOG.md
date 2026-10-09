@@ -7,6 +7,8 @@
 
 ## [Unreleased]
 
+## [0.29.1] - 2026-10-09
+
 ### Исправлено
 
 - Итог ночного прогона показывал статус правки до применения («одобрено» вместо
@@ -675,7 +677,8 @@
 - Дашборд Next.js 16 + Tailwind 4 со статусом API и дорожной картой.
 - Документация: README, `docs/plan.md`, `.env.example`, MIT-лицензия.
 
-[Unreleased]: https://github.com/syb1v/avito-toolkit/compare/v0.29.0...HEAD
+[Unreleased]: https://github.com/syb1v/avito-toolkit/compare/v0.29.1...HEAD
+[0.29.1]: https://github.com/syb1v/avito-toolkit/compare/v0.29.0...v0.29.1
 [0.29.0]: https://github.com/syb1v/avito-toolkit/compare/v0.28.0...v0.29.0
 [0.28.0]: https://github.com/syb1v/avito-toolkit/compare/v0.27.1...v0.28.0
 [0.27.1]: https://github.com/syb1v/avito-toolkit/compare/v0.27.0...v0.27.1
