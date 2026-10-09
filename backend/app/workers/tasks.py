@@ -62,7 +62,7 @@ from app.services.reprice import (
     save_last_run,
     select_recommendations,
 )
-from app.services.seller import apply_price_edit, build_edit_url, item_id_from_url
+from app.services.seller import item_id_from_url
 
 logger = logging.getLogger(__name__)
 
@@ -492,7 +492,6 @@ async def _apply_listing_edit(edit_id: str, revert: bool) -> dict[str, object]:
     settings = get_settings()
     redis = Redis.from_url(settings.redis_url)
     session_factory = async_sessionmaker(get_engine(), expire_on_commit=False)
-    lock_key: str | None = None
     try:
         async with session_factory() as session:
             edit = await session.get(ListingEdit, uuid.UUID(edit_id))
@@ -518,85 +517,47 @@ async def _apply_listing_edit(edit_id: str, revert: bool) -> dict[str, object]:
                 return {"ok": True, "mode": "dry_run", "target": target}
 
             account = await _pick_seller_account(session, edit.account_id)
-            if account is None:
-                edit.status = "failed"
-                edit.error = "нет аккаунта продавца — добавьте его и залейте cookies"
-                await session.commit()
-                return {"ok": False, "error": edit.error}
             item_id = our.avito_item_id or item_id_from_url(our.avito_url)
             if item_id is None:
                 edit.status = "failed"
-                edit.error = "у SKU нет ссылки/ID объявления Авито (импортируйте свой профиль)"
+                edit.error = "у SKU нет ID объявления Авито (импортируйте товары из файла/API)"
                 await session.commit()
                 return {"ok": False, "error": edit.error}
-
-            credentials = account_credentials(account) or env_credentials(settings)
-            if credentials is not None:
-                try:
-                    await update_item_price(redis, settings, item_id, target, credentials)
-                except AvitoApiError as error:
-                    logger.warning(
-                        "avito api edit item=%s failed (%s) — fallback to browser",
-                        item_id,
-                        error,
-                    )
-                else:
-                    edit.mode = "live"
-                    edit.status = "reverted" if revert else "applied"
-                    edit.error = None
-                    now = datetime.now(UTC)
-                    if revert:
-                        edit.reverted_at = now
-                    else:
-                        edit.applied_at = now
-                    our.price = target
-                    await session.commit()
-                    logger.info("listing edit %s via API: %s", edit.id, target)
-                    return {
-                        "ok": True,
-                        "mode": "api",
-                        "message": f"цена обновлена через API: {int(round(target))} ₽",
-                    }
-
-            lock_key = f"crawl:account-lock:{account.id}"
-            if not await redis.set(
-                lock_key, f"edit:{edit.id}", nx=True, ex=ACCOUNT_LOCK_TTL_SECONDS
-            ):
+            credentials = (
+                account_credentials(account) if account is not None else None
+            ) or env_credentials(settings)
+            if credentials is None:
                 edit.status = "failed"
-                edit.error = "профиль продавца занят другим действием, повторите позже"
+                edit.error = (
+                    "у аккаунта-продавца нет API-ключей — добавьте client_id/secret "
+                    "в «Аккаунтах» или задайте AVITO_CLIENT_ID/SECRET"
+                )
                 await session.commit()
                 return {"ok": False, "error": edit.error}
-
-            profile_dir = resolve_profile_path(account.profile_dir)
-            screenshot_dir = profile_dir.parent / "edits"
-            outcome = await apply_price_edit(
-                profile_dir=str(profile_dir),
-                proxy_url=await browser_proxy_url(session, account.proxy_url),
-                page_url=build_edit_url(item_id),
-                new_price=target,
-                screenshot_dir=str(screenshot_dir),
-                edit_id=str(edit.id),
-            )
+            try:
+                await update_item_price(redis, settings, item_id, target, credentials)
+            except AvitoApiError as error:
+                edit.status = "failed"
+                edit.error = f"API Авито: {error.message}"
+                await session.commit()
+                return {"ok": False, "error": edit.error}
             edit.mode = "live"
-            edit.screenshot_path = outcome.screenshot_path
-            if outcome.ok:
-                edit.status = "reverted" if revert else "applied"
-                edit.error = None
-                now = datetime.now(UTC)
-                if revert:
-                    edit.reverted_at = now
-                else:
-                    edit.applied_at = now
-                our.price = target
+            edit.status = "reverted" if revert else "applied"
+            edit.error = None
+            now = datetime.now(UTC)
+            if revert:
+                edit.reverted_at = now
             else:
-                edit.status = "failed"
-                edit.error = outcome.message
+                edit.applied_at = now
+            our.price = target
             await session.commit()
-            logger.info("listing edit %s: %s", edit.id, outcome.message)
-            return {"ok": outcome.ok, "mode": "live", "message": outcome.message}
+            logger.info("listing edit %s via API: %s", edit.id, target)
+            return {
+                "ok": True,
+                "mode": "api",
+                "message": f"цена обновлена через API: {int(round(target))} ₽",
+            }
     finally:
-        if lock_key is not None:
-            await redis.delete(lock_key)
         await redis.aclose()
         await dispose_engine()
 

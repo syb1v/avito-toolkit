@@ -196,11 +196,21 @@ async def create_account(payload: AccountCreate, session: DbSession) -> AccountO
     except ValueError as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
     api_user_id: int | None = None
-    if payload.api_client_id and payload.api_client_secret:
-        self_id = await validate_api_credentials(
-            payload.api_client_id, payload.api_client_secret
-        )
+    if payload.role == "seller":
+        if not (payload.api_client_id and payload.api_client_secret):
+            raise HTTPException(
+                status_code=422,
+                detail="аккаунт-продавец создаётся по API: укажите client_id и client_secret",
+            )
+        self_id = await validate_api_credentials(payload.api_client_id, payload.api_client_secret)
         api_user_id = payload.api_user_id or self_id
+        proxy_url = None  # продавцу прокси не нужен: правки идут через API
+    else:
+        if payload.api_client_id or payload.api_client_secret:
+            raise HTTPException(
+                status_code=422,
+                detail="API-ключи — только для аккаунтов-продавцов",
+            )
     account = AvitoAccount(
         name=name,
         profile_dir=await unique_profile_dir(session, name),
@@ -237,6 +247,16 @@ async def update_account(
     if payload.role is not None:
         if payload.role not in VALID_ROLES:
             raise HTTPException(status_code=422, detail=f"role must be {VALID_ROLES}")
+        if payload.role == "seller" and not (account.api_client_id and account.api_client_secret):
+            raise HTTPException(
+                status_code=422,
+                detail="аккаунт-продавец требует API-ключи (client_id/client_secret)",
+            )
+        if payload.role == "searcher" and account.api_client_id:
+            raise HTTPException(
+                status_code=422,
+                detail="аккаунт-поисковик не может иметь API-ключи",
+            )
         account.role = payload.role
     if "proxy_label" in payload.model_fields_set:
         try:

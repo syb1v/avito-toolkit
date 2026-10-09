@@ -863,6 +863,9 @@ export const updateAccountClient = (
     status?: string;
     role?: string;
     proxy_label?: string | null;
+    api_client_id?: string | null;
+    api_client_secret?: string | null;
+    api_user_id?: number | null;
   },
 ) =>
   mutate<Account>(`/api/v1/accounts/${id}`, {
