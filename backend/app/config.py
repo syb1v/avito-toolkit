@@ -87,6 +87,10 @@ class Settings(BaseSettings):
     # Фаза 6: правки объявлений через кабинет продавца
     # dry_run — только фиксируем план (браузер не трогаем); live — реально меняем цену
     seller_edit_mode: str = "dry_run"
+    # Авто-правки: ночной cron и главный выключатель из env (Redis-тумблер — второй гейт).
+    reprice_auto_enabled: bool = False
+    reprice_auto_cron: str = "0 0 * * *"
+    reprice_summary_enabled: bool = True
     seller_edit_max_per_run: int = 5
     avito_edit_url_template: str = "https://www.avito.ru/profile/items/{item_id}/edit"
 

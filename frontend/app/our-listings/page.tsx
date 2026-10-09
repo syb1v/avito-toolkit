@@ -1,6 +1,8 @@
 import Link from "next/link";
 
+import { AutoRepricePanel } from "@/app/components/auto-reprice-panel";
 import { InfoHint } from "@/app/components/info-hint";
+import { SkuEdits } from "@/app/components/sku-edits";
 import { fetchOurListingsOverview, fetchRecommendations } from "@/lib/api";
 import { formatPercent, formatPrice } from "@/lib/format";
 
@@ -41,6 +43,8 @@ export default async function OurListingsPage() {
           API Авито.
         </p>
       </header>
+
+      <AutoRepricePanel />
 
       {rows.length === 0 ? (
         <div className="rounded-xl border border-dashed border-neutral-800 p-6 text-sm text-neutral-400 sm:p-8">
@@ -118,6 +122,7 @@ export default async function OurListingsPage() {
                         </span>
                       ) : null}
                     </div>
+                    <SkuEdits sku={item.sku} />
                   </li>
                 ))}
               </ul>

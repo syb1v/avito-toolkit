@@ -22,6 +22,8 @@ class Recommendation:
     clamped_price: float
     delta_pct: float
     requires_approval: bool
+    market_p25: float | None = None
+    market_p75: float | None = None
 
 
 def build_recommendation(
@@ -63,6 +65,8 @@ def build_recommendation(
         our_price=our_price,
         cost_price=cost_price,
         market_median=market_median,
+        market_p25=market_p25,
+        market_p75=market_p75,
         matched_count=matched_count,
         strategy=target.strategy.value,
         target_price=target.target_price,

@@ -10,16 +10,20 @@ from app.ai.prompts import (
     MODERATION_VERSION,
     PRICE_ADVISOR_SYSTEM_PROMPT,
     PRICE_ADVISOR_VERSION,
+    REPRICE_SUMMARY_SYSTEM_PROMPT,
+    REPRICE_SUMMARY_VERSION,
     build_description_review_prompt,
     build_digest_prompt,
     build_moderation_prompt,
     build_price_prompt,
+    build_reprice_summary_prompt,
 )
 from app.ai.schemas import (
     DescriptionReviewBatch,
     MarketDigest,
     ModerationBatch,
     PriceActionRecommendation,
+    RepriceSummary,
 )
 from app.services.pricing import RepricingContext
 
@@ -108,4 +112,17 @@ async def moderate_listings_batch(
         user_prompt=build_moderation_prompt(query=query, median=median, items=items),
         task="listing_moderation",
         prompt_version=MODERATION_VERSION,
+    )
+
+
+async def summarize_price_edits(
+    *,
+    items: list[tuple[str, str, float, float, str, float | None, float | None, float | None, int]],
+) -> LlmResult[RepriceSummary]:
+    return await complete_structured(
+        RepriceSummary,
+        system_prompt=REPRICE_SUMMARY_SYSTEM_PROMPT,
+        user_prompt=build_reprice_summary_prompt(items=items),
+        task="reprice_summary",
+        prompt_version=REPRICE_SUMMARY_VERSION,
     )

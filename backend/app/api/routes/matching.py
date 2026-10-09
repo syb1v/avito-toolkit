@@ -4,10 +4,12 @@ from typing import Literal
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
+from redis.asyncio import Redis
 from sqlalchemy import select
 
 from app.api.deps import DbSession
 from app.api.schemas import PositionOut, PriceStatsOut
+from app.config import get_settings
 from app.db.models import OurListing, Search
 from app.services.matching import (
     build_our_position,
@@ -23,6 +25,12 @@ from app.services.our_listings import (
     upsert_our_listings,
 )
 from app.services.recommendations import build_recommendations
+from app.services.reprice import (
+    get_auto_reprice_state,
+    load_last_run,
+    next_run_at,
+    set_auto_reprice_state,
+)
 
 router = APIRouter(tags=["matching"])
 
@@ -158,6 +166,67 @@ async def import_our_listings_from_search(
         raise HTTPException(status_code=404, detail="search not found")
     result = await import_from_search(session, search_id, account=account)
     return ImportOut(created=result.created, updated=result.updated, skipped=result.skipped)
+
+
+class AutoRepriceOut(BaseModel):
+    enabled: bool
+    live: bool
+    mode_effective: str
+    live_allowed: bool
+    next_run_at: str | None = None
+    last: dict | None = None
+
+
+class AutoRepricePatch(BaseModel):
+    enabled: bool | None = None
+    live: bool | None = None
+
+
+async def _auto_reprice_out(redis: Redis) -> AutoRepriceOut:
+    settings = get_settings()
+    state = await get_auto_reprice_state(redis, settings)
+    live_allowed = settings.seller_edit_mode == "live"
+    return AutoRepriceOut(
+        enabled=state.enabled,
+        live=state.live,
+        mode_effective="live" if (state.live and live_allowed) else "dry_run",
+        live_allowed=live_allowed,
+        next_run_at=next_run_at(settings),
+        last=await load_last_run(redis),
+    )
+
+
+@router.get("/our-listings/auto-reprice", response_model=AutoRepriceOut)
+async def get_auto_reprice() -> AutoRepriceOut:
+    settings = get_settings()
+    redis = Redis.from_url(settings.redis_url)
+    try:
+        return await _auto_reprice_out(redis)
+    finally:
+        await redis.aclose()
+
+
+@router.patch("/our-listings/auto-reprice", response_model=AutoRepriceOut)
+async def patch_auto_reprice(payload: AutoRepricePatch) -> AutoRepriceOut:
+    """Тумблер авто-правок. Боевой режим запрещён, пока SELLER_EDIT_MODE=dry_run."""
+    settings = get_settings()
+    redis = Redis.from_url(settings.redis_url)
+    try:
+        state = await get_auto_reprice_state(redis, settings)
+        enabled = state.enabled if payload.enabled is None else payload.enabled
+        live = state.live if payload.live is None else payload.live
+        if live and settings.seller_edit_mode != "live":
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "боевой режим запрещён: в .env стоит SELLER_EDIT_MODE=dry_run. "
+                    "После проверки dry-run поменяйте на live и перезапустите сервисы"
+                ),
+            )
+        await set_auto_reprice_state(redis, enabled=enabled, live=live)
+        return await _auto_reprice_out(redis)
+    finally:
+        await redis.aclose()
 
 
 @router.post("/our-listings/{sku}/match", response_model=list[MatchOut])

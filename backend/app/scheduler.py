@@ -128,6 +128,18 @@ def _watchdog_check() -> None:
         logger.exception("watchdog check failed")
 
 
+def _auto_reprice_check() -> None:
+    """Ставит ночную задачу авто-правок (решение о запуске — внутри воркера)."""
+
+    from app.workers.tasks import auto_reprice
+
+    try:
+        auto_reprice.send()
+        logger.info("auto-reprice job sent")
+    except Exception:
+        logger.exception("auto-reprice enqueue failed")
+
+
 def _load_searches() -> list[tuple[str, str]]:
     async def _load() -> list[tuple[str, str]]:
         session_factory = get_session_factory()
@@ -208,6 +220,13 @@ def main() -> None:
         id="watchdog",
     )
     logger.info("watchdog scheduled every %s min", settings.watchdog_interval_minutes)
+    scheduler.add_job(
+        _auto_reprice_check,
+        CronTrigger.from_crontab(settings.reprice_auto_cron, timezone="UTC"),
+        id="auto-reprice",
+        replace_existing=True,
+    )
+    logger.info("auto-reprice scheduled: %s UTC", settings.reprice_auto_cron)
     if settings.account_warmup_enabled:
         scheduler.add_job(
             _enqueue_warmups,

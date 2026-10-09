@@ -31,6 +31,7 @@ class EditOut(BaseModel):
     mode: str
     error: str | None = None
     screenshot_path: str | None = None
+    ai_summary: str | None = None
     created_at: datetime
     applied_at: datetime | None = None
     reverted_at: datetime | None = None
@@ -70,6 +71,7 @@ def _row(edit: ListingEdit, title: str | None) -> EditOut:
         mode=edit.mode,
         error=edit.error,
         screenshot_path=edit.screenshot_path,
+        ai_summary=edit.ai_summary,
         created_at=edit.created_at,
         applied_at=edit.applied_at,
         reverted_at=edit.reverted_at,
@@ -77,14 +79,15 @@ def _row(edit: ListingEdit, title: str | None) -> EditOut:
 
 
 @router.get("", response_model=EditsListOut)
-async def list_edits(session: DbSession, limit: int = 50) -> EditsListOut:
+async def list_edits(session: DbSession, limit: int = 50, sku: str | None = None) -> EditsListOut:
     settings = get_settings()
+    statement = select(ListingEdit)
+    if sku:
+        statement = statement.where(ListingEdit.sku == sku)
     rows = (
         (
             await session.execute(
-                select(ListingEdit)
-                .order_by(ListingEdit.created_at.desc())
-                .limit(max(1, min(limit, 200)))
+                statement.order_by(ListingEdit.created_at.desc()).limit(max(1, min(limit, 200)))
             )
         )
         .scalars()

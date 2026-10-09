@@ -6,6 +6,7 @@ PRICE_ADVISOR_VERSION = "v1"
 DIGEST_VERSION = "v2"
 MODERATION_VERSION = "v1"
 DESCRIPTION_REVIEW_VERSION = "v1"
+REPRICE_SUMMARY_VERSION = "v1"
 
 PRICE_ADVISOR_SYSTEM_PROMPT = """Ты коммерческий директор и ценовой аналитик на Авито.
 Анализируй рыночные метрики и текущую цену товара.
@@ -20,6 +21,12 @@ DIGEST_SYSTEM_PROMPT = """Ты аналитик рынка Авито. Сост�
 предложи целевую цену в price_suggestions (только реально подходящие по названию;
 пустой список допустим). Не выдумывай SKU. Отвечай строго в формате JSON
 по заданной схеме, без пояснений вне JSON."""
+
+REPRICE_SUMMARY_SYSTEM_PROMPT = """Ты объясняешь владельцу магазина, почему система
+изменила цены его объявлений на Авито. По каждому SKU дай короткое (1–2 предложения)
+объяснение на русском: рынок (медиана/P25/P75), позиция цены, стратегия, спрос.
+Без выдуманных данных — только переданные метрики. Общий headline — одна строка.
+Отвечай строго JSON по схеме."""
 
 DESCRIPTION_REVIEW_SYSTEM_PROMPT = """Ты проверяешь, действительно ли стоп-слово в описании
 объявления Авито означает, что товар плохой. Примеры безобидных упоминаний:
@@ -160,3 +167,23 @@ def build_description_review_prompt(
 [{",\n ".join(lines)}]
 
 Для каждого listing_id верни actually_excluded и reason."""
+
+
+def build_reprice_summary_prompt(
+    *,
+    items: list[tuple[str, str, float, float, str, float | None, float | None, float | None, int]],
+) -> str:
+    lines = []
+    for sku, title, old, new, strategy, median, p25, p75, matched in items:
+        lines.append(
+            f"- SKU {sku} | {title}\n"
+            f"  было {old:.0f} → стало {new:.0f} руб. ({strategy}); "
+            f"медиана {median if median is not None else '—'}, "
+            f"P25 {p25 if p25 is not None else '—'}, P75 {p75 if p75 is not None else '—'}, "
+            f"конкурентов {matched}"
+        )
+    return (
+        "Правки цен за ночной прогон:\n"
+        + "\n".join(lines)
+        + "\n\nВерни headline и reason по каждому SKU."
+    )

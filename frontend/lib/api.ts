@@ -499,6 +499,7 @@ export type ListingEdit = {
   mode: string;
   error: string | null;
   screenshot_path: string | null;
+  ai_summary: string | null;
   created_at: string;
   applied_at: string | null;
   reverted_at: string | null;
@@ -517,9 +518,10 @@ export const fetchEdits = async (): Promise<EditsList> =>
     items: [],
   };
 
-export const fetchEditsClient = async (): Promise<EditsList | null> => {
+export const fetchEditsClient = async (sku?: string): Promise<EditsList | null> => {
   try {
-    const response = await fetch(`${API_URL}/api/v1/our-listings/edits`, {
+    const query = sku ? `?sku=${encodeURIComponent(sku)}` : "";
+    const response = await fetch(`${API_URL}/api/v1/our-listings/edits${query}`, {
       cache: "no-store",
     });
     if (!response.ok) {
@@ -581,6 +583,54 @@ export const updateSearchClient = (
 
 export const deleteSearchClient = (id: string) =>
   mutate<void>(`/api/v1/searches/${id}`, { method: "DELETE" });
+
+export type AutoRepriceLastItem = {
+  sku: string;
+  old_price: number;
+  target_price: number;
+  delta_pct: number;
+  status: string;
+  mode: string;
+  reason: string | null;
+};
+
+export type AutoRepriceState = {
+  enabled: boolean;
+  live: boolean;
+  mode_effective: "dry_run" | "live";
+  live_allowed: boolean;
+  next_run_at: string | null;
+  last: {
+    at: string;
+    mode: string;
+    created: number;
+    applied: number;
+    failed: number;
+    drafts: number;
+    headline: string;
+    items: AutoRepriceLastItem[];
+  } | null;
+};
+
+export async function fetchAutoRepriceClient(): Promise<AutoRepriceState | null> {
+  try {
+    const response = await fetch(`${API_URL}/api/v1/our-listings/auto-reprice`, {
+      cache: "no-store",
+    });
+    if (!response.ok) {
+      return null;
+    }
+    return (await response.json()) as AutoRepriceState;
+  } catch {
+    return null;
+  }
+}
+
+export const patchAutoRepriceClient = (payload: { enabled?: boolean; live?: boolean }) =>
+  mutate<AutoRepriceState>("/api/v1/our-listings/auto-reprice", {
+    method: "PATCH",
+    body: JSON.stringify(payload),
+  });
 
 export const createEditsClient = (payload: { sku?: string; max_items?: number }) =>
   mutate<{ created: number; items: ListingEdit[] }>("/api/v1/our-listings/edits", {

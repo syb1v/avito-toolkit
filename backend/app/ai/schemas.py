@@ -26,6 +26,16 @@ class MarketDigest(BaseModel):
     price_suggestions: list[PriceSuggestion] = Field(default_factory=list)
 
 
+class RepriceSummaryItem(BaseModel):
+    sku: str
+    reason: str = Field(..., description="1–2 предложения: почему меняем цену")
+
+
+class RepriceSummary(BaseModel):
+    headline: str
+    items: list[RepriceSummaryItem]
+
+
 class DescriptionReviewItem(BaseModel):
     listing_id: int
     actually_excluded: bool = Field(

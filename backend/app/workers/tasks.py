@@ -12,6 +12,9 @@ from redis.asyncio import Redis
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from app.ai.prompts import REPRICE_SUMMARY_VERSION
+from app.ai.runs import record_llm_run
+from app.ai.tasks import summarize_price_edits
 from app.collectors.base import BotChallengeError, RateLimitedError, SourceAdapter
 from app.collectors.ratelimit import RedisRateLimiter
 from app.collectors.transport.http_cffi import HttpCffiTransport
@@ -44,7 +47,13 @@ from app.services.moderation import enrich_descriptions, moderate_search
 from app.services.our_listings import ImportRow, sku_for_item, upsert_our_listings
 from app.services.progress import CrawlProgress
 from app.services.proxy_pool import build_proxy_pool
+from app.services.recommendations import build_recommendations
 from app.services.regions import with_city
+from app.services.reprice import (
+    get_auto_reprice_state,
+    save_last_run,
+    select_recommendations,
+)
 from app.services.seller import apply_price_edit, build_edit_url, item_id_from_url
 
 logger = logging.getLogger(__name__)
@@ -790,3 +799,141 @@ async def _import_own_listings(account_id: str) -> dict[str, object]:
 def import_own_listings(account_id: str) -> None:
     """Забирает свои объявления из профиля аккаунта в «Наши объявления»."""
     asyncio.run(_import_own_listings(account_id))
+
+
+async def _auto_reprice() -> dict[str, object]:
+    """Ночной прогон авто-правок: рекомендации → черновики/применение → AI-сводка."""
+    settings = get_settings()
+    redis = Redis.from_url(settings.redis_url)
+    session_factory = async_sessionmaker(get_engine(), expire_on_commit=False)
+    try:
+        state = await get_auto_reprice_state(redis, settings)
+        if not state.enabled:
+            return {"skipped": "auto-reprice disabled"}
+        effective_live = state.live and settings.seller_edit_mode == "live"
+        mode = "live" if effective_live else "dry_run"
+        async with session_factory() as session:
+            recommendations = await build_recommendations(session)
+            recommendations_by_sku = {item.sku: item for item in recommendations}
+            our_rows = await session.execute(
+                select(OurListing.sku, OurListing.avito_item_id, OurListing.avito_url).where(
+                    OurListing.is_active.is_(True)
+                )
+            )
+            active_skus = {row[0]: (row[1], row[2]) for row in our_rows.all()}
+            busy_rows = await session.execute(
+                select(ListingEdit.sku).where(
+                    ListingEdit.status.in_(("draft", "approved", "applying", "reverting"))
+                )
+            )
+            busy_skus = {row[0] for row in busy_rows.all()}
+            selected = select_recommendations(
+                recommendations, busy_skus=busy_skus, active_skus=active_skus
+            )
+            created: list[ListingEdit] = []
+            for recommendation in selected:
+                edit = ListingEdit(
+                    sku=recommendation.sku,
+                    old_price=recommendation.our_price,
+                    target_price=recommendation.clamped_price,
+                    delta_pct=recommendation.delta_pct,
+                    strategy=recommendation.strategy,
+                    status="draft" if recommendation.requires_approval else "approved",
+                    mode=mode,
+                )
+                session.add(edit)
+                created.append(edit)
+            await session.commit()
+            for edit in created:
+                await session.refresh(edit)
+            headline = ""
+            if (
+                created
+                and settings.reprice_summary_enabled
+                and settings.deepseek_api_key
+                and settings.llm_model.startswith("deepseek/")
+            ):
+                items = []
+                for edit in created:
+                    recommendation = recommendations_by_sku[edit.sku]
+                    items.append(
+                        (
+                            edit.sku,
+                            recommendation.title,
+                            float(edit.old_price),
+                            float(edit.target_price),
+                            edit.strategy,
+                            recommendation.market_median,
+                            recommendation.market_p25,
+                            recommendation.market_p75,
+                            recommendation.matched_count,
+                        )
+                    )
+                try:
+                    summary = await summarize_price_edits(items=items)
+                except Exception as error:  # noqa: BLE001 — сводка не критична
+                    logger.warning("reprice summary failed: %s", error)
+                else:
+                    await record_llm_run(
+                        session,
+                        task="reprice_summary",
+                        result=summary,
+                        prompt_version=REPRICE_SUMMARY_VERSION,
+                    )
+                    reasons = {item.sku: item.reason for item in summary.content.items}
+                    headline = summary.content.headline
+                    for edit in created:
+                        edit.ai_summary = reasons.get(edit.sku)
+                    await session.commit()
+            applied = failed = 0
+            item_payload = []
+            for edit in created:
+                status = edit.status
+                if status == "approved":
+                    try:
+                        outcome = await _apply_listing_edit(str(edit.id), False)
+                    except Exception as error:  # noqa: BLE001 — фиксируем и едем дальше
+                        logger.warning("auto apply %s failed: %s", edit.sku, error)
+                        failed += 1
+                    else:
+                        if outcome.get("ok"):
+                            applied += 1
+                        else:
+                            failed += 1
+                    await asyncio.sleep(random.uniform(2.0, 5.0))
+                item_payload.append(
+                    {
+                        "sku": edit.sku,
+                        "old_price": float(edit.old_price),
+                        "target_price": float(edit.target_price),
+                        "delta_pct": round(edit.delta_pct, 2),
+                        "status": edit.status,
+                        "mode": edit.mode,
+                        "reason": edit.ai_summary,
+                    }
+                )
+            payload: dict[str, object] = {
+                "at": datetime.now(UTC).isoformat(),
+                "mode": mode,
+                "created": len(created),
+                "applied": applied,
+                "failed": failed,
+                "drafts": sum(1 for edit in created if edit.status == "draft"),
+                "headline": headline,
+                "items": item_payload,
+            }
+            await save_last_run(redis, payload)
+            logger.info(
+                "auto-reprice done: %s",
+                {k: payload[k] for k in ("created", "applied", "drafts", "failed")},
+            )
+            return payload
+    finally:
+        await redis.aclose()
+        await dispose_engine()
+
+
+@dramatiq.actor(queue_name="analytics", max_retries=1, time_limit=ANALYTICS_TIME_LIMIT_MS)
+def auto_reprice() -> None:
+    """Ночной прогон авто-правок цен."""
+    asyncio.run(_auto_reprice())
