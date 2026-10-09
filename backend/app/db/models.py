@@ -39,6 +39,10 @@ class AvitoAccount(Base):
     last_check_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     last_check_ok: Mapped[bool | None] = mapped_column(Boolean)
     last_error: Mapped[str | None] = mapped_column(Text)
+    # Официальный API (developers.avito.ru): аккаунт может работать без cookies
+    api_client_id: Mapped[str | None] = mapped_column(String(128))
+    api_client_secret: Mapped[str | None] = mapped_column(Text)
+    api_user_id: Mapped[int | None] = mapped_column(BigInteger)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()

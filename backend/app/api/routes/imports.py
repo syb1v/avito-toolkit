@@ -7,7 +7,7 @@ from typing import Annotated, Any
 from fastapi import APIRouter, File, HTTPException, UploadFile
 from pydantic import BaseModel, Field
 from redis.asyncio import Redis
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from app.ai.client import LlmNotConfiguredError
 from app.ai.prompts import SEARCH_FILTERS_VERSION
@@ -15,8 +15,9 @@ from app.ai.runs import record_llm_run
 from app.ai.tasks import generate_search_filters
 from app.api.deps import DbSession
 from app.config import get_settings
-from app.db.models import AvitoAccount, Search
+from app.db.models import AvitoAccount, OurListing, Search
 from app.services.import_file import (
+    FileRow,
     fallback_query,
     load_staging,
     parse_xlsx,
@@ -133,6 +134,108 @@ async def _merge_filters(
             exclude_keywords=decision.exclude_keywords,
             generated=True,
         )
+
+
+class ApiAccountOut(BaseModel):
+    id: uuid.UUID
+    name: str
+    items_count: int
+
+
+class FromAccountIn(BaseModel):
+    account_id: uuid.UUID | None = None
+
+
+@router.get("/accounts", response_model=list[ApiAccountOut])
+async def list_api_accounts(session: DbSession) -> list[ApiAccountOut]:
+    """API-аккаунты-продавцы и число наших SKU по каждому (для источника импорта)."""
+    accounts = (
+        (
+            await session.execute(
+                select(AvitoAccount)
+                .where(AvitoAccount.api_client_id.is_not(None))
+                .order_by(AvitoAccount.name)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    if not accounts:
+        return []
+    count_rows = await session.execute(
+        select(OurListing.account, func.count())
+        .where(
+            OurListing.account.in_([account.name for account in accounts]),
+            OurListing.avito_item_id.is_not(None),
+        )
+        .group_by(OurListing.account)
+    )
+    counts = {row[0]: int(row[1]) for row in count_rows.all()}
+    return [
+        ApiAccountOut(id=account.id, name=account.name, items_count=counts.get(account.name, 0))
+        for account in accounts
+    ]
+
+
+@router.post("/from-account", response_model=ImportFileOut)
+async def staging_from_account(payload: FromAccountIn, session: DbSession) -> ImportFileOut:
+    """Строки для импорта берутся из наших SKU API-аккаунтов (а не из файла)."""
+    if payload.account_id is not None:
+        account = await session.get(AvitoAccount, payload.account_id)
+        if account is None or not account.api_client_id:
+            raise HTTPException(status_code=404, detail="API-аккаунт не найден")
+        names = [account.name]
+    else:
+        names = [
+            account.name
+            for account in (
+                await session.execute(
+                    select(AvitoAccount).where(AvitoAccount.api_client_id.is_not(None))
+                )
+            )
+            .scalars()
+            .all()
+        ]
+    if not names:
+        raise HTTPException(status_code=404, detail="нет API-аккаунтов — добавьте аккаунт по ключу")
+    listings = (
+        (
+            await session.execute(
+                select(OurListing)
+                .where(
+                    OurListing.account.in_(names),
+                    OurListing.avito_item_id.is_not(None),
+                    OurListing.is_active.is_(True),
+                )
+                .order_by(OurListing.title)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    rows = [
+        FileRow(
+            avito_id=int(listing.avito_item_id or 0),
+            title=listing.title,
+            price=float(listing.price),
+            status=listing.avito_status,
+            category=None,
+        )
+        for listing in listings
+        if (listing.avito_item_id or 0) > 0 and float(listing.price) > 0
+    ]
+    if not rows:
+        raise HTTPException(
+            status_code=404,
+            detail="у API-аккаунтов ещё нет товаров в базе — импортируйте их из файла один раз",
+        )
+    settings = get_settings()
+    redis = Redis.from_url(settings.redis_url)
+    try:
+        token = await save_staging(redis, rows)
+    finally:
+        await redis.aclose()
+    return ImportFileOut(token=token, total=len(rows), rows=[row.to_dict() for row in rows])
 
 
 @router.post("/{token}/filters", response_model=FiltersOut)

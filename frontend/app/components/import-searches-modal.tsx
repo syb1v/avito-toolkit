@@ -1,16 +1,19 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { Modal } from "@/app/components/modal";
 import { useConfirm } from "@/app/components/confirm";
 import { useToast } from "@/app/components/toast";
 import {
   applyImportFileClient,
+  fetchImportAccountsClient,
   generateImportFiltersClient,
+  importFromAccountClient,
   uploadImportFile,
   type Account,
+  type ImportAccountOption,
   type ImportFileResult,
   type ImportFilter,
   type ImportFileRow,
@@ -66,12 +69,27 @@ export function ImportSearchesModal({ accounts }: { accounts: Account[] }) {
   const [aiBusy, setAiBusy] = useState(false);
   const [applyBusy, setApplyBusy] = useState(false);
   const [accountId, setAccountId] = useState("");
+  const [source, setSource] = useState<"file" | "api">("file");
+  const [apiAccounts, setApiAccounts] = useState<ImportAccountOption[]>([]);
+  const [apiAccountId, setApiAccountId] = useState("");
+  const [apiBusy, setApiBusy] = useState(false);
   const [regions, setRegions] = useState<string[]>([]);
   const [excludeRegions, setExcludeRegions] = useState<string[]>([]);
   const inputRef = useRef<HTMLInputElement>(null);
   const router = useRouter();
   const toast = useToast();
   const confirm = useConfirm();
+
+  useEffect(() => {
+    if (!open) {
+      return;
+    }
+    fetchImportAccountsClient().then((accounts) => {
+      if (accounts) {
+        setApiAccounts(accounts);
+      }
+    });
+  }, [open]);
 
   const rows = useMemo(() => parsed?.rows ?? [], [parsed]);
   const usable = useMemo(() => rows.filter(usableRow), [rows]);
@@ -265,32 +283,116 @@ export function ImportSearchesModal({ accounts }: { accounts: Account[] }) {
       >
         {parsed === null ? (
           <div className="flex flex-col gap-3">
-            <p className="text-sm text-neutral-400">
-              Загрузите xlsx-выгрузку своих объявлений из кабинета Авито. Мы разберём
-              файл, предложим AI-фильтры (что обязательно в названии, что исключать —
-              цвета, другие модели), вы отметите товары и создадите поиски.
-            </p>
-            <input
-              ref={inputRef}
-              type="file"
-              accept=".xlsx"
-              className="hidden"
-              onChange={(event) => {
-                const file = event.target.files?.[0];
-                if (file) {
-                  onFile(file);
-                }
-                event.target.value = "";
-              }}
-            />
-            <button
-              type="button"
-              disabled={fileBusy}
-              onClick={() => inputRef.current?.click()}
-              className="self-start rounded-lg border border-sky-500/40 bg-sky-500/10 px-4 py-2 text-sm text-sky-200 transition hover:bg-sky-500/20 disabled:opacity-50"
-            >
-              {fileBusy ? "Разбираю файл…" : "Выбрать xlsx"}
-            </button>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => setSource("file")}
+                className={`flex-1 rounded-lg border px-3 py-2 text-xs transition ${
+                  source === "file"
+                    ? "border-sky-500/40 bg-sky-500/10 text-sky-200"
+                    : "border-neutral-800 text-neutral-400 hover:border-neutral-600"
+                }`}
+              >
+                Из файла xlsx
+              </button>
+              <button
+                type="button"
+                onClick={() => setSource("api")}
+                className={`flex-1 rounded-lg border px-3 py-2 text-xs transition ${
+                  source === "api"
+                    ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-200"
+                    : "border-neutral-800 text-neutral-400 hover:border-neutral-600"
+                }`}
+              >
+                Из API-аккаунтов
+              </button>
+            </div>
+            {source === "file" ? (
+              <>
+                <p className="text-sm text-neutral-400">
+                  Загрузите xlsx-выгрузку своих объявлений из кабинета Авито. Мы разберём
+                  файл, предложим AI-фильтры (что обязательно в названии, что исключать —
+                  цвета, другие модели), вы отметите товары и создадите поиски.
+                </p>
+                <input
+                  ref={inputRef}
+                  type="file"
+                  accept=".xlsx"
+                  className="hidden"
+                  onChange={(event) => {
+                    const file = event.target.files?.[0];
+                    if (file) {
+                      onFile(file);
+                    }
+                    event.target.value = "";
+                  }}
+                />
+                <button
+                  type="button"
+                  disabled={fileBusy}
+                  onClick={() => inputRef.current?.click()}
+                  className="self-start rounded-lg border border-sky-500/40 bg-sky-500/10 px-4 py-2 text-sm text-sky-200 transition hover:bg-sky-500/20 disabled:opacity-50"
+                >
+                  {fileBusy ? "Разбираю файл…" : "Выбрать xlsx"}
+                </button>
+              </>
+            ) : (
+              <>
+                <p className="text-sm text-neutral-400">
+                  Товары берутся из «Наших объявлений» API-аккаунтов (те, что уже
+                  импортированы из файла один раз). Дальше — как обычно: AI-фильтры,
+                  выбор и создание поисков.
+                </p>
+                {apiAccounts.length === 0 ? (
+                  <p className="text-xs text-amber-300/80">
+                    API-аккаунтов нет — добавьте аккаунт продавца по ключу в блоке «Аккаунты».
+                  </p>
+                ) : (
+                  <>
+                    <label className="flex items-center gap-2 text-xs text-neutral-400">
+                      Аккаунт
+                      <select
+                        value={apiAccountId}
+                        onChange={(event) => setApiAccountId(event.target.value)}
+                        className="rounded-lg border border-neutral-800 bg-neutral-950 px-2 py-1.5 text-xs text-neutral-200 outline-none focus:border-sky-500/60"
+                      >
+                        <option value="">
+                          Все API-аккаунты (
+                          {apiAccounts.reduce((sum, item) => sum + item.items_count, 0)})
+                        </option>
+                        {apiAccounts.map((item) => (
+                          <option key={item.id} value={item.id}>
+                            {item.name} ({item.items_count})
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <button
+                      type="button"
+                      disabled={apiBusy}
+                      onClick={async () => {
+                        setApiBusy(true);
+                        const result = await importFromAccountClient(apiAccountId || null);
+                        setApiBusy(false);
+                        if ("error" in result) {
+                          toast.push("error", result.error);
+                          return;
+                        }
+                        setParsed(result);
+                        setSelected(new Set());
+                        setFilters({});
+                        setEdits({});
+                        setPage(0);
+                        toast.push("info", `Товаров загружено: ${result.total}`);
+                      }}
+                      className="self-start rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-4 py-2 text-sm text-emerald-200 transition hover:bg-emerald-500/20 disabled:opacity-50"
+                    >
+                      {apiBusy ? "Загружаю…" : "Загрузить товары"}
+                    </button>
+                  </>
+                )}
+              </>
+            )}
           </div>
         ) : (
           <div className="flex flex-col gap-3">

@@ -18,7 +18,7 @@ from app.ai.tasks import summarize_price_edits
 from app.collectors.base import BotChallengeError, RateLimitedError, SourceAdapter
 from app.collectors.ratelimit import RedisRateLimiter
 from app.collectors.transport.http_cffi import HttpCffiTransport
-from app.collectors.web.parsing import parse_profile_items, parse_search_page
+from app.collectors.web.parsing import parse_search_page
 from app.config import get_settings
 from app.db.models import (
     Alert,
@@ -40,13 +40,19 @@ from app.services.account_care import (
 from app.services.accounts import account_for_search, resolve_profile_path
 from app.services.alerts import evaluate_search_alerts
 from app.services.analytics.service import recalc_daily_analytics
-from app.services.avito_api import AvitoApiError, api_configured, update_item_price
+from app.services.avito_api import (
+    AvitoApiError,
+    account_credentials,
+    env_credentials,
+    fetch_item_info,
+    fetch_self,
+    update_item_price,
+)
 from app.services.collector import CrawlResult, SearchCollector
 from app.services.cookies import apply_cookies_to_profile, parse_cookie_input
 from app.services.crawl_guard import CrawlGuard, classify_failure
-from app.services.matching import match_all_our_listings, match_our_listing
+from app.services.matching import match_all_our_listings
 from app.services.moderation import enrich_descriptions, moderate_search
-from app.services.our_listings import ImportRow, sku_for_item, upsert_our_listings
 from app.services.progress import CrawlProgress
 from app.services.proxy_pool import browser_proxy_url, build_proxy_pool
 from app.services.recommendations import build_recommendations
@@ -524,9 +530,10 @@ async def _apply_listing_edit(edit_id: str, revert: bool) -> dict[str, object]:
                 await session.commit()
                 return {"ok": False, "error": edit.error}
 
-            if api_configured(settings):
+            credentials = account_credentials(account) or env_credentials(settings)
+            if credentials is not None:
                 try:
-                    await update_item_price(redis, settings, item_id, target)
+                    await update_item_price(redis, settings, item_id, target, credentials)
                 except AvitoApiError as error:
                     logger.warning(
                         "avito api edit item=%s failed (%s) — fallback to browser",
@@ -739,79 +746,96 @@ def apply_account_cookies(account_id: str, raw: str, fresh: bool = True) -> None
     logger.info("account cookies applied: %s", result)
 
 
-OWN_IMPORT_KEY = "own-import:{account_id}"
-OWN_IMPORT_TTL_SECONDS = 3600
-OWN_PROFILE_URL = "https://www.avito.ru/profile/items"
-OWN_IMPORT_MAX_PAGES = 5
+SYNC_KEY = "account-sync:{account_id}"
+SYNC_TTL_SECONDS = 3600
 
 
-async def _import_own_listings(account_id: str) -> dict[str, object]:
-    """Импорт своих объявлений со страницы профиля через аккаунт (cookies+proxy)."""
+def _extract_price(info: dict[str, object]) -> float | None:
+    price = info.get("price")
+    if isinstance(price, (int, float)):
+        return float(price)
+    if isinstance(price, dict):
+        for key in ("value", "amount"):
+            value = price.get(key)
+            if isinstance(value, (int, float)):
+                return float(value)
+    return None
+
+
+async def _sync_account_items(account_id: str) -> dict[str, object]:
+    """Обновляет цены/статусы наших SKU аккаунта через официальный API."""
     settings = get_settings()
     redis = Redis.from_url(settings.redis_url)
     session_factory = async_sessionmaker(get_engine(), expire_on_commit=False)
-    transport: SourceAdapter | None = None
-    key = OWN_IMPORT_KEY.format(account_id=account_id)
+    key = SYNC_KEY.format(account_id=account_id)
     try:
         async with session_factory() as session:
             account = await session.get(AvitoAccount, uuid.UUID(account_id))
             if account is None:
                 raise LookupError(f"account {account_id} not found")
-            await redis.set(key, json.dumps({"status": "running"}), ex=OWN_IMPORT_TTL_SECONDS)
-            if (account.proxy_url or "").startswith("socks5"):
-                raise RuntimeError(
-                    "прокси аккаунта — SOCKS5, браузер его не поддерживает: укажите HTTP-прокси"
-                )
-            transport = await _build_transport(
-                redis,
-                session,
-                user_data_dir=str(resolve_profile_path(account.profile_dir)),
-                proxy_url=account.proxy_url,
-            )
-            rows: list[ImportRow] = []
-            seen: set[int] = set()
-            for page in range(1, OWN_IMPORT_MAX_PAGES + 1):
-                page_html = await transport.fetch(f"{OWN_PROFILE_URL}?page={page}")
-                fresh = [
-                    item
-                    for item in parse_profile_items(page_html.body)
-                    if item.listing_id not in seen
-                ]
-                if not fresh:
-                    break
-                for item in fresh:
-                    seen.add(item.listing_id)
-                    if item.price is None:
-                        continue
-                    rows.append(
-                        ImportRow(
-                            sku=sku_for_item(item.listing_id),
-                            title=item.title,
-                            price=item.price,
-                            account=account.name,
-                            avito_item_id=item.listing_id,
-                            avito_url=item.url,
-                            avito_status="active",
+            await redis.set(key, json.dumps({"status": "running"}), ex=SYNC_TTL_SECONDS)
+            credentials = account_credentials(account)
+            if credentials is None:
+                raise RuntimeError("у аккаунта нет API-ключей — добавьте client_id/secret")
+            user_id = account.api_user_id
+            if user_id is None:
+                me = await fetch_self(redis, settings, credentials)
+                raw_id = me.get("id")
+                if not isinstance(raw_id, int):
+                    raise RuntimeError("API не вернул user id")
+                user_id = raw_id
+                account.api_user_id = user_id
+            rows = (
+                (
+                    await session.execute(
+                        select(OurListing).where(
+                            OurListing.account == account.name,
+                            OurListing.avito_item_id.is_not(None),
                         )
                     )
-            result = await upsert_our_listings(session, rows)
-            matched = 0
-            for row in rows:
+                )
+                .scalars()
+                .all()
+            )
+            updated = failed = 0
+            items: list[dict[str, object]] = []
+            for listing in rows:
+                item_id = int(listing.avito_item_id or 0)
+                if item_id <= 0:
+                    continue
                 try:
-                    await match_our_listing(session, row.sku)
-                    matched += 1
-                except Exception as error:  # noqa: BLE001 — импорт важнее матчинга
-                    logger.warning("own import match failed %s: %s", row.sku, error)
+                    info = await fetch_item_info(redis, settings, credentials, user_id, item_id)
+                except AvitoApiError as error:
+                    failed += 1
+                    items.append({"sku": listing.sku, "error": error.message})
+                    continue
+                new_price = _extract_price(info)
+                status = info.get("status")
+                changed = False
+                if new_price is not None and float(listing.price) != new_price:
+                    listing.price = new_price
+                    changed = True
+                if isinstance(status, str) and status and listing.avito_status != status:
+                    listing.avito_status = status
+                    changed = True
+                if changed:
+                    updated += 1
+                items.append(
+                    {
+                        "sku": listing.sku,
+                        "price": float(listing.price),
+                        "status": listing.avito_status,
+                    }
+                )
             await session.commit()
-            payload = {
+            payload: dict[str, object] = {
                 "status": "done",
-                "created": result.created,
-                "updated": result.updated,
-                "matched": matched,
                 "total": len(rows),
-                "items": [{"sku": row.sku, "title": row.title, "price": row.price} for row in rows],
+                "updated": updated,
+                "failed": failed,
+                "items": items[:200],
             }
-            await redis.set(key, json.dumps(payload, ensure_ascii=False), ex=OWN_IMPORT_TTL_SECONDS)
+            await redis.set(key, json.dumps(payload, ensure_ascii=False), ex=SYNC_TTL_SECONDS)
             return payload
     except Exception as error:
         await redis.set(
@@ -820,20 +844,18 @@ async def _import_own_listings(account_id: str) -> dict[str, object]:
                 {"status": "error", "error": f"{type(error).__name__}: {error}"},
                 ensure_ascii=False,
             ),
-            ex=OWN_IMPORT_TTL_SECONDS,
+            ex=SYNC_TTL_SECONDS,
         )
         raise
     finally:
-        if transport is not None:
-            await transport.close()
         await redis.aclose()
         await dispose_engine()
 
 
-@dramatiq.actor(queue_name="crawl", max_retries=1, time_limit=ANALYTICS_TIME_LIMIT_MS)
-def import_own_listings(account_id: str) -> None:
-    """Забирает свои объявления из профиля аккаунта в «Наши объявления»."""
-    asyncio.run(_import_own_listings(account_id))
+@dramatiq.actor(queue_name="analytics", max_retries=1, time_limit=ANALYTICS_TIME_LIMIT_MS)
+def sync_account_items(account_id: str) -> None:
+    """Синхронизирует наши SKU аккаунта через официальный API."""
+    asyncio.run(_sync_account_items(account_id))
 
 
 async def _auto_reprice() -> dict[str, object]:

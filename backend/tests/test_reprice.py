@@ -136,3 +136,12 @@ def test_avito_api_helpers() -> None:
     plain = parse_error(500, "boom")
     assert plain.code == 500
     assert plain.message == "boom"
+
+
+def test_extract_item_price_variants() -> None:
+    from app.workers.tasks import _extract_price
+
+    assert _extract_price({"price": 2437}) == 2437.0
+    assert _extract_price({"price": {"value": 42000}}) == 42000.0
+    assert _extract_price({"price": {"amount": "1500"}}) is None
+    assert _extract_price({}) is None

@@ -31,6 +31,8 @@ export type Account = {
   last_check_at: string | null;
   last_check_ok: boolean | null;
   last_error: string | null;
+  api_configured?: boolean;
+  api_user_id?: number | null;
   searches_count: number;
   profile_exists: boolean;
   pages_today: number;
@@ -731,6 +733,8 @@ export const createAccountClient = (payload: {
   notes?: string | null;
   role?: "searcher" | "seller";
   proxy_label?: string | null;
+  api_client_id?: string | null;
+  api_client_secret?: string | null;
 }) =>
   mutate<Account>("/api/v1/accounts", { method: "POST", body: JSON.stringify(payload) });
 
@@ -771,32 +775,74 @@ export const restAccountClient = (id: string, minutes?: number) =>
 export const resumeAccountClient = (id: string) =>
   mutate<{ status: string }>(`/api/v1/accounts/${id}/resume`, { method: "POST" });
 
-export type OwnImportStatus = {
+export type SyncApiStatus = {
   status: "idle" | "running" | "done" | "error";
-  created?: number;
-  updated?: number;
-  matched?: number;
   total?: number;
+  updated?: number;
+  failed?: number;
   error?: string;
-  items?: { sku: string; title: string; price: number }[];
+  items?: { sku: string; price?: number; status?: string | null; error?: string }[];
 };
 
-export const startOwnImportClient = (id: string) =>
-  mutate<{ status: string }>(`/api/v1/accounts/${id}/import-listings`, {
+export const startSyncApiClient = (id: string) =>
+  mutate<{ status: string }>(`/api/v1/accounts/${id}/sync-api`, {
     method: "POST",
   });
 
-export async function fetchOwnImportStatus(id: string): Promise<OwnImportStatus | null> {
+export async function fetchSyncApiStatus(id: string): Promise<SyncApiStatus | null> {
   try {
-    const response = await fetch(`${API_URL}/api/v1/accounts/${id}/import-listings`, {
+    const response = await fetch(`${API_URL}/api/v1/accounts/${id}/sync-api`, {
       cache: "no-store",
     });
     if (!response.ok) {
       return null;
     }
-    return (await response.json()) as OwnImportStatus;
+    return (await response.json()) as SyncApiStatus;
   } catch {
     return null;
+  }
+}
+
+export type ImportAccountOption = {
+  id: string;
+  name: string;
+  items_count: number;
+};
+
+export async function fetchImportAccountsClient(): Promise<ImportAccountOption[] | null> {
+  try {
+    const response = await fetch(`${API_URL}/api/v1/searches/import-file/accounts`, {
+      cache: "no-store",
+    });
+    if (!response.ok) {
+      return null;
+    }
+    return (await response.json()) as ImportAccountOption[];
+  } catch {
+    return null;
+  }
+}
+
+export async function importFromAccountClient(
+  accountId: string | null,
+): Promise<ImportFileResult | { error: string }> {
+  try {
+    const response = await fetch(`${API_URL}/api/v1/searches/import-file/from-account`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ account_id: accountId }),
+    });
+    const body: unknown = await response.json().catch(() => null);
+    if (!response.ok) {
+      const detail =
+        body && typeof body === "object" && "detail" in body
+          ? String((body as { detail: unknown }).detail)
+          : `HTTP ${response.status}`;
+      return { error: detail };
+    }
+    return body as ImportFileResult;
+  } catch {
+    return { error: "API недоступен" };
   }
 }
 

@@ -31,6 +31,8 @@ class AccountCreate(BaseModel):
     notes: str | None = None
     role: str = "searcher"
     proxy_label: str | None = None
+    api_client_id: str | None = Field(default=None, max_length=128)
+    api_client_secret: str | None = None
 
 
 class AccountUpdate(BaseModel):
@@ -39,6 +41,8 @@ class AccountUpdate(BaseModel):
     status: str | None = None
     role: str | None = None
     proxy_label: str | None = None
+    api_client_id: str | None = None
+    api_client_secret: str | None = None
 
 
 class AccountCookiesIn(BaseModel):
@@ -58,6 +62,8 @@ class AccountOut(BaseModel):
     last_check_at: datetime | None
     last_check_ok: bool | None
     last_error: str | None
+    api_configured: bool = False
+    api_user_id: int | None = None
     searches_count: int
     profile_exists: bool
     pages_today: int = 0
@@ -93,6 +99,8 @@ def _account_out(
         last_check_at=account.last_check_at,
         last_check_ok=account.last_check_ok,
         last_error=account.last_error,
+        api_configured=bool(account.api_client_id and account.api_client_secret),
+        api_user_id=account.api_user_id,
         searches_count=searches_count,
         profile_exists=resolve_profile_path(account.profile_dir).exists(),
         pages_today=int(care.get("pages_today") or 0),
@@ -102,6 +110,30 @@ def _account_out(
         rest_until=_care_dt(care.get("rest_until")),
         rest_reason=care.get("rest_reason"),
     )
+
+
+async def validate_api_credentials(client_id: str, client_secret: str) -> int:
+    """Проверяет API-ключи через /accounts/self, возвращает user_id."""
+    from app.services.avito_api import ApiCredentials, AvitoApiError, fetch_self
+
+    settings = get_settings()
+    redis = Redis.from_url(settings.redis_url)
+    try:
+        me = await fetch_self(
+            redis, settings, ApiCredentials(client_id=client_id, client_secret=client_secret)
+        )
+    except AvitoApiError as error:
+        raise HTTPException(
+            status_code=422, detail=f"API-ключи не приняты: {error.message}"
+        ) from error
+    except Exception as error:  # noqa: BLE001
+        raise HTTPException(status_code=502, detail=f"API недоступен: {error}") from error
+    finally:
+        await redis.aclose()
+    user_id = me.get("id")
+    if not isinstance(user_id, int):
+        raise HTTPException(status_code=422, detail="в ответе API нет user id")
+    return user_id
 
 
 async def _load(session: DbSession, account_id: uuid.UUID) -> AvitoAccount:
@@ -161,6 +193,11 @@ async def create_account(payload: AccountCreate, session: DbSession) -> AccountO
         proxy_url = resolve_proxy_label(payload.proxy_label)
     except ValueError as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
+    api_user_id: int | None = None
+    if payload.api_client_id and payload.api_client_secret:
+        api_user_id = await validate_api_credentials(
+            payload.api_client_id, payload.api_client_secret
+        )
     account = AvitoAccount(
         name=name,
         profile_dir=await unique_profile_dir(session, name),
@@ -168,6 +205,9 @@ async def create_account(payload: AccountCreate, session: DbSession) -> AccountO
         proxy_url=proxy_url,
         status="active",
         notes=payload.notes,
+        api_client_id=payload.api_client_id,
+        api_client_secret=payload.api_client_secret,
+        api_user_id=api_user_id,
     )
     session.add(account)
     await session.commit()
@@ -200,6 +240,18 @@ async def update_account(
             account.proxy_url = resolve_proxy_label(payload.proxy_label)
         except ValueError as error:
             raise HTTPException(status_code=422, detail=str(error)) from error
+    if (
+        "api_client_id" in payload.model_fields_set
+        or "api_client_secret" in payload.model_fields_set
+    ):
+        account.api_client_id = payload.api_client_id
+        account.api_client_secret = payload.api_client_secret
+        if payload.api_client_id and payload.api_client_secret:
+            account.api_user_id = await validate_api_credentials(
+                payload.api_client_id, payload.api_client_secret
+            )
+        else:
+            account.api_user_id = None
     await session.commit()
     await session.refresh(account)
     return _account_out(account, await _searches_count(session, account.id))
@@ -212,24 +264,26 @@ async def delete_account(account_id: uuid.UUID, session: DbSession) -> None:
     await session.commit()
 
 
-@router.post("/{account_id}/import-listings", status_code=202)
-async def start_import_listings(account_id: uuid.UUID, session: DbSession) -> dict[str, Any]:
-    """Ставит импорт своих объявлений из профиля аккаунта."""
+@router.post("/{account_id}/sync-api", status_code=202)
+async def start_sync_api(account_id: uuid.UUID, session: DbSession) -> dict[str, Any]:
+    """Ставит синхронизацию наших SKU аккаунта через официальный API."""
     account = await _load(session, account_id)
-    from app.workers.tasks import import_own_listings as import_task
+    if not (account.api_client_id and account.api_client_secret):
+        raise HTTPException(status_code=422, detail="у аккаунта нет API-ключей")
+    from app.workers.tasks import sync_account_items as sync_task
 
-    import_task.send(str(account.id))
+    sync_task.send(str(account.id))
     return {"status": "started", "account_id": str(account.id)}
 
 
-@router.get("/{account_id}/import-listings")
-async def get_import_listings(account_id: uuid.UUID, session: DbSession) -> dict[str, Any]:
-    """Статус импорта своих объявлений (Redis, TTL 1 час)."""
+@router.get("/{account_id}/sync-api")
+async def get_sync_api(account_id: uuid.UUID, session: DbSession) -> dict[str, Any]:
+    """Статус синхронизации по API (Redis, TTL 1 час)."""
     await _load(session, account_id)
     settings = get_settings()
     redis = Redis.from_url(settings.redis_url)
     try:
-        raw = await redis.get(f"own-import:{account_id}")
+        raw = await redis.get(f"account-sync:{account_id}")
     finally:
         await redis.aclose()
     if raw is None:

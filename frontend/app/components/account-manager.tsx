@@ -10,8 +10,8 @@ import { useToast } from "@/app/components/toast";
 import {
   type Account,
   checkAccountClient,
-  fetchOwnImportStatus,
-  startOwnImportClient,
+  fetchSyncApiStatus,
+  startSyncApiClient,
   createAccountClient,
   deleteAccountClient,
   fetchAccounts,
@@ -34,6 +34,9 @@ export function AccountManager({ initial }: { initial: Account[] }) {
   const [addNotes, setAddNotes] = useState("");
   const [addRole, setAddRole] = useState<"searcher" | "seller">("searcher");
   const [addProxy, setAddProxy] = useState("");
+  const [addApiMode, setAddApiMode] = useState(false);
+  const [addClientId, setAddClientId] = useState("");
+  const [addClientSecret, setAddClientSecret] = useState("");
   const [cookieFor, setCookieFor] = useState<Account | null>(null);
   const [cookieText, setCookieText] = useState("");
   const [fresh, setFresh] = useState(true);
@@ -65,11 +68,18 @@ export function AccountManager({ initial }: { initial: Account[] }) {
       return;
     }
     setBusy("add");
+    if (addApiMode && (!addClientId.trim() || !addClientSecret.trim())) {
+      toast.push("error", "Для API-аккаунта укажите client_id и client_secret");
+      return;
+    }
+    setBusy("add");
     const result = await createAccountClient({
       name: addName.trim(),
       notes: addNotes.trim() || null,
       role: addRole,
-      proxy_label: addProxy || null,
+      proxy_label: addApiMode ? null : addProxy || null,
+      api_client_id: addApiMode ? addClientId.trim() : null,
+      api_client_secret: addApiMode ? addClientSecret.trim() : null,
     });
     setBusy(null);
     if (!result.ok) {
@@ -79,8 +89,13 @@ export function AccountManager({ initial }: { initial: Account[] }) {
     setAddName("");
     setAddNotes("");
     setAddProxy("");
+    setAddClientId("");
+    setAddClientSecret("");
     setAddOpen(false);
-    toast.push("success", "Аккаунт создан — залейте cookies");
+    toast.push(
+      "success",
+      addApiMode ? "API-аккаунт создан — ключи проверены" : "Аккаунт создан — залейте cookies",
+    );
     await refresh();
   }
 
@@ -182,29 +197,28 @@ export function AccountManager({ initial }: { initial: Account[] }) {
     await refresh();
   }
 
-  async function importOwnListings(account: Account) {
+  async function syncApiItems(account: Account) {
     setBusy(account.id);
-    const started = await startOwnImportClient(account.id);
+    const started = await startSyncApiClient(account.id);
     if (!started.ok || started.data.status !== "started") {
-      toast.push("error", "Не удалось запустить импорт объявлений");
+      toast.push("error", started.ok ? "Синхронизация не запустилась" : started.error);
       setBusy(null);
       return;
     }
     for (let attempt = 0; attempt < 40; attempt += 1) {
       await new Promise((resolve) => setTimeout(resolve, 3000));
-      const status = await fetchOwnImportStatus(account.id);
+      const status = await fetchSyncApiStatus(account.id);
       if (status?.status === "done") {
         toast.push(
           "success",
-          `«${account.name}»: объявлений ${status.total ?? 0} (+${status.created ?? 0}, обновлено ${
-            status.updated ?? 0
-          }), матчей ${status.matched ?? 0}`,
+          `«${account.name}»: проверено ${status.total ?? 0}, обновлено ${status.updated ?? 0}` +
+            (status.failed ? `, ошибок ${status.failed}` : ""),
         );
         router.refresh();
         break;
       }
       if (status?.status === "error") {
-        toast.push("error", `Импорт не удался: ${status.error ?? "ошибка"}`);
+        toast.push("error", `Синхронизация не удалась: ${status.error ?? "ошибка"}`);
         break;
       }
     }
@@ -454,6 +468,11 @@ make account-cookies name="Аккаунт 2" BROWSER=brave`}
                     }`}
                   />
                   <p className="font-medium">{account.name}</p>
+                  {account.api_configured ? (
+                    <span className="rounded-full border border-sky-500/30 bg-sky-500/10 px-2 py-0.5 text-[10px] text-sky-200">
+                      API{account.api_user_id ? ` · ${account.api_user_id}` : ""}
+                    </span>
+                  ) : null}
                   <span
                     className={`rounded-full border px-2 py-0.5 text-[10px] ${
                       account.role === "seller"
@@ -605,15 +624,17 @@ make account-cookies name="Аккаунт 2" BROWSER=brave`}
                 >
                   {account.role === "seller" ? "Сделать поисковиком" : "Сделать продавцом"}
                 </button>
-                <button
-                  type="button"
-                  onClick={() => importOwnListings(account)}
-                  disabled={busy === account.id}
-                  title="Забрать свои объявления из профиля этого аккаунта"
-                  className="rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-3 py-1 text-xs text-emerald-200 transition hover:bg-emerald-500/20 disabled:opacity-50"
-                >
-                  {busy === account.id ? "…" : "Мои объявления"}
-                </button>
+                {account.api_configured ? (
+                  <button
+                    type="button"
+                    onClick={() => syncApiItems(account)}
+                    disabled={busy === account.id}
+                    title="Обновить цены и статусы наших SKU через официальный API"
+                    className="rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-3 py-1 text-xs text-emerald-200 transition hover:bg-emerald-500/20 disabled:opacity-50"
+                  >
+                    {busy === account.id ? "…" : "Синхронизировать (API)"}
+                  </button>
+                ) : null}
                 <button
                   type="button"
                   onClick={() => remove(account)}
@@ -632,7 +653,7 @@ make account-cookies name="Аккаунт 2" BROWSER=brave`}
         open={addOpen}
         onClose={() => setAddOpen(false)}
         title="Новый аккаунт"
-        subtitle="Профиль Chromium со своими cookies"
+        subtitle="Cookies (браузерный профиль) или официальный API по ключу"
         maxWidth="max-w-xl"
         footer={
           <>
@@ -673,6 +694,57 @@ make account-cookies name="Аккаунт 2" BROWSER=brave`}
               <option value="seller">Продавец (свои объявления)</option>
             </select>
           </label>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={() => setAddApiMode(false)}
+              className={`flex-1 rounded-lg border px-3 py-2 text-xs transition ${
+                !addApiMode
+                  ? "border-sky-500/40 bg-sky-500/10 text-sky-200"
+                  : "border-neutral-800 text-neutral-400 hover:border-neutral-600"
+              }`}
+            >
+              Cookies (браузер)
+            </button>
+            <button
+              type="button"
+              onClick={() => setAddApiMode(true)}
+              className={`flex-1 rounded-lg border px-3 py-2 text-xs transition ${
+                addApiMode
+                  ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-200"
+                  : "border-neutral-800 text-neutral-400 hover:border-neutral-600"
+              }`}
+            >
+              API-ключ (официальный)
+            </button>
+          </div>
+          {addApiMode ? (
+            <>
+              <label className="flex flex-col gap-1 text-xs text-neutral-400">
+                client_id
+                <input
+                  value={addClientId}
+                  onChange={(event) => setAddClientId(event.target.value)}
+                  placeholder="T-dTSIUKX-..."
+                  className={input}
+                />
+              </label>
+              <label className="flex flex-col gap-1 text-xs text-neutral-400">
+                client_secret
+                <input
+                  value={addClientSecret}
+                  onChange={(event) => setAddClientSecret(event.target.value)}
+                  type="password"
+                  placeholder="••••••••"
+                  className={input}
+                />
+              </label>
+              <p className="text-xs text-neutral-500">
+                Ключи проверяются сразу (запрос к API Авито) — аккаунт сохранится с user id,
+                cookies и прокси не нужны для правок цен.
+              </p>
+            </>
+          ) : null}
           <label className="flex flex-col gap-1 text-xs text-neutral-400">
             Прокси (можно закрепить позже)
             <select
