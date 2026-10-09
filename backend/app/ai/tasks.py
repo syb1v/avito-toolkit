@@ -142,4 +142,5 @@ async def generate_search_filters(
         user_prompt=build_search_filters_prompt(items=items),
         task="search_filters",
         prompt_version=SEARCH_FILTERS_VERSION,
+        max_tokens=2000,
     )

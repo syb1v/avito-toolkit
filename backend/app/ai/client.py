@@ -41,6 +41,7 @@ async def complete_structured[T: BaseModel](
     user_prompt: str,
     task: str = "generic",
     prompt_version: str = "v1",
+    max_tokens: int | None = None,
 ) -> LlmResult[T]:
     """Structured output через litellm: ответ валидируется Pydantic-схемой."""
     settings = get_settings()
@@ -57,7 +58,7 @@ async def complete_structured[T: BaseModel](
             {"role": "user", "content": user_prompt},
         ],
         temperature=settings.llm_temperature,
-        max_tokens=settings.llm_max_tokens,
+        max_tokens=max(settings.llm_max_tokens, max_tokens or 0),
         response_format=response_format,
     )
     content = response.choices[0].message.content

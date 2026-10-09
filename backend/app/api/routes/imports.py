@@ -1,5 +1,6 @@
 """Импорт поисков из выгрузки Авито (xlsx): загрузка, AI-фильтры, создание поисков."""
 
+import logging
 import uuid
 from typing import Annotated, Any
 
@@ -28,9 +29,11 @@ from app.services.our_listings import ImportRow, sku_for_item, upsert_our_listin
 
 router = APIRouter(prefix="/searches/import-file", tags=["searches-import"])
 
+logger = logging.getLogger(__name__)
+
 MAX_FILE_BYTES = 10 * 1024 * 1024
 MAX_ITEMS = 20
-FILTER_BATCH_SIZE = 10
+FILTER_BATCH_SIZE = 5
 DEFAULT_CRON = "0 4 * * *"
 
 
@@ -109,6 +112,29 @@ async def upload_import_file(file: Annotated[UploadFile, File()]) -> ImportFileO
     return ImportFileOut(token=token, total=len(rows), rows=[row.to_dict() for row in rows])
 
 
+async def _merge_filters(
+    session: DbSession,
+    result: Any,
+    results: dict[int, SearchFiltersOut],
+) -> None:
+    await record_llm_run(
+        session,
+        task="search_filters",
+        result=result,
+        prompt_version=SEARCH_FILTERS_VERSION,
+    )
+    for decision in result.content.items:
+        if decision.avito_id is None:
+            continue
+        results[decision.avito_id] = SearchFiltersOut(
+            avito_id=decision.avito_id,
+            query=decision.query,
+            keyword_groups=decision.keyword_groups,
+            exclude_keywords=decision.exclude_keywords,
+            generated=True,
+        )
+
+
 @router.post("/{token}/filters", response_model=FiltersOut)
 async def generate_filters(token: str, payload: FiltersIn, session: DbSession) -> FiltersOut:
     """AI-фильтры для выбранных товаров (include-группы и слова-исключения)."""
@@ -150,24 +176,22 @@ async def generate_filters(token: str, payload: FiltersIn, session: DbSession) -
             except LlmNotConfiguredError:
                 configured = False
                 break
-            except Exception as error:  # noqa: BLE001 — покажем fallback ниже
-                raise HTTPException(status_code=502, detail=f"AI недоступен: {error}") from error
-            await record_llm_run(
-                session,
-                task="search_filters",
-                result=result,
-                prompt_version=SEARCH_FILTERS_VERSION,
-            )
-            for decision in result.content.items:
-                if decision.avito_id is None or decision.avito_id not in batch_ids:
-                    continue
-                results[decision.avito_id] = SearchFiltersOut(
-                    avito_id=decision.avito_id,
-                    query=decision.query,
-                    keyword_groups=decision.keyword_groups,
-                    exclude_keywords=decision.exclude_keywords,
-                    generated=True,
-                )
+            except Exception as error:  # noqa: BLE001 — обрезанный JSON и т.п.
+                logger.warning("search filters batch failed (%s), retrying one by one", error)
+                for single in items:
+                    try:
+                        single_result = await generate_search_filters(items=[single])
+                    except LlmNotConfiguredError:
+                        configured = False
+                        break
+                    except Exception as single_error:  # noqa: BLE001
+                        logger.warning("search filters single failed: %s", single_error)
+                        continue
+                    await _merge_filters(session, single_result, results)
+                if not configured:
+                    break
+                continue
+            await _merge_filters(session, result, results)
     if configured:
         await session.commit()
 
