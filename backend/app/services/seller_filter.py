@@ -1,5 +1,6 @@
 """Целевые и исключаемые продавцы в параметрах поиска (ссылки или имена)."""
 
+import re
 from collections.abc import Mapping, Sequence
 
 TARGET_KEY = "target_sellers"
@@ -39,6 +40,8 @@ def ref_matches_seller(ref: str, *, name: str | None, url: str | None) -> bool:
             if tail and len(tail) >= 6 and tail in listing_url:
                 return True
         return False
+    if re.fullmatch(r"[0-9a-f]{8,}", value) and url and value in url.lower():
+        return True
     if not normalized_name:
         return False
     ref_name = value.replace("ё", "е")
