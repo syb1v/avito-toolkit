@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
 import { useConfirm } from "@/app/components/confirm";
+import { ImportSearchesModal } from "@/app/components/import-searches-modal";
 import { InfoHint } from "@/app/components/info-hint";
 import {
   SearchFormModal,
@@ -118,6 +119,7 @@ export function SearchManager({
         </div>
         <div className="flex items-center gap-3">
           <span className="text-xs text-neutral-500">{items.length} шт.</span>
+          <ImportSearchesModal accounts={accounts} />
           <button
             type="button"
             onClick={() => setTarget({ search: null })}

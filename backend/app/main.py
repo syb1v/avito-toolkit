@@ -12,6 +12,7 @@ from app.api.routes import (
     analytics,
     dashboard,
     health,
+    imports,
     matching,
     proxies,
     searches,
@@ -46,6 +47,7 @@ def create_app() -> FastAPI:
     application.include_router(searches.router, prefix="/api/v1")
     application.include_router(analytics.router, prefix="/api/v1")
     application.include_router(matching.router, prefix="/api/v1")
+    application.include_router(imports.router, prefix="/api/v1")
     application.include_router(alerts.router, prefix="/api/v1")
     application.include_router(ai.router, prefix="/api/v1")
     application.include_router(dashboard.router, prefix="/api/v1")

@@ -7,6 +7,7 @@ DIGEST_VERSION = "v2"
 MODERATION_VERSION = "v1"
 DESCRIPTION_REVIEW_VERSION = "v1"
 REPRICE_SUMMARY_VERSION = "v1"
+SEARCH_FILTERS_VERSION = "v1"
 
 PRICE_ADVISOR_SYSTEM_PROMPT = """Ты коммерческий директор и ценовой аналитик на Авито.
 Анализируй рыночные метрики и текущую цену товара.
@@ -21,6 +22,17 @@ DIGEST_SYSTEM_PROMPT = """Ты аналитик рынка Авито. Сост�
 предложи целевую цену в price_suggestions (только реально подходящие по названию;
 пустой список допустим). Не выдумывай SKU. Отвечай строго в формате JSON
 по заданной схеме, без пояснений вне JSON."""
+
+SEARCH_FILTERS_SYSTEM_PROMPT = """Ты настраиваешь поиски конкурентов на Авито по нашим
+товарам. Для каждого товара верни:
+- query: короткая поисковая строка (2–5 слов: бренд + модель/линейка), БЕЗ цветов,
+  состояния и слов «продам/новый/оригинал»;
+- keyword_groups: список групп, объединённых по AND; в каждой группе — варианты
+  написания через OR (например [["b&o","bang olufsen"],["beoplay eleven","beplay eleven"]]);
+- exclude_keywords: точные слова-исключения, чтобы отсечь лишнее: другие цвета этой
+  модели (только цвета, НЕ упомянутые в названии), другие модели той же марки,
+  мусор («копия», «реплика», «ремонт», «запчасти», «восстановлен», «неисправен»).
+Отвечай строго JSON по схеме, по одному объекту на товар."""
 
 REPRICE_SUMMARY_SYSTEM_PROMPT = """Ты объясняешь владельцу магазина, почему система
 изменила цены его объявлений на Авито. По каждому SKU дай короткое (1–2 предложения)
@@ -186,4 +198,18 @@ def build_reprice_summary_prompt(
         "Правки цен за ночной прогон:\n"
         + "\n".join(lines)
         + "\n\nВерни headline и reason по каждому SKU."
+    )
+
+
+def build_search_filters_prompt(
+    *,
+    items: list[tuple[int | None, str, str | None]],
+) -> str:
+    lines = []
+    for avito_id, title, category in items:
+        lines.append(f'{{"avito_id": {avito_id}, "title": {title!r}, "category": {category!r}}}')
+    return (
+        "Наши товары (JSON):\n["
+        + ",\n ".join(lines)
+        + "]\n\nВерни query, keyword_groups и exclude_keywords по каждому avito_id."
     )

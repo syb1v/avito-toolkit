@@ -632,6 +632,86 @@ export const patchAutoRepriceClient = (payload: { enabled?: boolean; live?: bool
     body: JSON.stringify(payload),
   });
 
+export type ImportFileRow = {
+  avito_id: number | null;
+  title: string;
+  price: number | null;
+  status: string | null;
+  category: string | null;
+};
+
+export type ImportFileResult = {
+  token: string;
+  total: number;
+  rows: ImportFileRow[];
+};
+
+export type ImportFilter = {
+  avito_id: number;
+  query: string;
+  keyword_groups: string[][];
+  exclude_keywords: string[];
+  generated: boolean;
+};
+
+export type ImportApplyResult = {
+  created_searches: number;
+  created_listings: number;
+  updated_listings: number;
+  matched: number;
+  skipped: number;
+};
+
+export async function uploadImportFile(
+  file: File,
+): Promise<ImportFileResult | { error: string }> {
+  try {
+    const form = new FormData();
+    form.append("file", file);
+    const response = await fetch(`${API_URL}/api/v1/searches/import-file`, {
+      method: "POST",
+      body: form,
+    });
+    const body: unknown = await response.json().catch(() => null);
+    if (!response.ok) {
+      const detail =
+        body && typeof body === "object" && "detail" in body
+          ? String((body as { detail: unknown }).detail)
+          : `HTTP ${response.status}`;
+      return { error: detail };
+    }
+    return body as ImportFileResult;
+  } catch {
+    return { error: "API недоступен" };
+  }
+}
+
+export const generateImportFiltersClient = (token: string, avitoIds: number[]) =>
+  mutate<{ items: ImportFilter[] }>(`/api/v1/searches/import-file/${token}/filters`, {
+    method: "POST",
+    body: JSON.stringify({ avito_ids: avitoIds }),
+  });
+
+export const applyImportFileClient = (
+  token: string,
+  payload: {
+    items: {
+      avito_id: number;
+      title: string;
+      price: number;
+      status: string | null;
+      query: string;
+      keyword_groups: string[][];
+      exclude_keywords: string[];
+    }[];
+    account_id?: string | null;
+  },
+) =>
+  mutate<ImportApplyResult>(`/api/v1/searches/import-file/${token}/apply`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+
 export const createEditsClient = (payload: { sku?: string; max_items?: number }) =>
   mutate<{ created: number; items: ListingEdit[] }>("/api/v1/our-listings/edits", {
     method: "POST",

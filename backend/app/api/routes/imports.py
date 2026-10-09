@@ -1,0 +1,273 @@
+"""Импорт поисков из выгрузки Авито (xlsx): загрузка, AI-фильтры, создание поисков."""
+
+import uuid
+from typing import Annotated, Any
+
+from fastapi import APIRouter, File, HTTPException, UploadFile
+from pydantic import BaseModel, Field
+from redis.asyncio import Redis
+from sqlalchemy import select
+
+from app.ai.client import LlmNotConfiguredError
+from app.ai.prompts import SEARCH_FILTERS_VERSION
+from app.ai.runs import record_llm_run
+from app.ai.tasks import generate_search_filters
+from app.api.deps import DbSession
+from app.config import get_settings
+from app.db.models import AvitoAccount, Search
+from app.services.import_file import (
+    fallback_query,
+    load_staging,
+    parse_xlsx,
+    save_staging,
+    search_params,
+    search_url,
+)
+from app.services.matching import match_our_listing
+from app.services.our_listings import ImportRow, sku_for_item, upsert_our_listings
+
+router = APIRouter(prefix="/searches/import-file", tags=["searches-import"])
+
+MAX_FILE_BYTES = 10 * 1024 * 1024
+MAX_ITEMS = 20
+FILTER_BATCH_SIZE = 10
+DEFAULT_CRON = "0 4 * * *"
+
+
+class ImportFileOut(BaseModel):
+    token: str
+    total: int
+    rows: list[dict[str, Any]]
+
+
+class FiltersIn(BaseModel):
+    avito_ids: list[int] = Field(..., min_length=1)
+
+
+class SearchFiltersOut(BaseModel):
+    avito_id: int
+    query: str
+    keyword_groups: list[list[str]]
+    exclude_keywords: list[str]
+    generated: bool
+
+
+class FiltersOut(BaseModel):
+    items: list[SearchFiltersOut]
+
+
+class ApplyItem(BaseModel):
+    avito_id: int
+    title: str
+    price: float = Field(..., gt=0)
+    status: str | None = None
+    query: str
+    keyword_groups: list[list[str]] = Field(default_factory=list)
+    exclude_keywords: list[str] = Field(default_factory=list)
+
+
+class ApplyIn(BaseModel):
+    items: list[ApplyItem] = Field(..., min_length=1)
+    account_id: uuid.UUID | None = None
+    schedule_cron: str = DEFAULT_CRON
+
+
+class ApplyOut(BaseModel):
+    created_searches: int
+    created_listings: int
+    updated_listings: int
+    matched: int
+    skipped: int
+
+
+@router.post("", response_model=ImportFileOut)
+async def upload_import_file(file: Annotated[UploadFile, File()]) -> ImportFileOut:
+    data = await file.read()
+    if not data:
+        raise HTTPException(status_code=422, detail="пустой файл")
+    if len(data) > MAX_FILE_BYTES:
+        raise HTTPException(status_code=413, detail="файл больше 10 МБ")
+    try:
+        rows = parse_xlsx(data)
+    except Exception as error:  # noqa: BLE001 — понятная ошибка вместо 500
+        raise HTTPException(
+            status_code=422, detail=f"не удалось прочитать xlsx: {error}"
+        ) from error
+    if not rows:
+        raise HTTPException(
+            status_code=422,
+            detail="в файле не найдены колонки Id/Title/Price (выгрузка объявлений Авито)",
+        )
+    settings = get_settings()
+    redis = Redis.from_url(settings.redis_url)
+    try:
+        token = await save_staging(redis, rows)
+    finally:
+        await redis.aclose()
+    return ImportFileOut(token=token, total=len(rows), rows=[row.to_dict() for row in rows])
+
+
+@router.post("/{token}/filters", response_model=FiltersOut)
+async def generate_filters(token: str, payload: FiltersIn, session: DbSession) -> FiltersOut:
+    """AI-фильтры для выбранных товаров (include-группы и слова-исключения)."""
+    settings = get_settings()
+    redis = Redis.from_url(settings.redis_url)
+    try:
+        rows = await load_staging(redis, token)
+    finally:
+        await redis.aclose()
+    if rows is None:
+        raise HTTPException(status_code=404, detail="файл не найден или устарел — загрузите заново")
+    by_id: dict[int, dict[str, Any]] = {}
+    for row in rows:
+        row_id = row.get("avito_id")
+        if isinstance(row_id, int):
+            by_id[row_id] = row
+    selected_ids = list(dict.fromkeys(payload.avito_ids))[:MAX_ITEMS]
+    missing = [item for item in selected_ids if item not in by_id]
+    if missing:
+        raise HTTPException(status_code=404, detail=f"нет в файле: {missing[:5]}")
+
+    results: dict[int, SearchFiltersOut] = {}
+    configured = bool(settings.deepseek_api_key) and settings.llm_model.startswith("deepseek/")
+    if configured:
+        for start in range(0, len(selected_ids), FILTER_BATCH_SIZE):
+            batch_ids = selected_ids[start : start + FILTER_BATCH_SIZE]
+            items: list[tuple[int | None, str, str | None]] = []
+            for item in batch_ids:
+                raw_category = by_id[item].get("category")
+                items.append(
+                    (
+                        item,
+                        str(by_id[item].get("title") or ""),
+                        raw_category if isinstance(raw_category, str) else None,
+                    )
+                )
+            try:
+                result = await generate_search_filters(items=items)
+            except LlmNotConfiguredError:
+                configured = False
+                break
+            except Exception as error:  # noqa: BLE001 — покажем fallback ниже
+                raise HTTPException(status_code=502, detail=f"AI недоступен: {error}") from error
+            await record_llm_run(
+                session,
+                task="search_filters",
+                result=result,
+                prompt_version=SEARCH_FILTERS_VERSION,
+            )
+            for decision in result.content.items:
+                if decision.avito_id is None or decision.avito_id not in batch_ids:
+                    continue
+                results[decision.avito_id] = SearchFiltersOut(
+                    avito_id=decision.avito_id,
+                    query=decision.query,
+                    keyword_groups=decision.keyword_groups,
+                    exclude_keywords=decision.exclude_keywords,
+                    generated=True,
+                )
+    if configured:
+        await session.commit()
+
+    out: list[SearchFiltersOut] = []
+    for item in selected_ids:
+        found = results.get(item)
+        if found is not None:
+            out.append(found)
+        else:
+            row = by_id[item]
+            query = fallback_query(str(row.get("title") or ""))
+            out.append(
+                SearchFiltersOut(
+                    avito_id=item,
+                    query=query,
+                    keyword_groups=[[query]],
+                    exclude_keywords=[],
+                    generated=False,
+                )
+            )
+    return FiltersOut(items=out)
+
+
+@router.post("/{token}/apply", response_model=ApplyOut)
+async def apply_import(token: str, payload: ApplyIn, session: DbSession) -> ApplyOut:
+    """Создаёт поиски и наши SKU по выбранным товарам (лимит 20 за раз)."""
+    settings = get_settings()
+    redis = Redis.from_url(settings.redis_url)
+    try:
+        rows = await load_staging(redis, token)
+    finally:
+        await redis.aclose()
+    if rows is None:
+        raise HTTPException(status_code=404, detail="файл не найден или устарел — загрузите заново")
+    known_ids = {row_id for row in rows if isinstance(row_id := row.get("avito_id"), int)}
+    items = payload.items[:MAX_ITEMS]
+    if any(item.avito_id not in known_ids for item in items):
+        raise HTTPException(status_code=422, detail="в запросе есть товары не из этого файла")
+
+    account: AvitoAccount | None = None
+    if payload.account_id is not None:
+        account = await session.get(AvitoAccount, payload.account_id)
+        if account is None:
+            raise HTTPException(status_code=404, detail="аккаунт не найден")
+
+    existing_urls = {
+        row[0]
+        for row in (
+            await session.execute(
+                select(Search.url).where(Search.url.in_([search_url(item.query) for item in items]))
+            )
+        ).all()
+    }
+    created_searches = skipped = 0
+    import_rows: list[ImportRow] = []
+    for item in items:
+        url = search_url(item.query)
+        if url in existing_urls:
+            skipped += 1
+            continue
+        session.add(
+            Search(
+                name=item.title[:255],
+                url=url,
+                params=search_params(
+                    query=item.query,
+                    keyword_groups=item.keyword_groups,
+                    exclude_keywords=item.exclude_keywords,
+                ),
+                schedule_cron=payload.schedule_cron or DEFAULT_CRON,
+                priority=100,
+                is_active=True,
+                account_id=account.id if account is not None else None,
+            )
+        )
+        existing_urls.add(url)
+        created_searches += 1
+        import_rows.append(
+            ImportRow(
+                sku=sku_for_item(item.avito_id),
+                title=item.title,
+                price=item.price,
+                account=account.name if account is not None else None,
+                avito_item_id=item.avito_id,
+                avito_url=None,
+                avito_status=item.status or "active",
+            )
+        )
+    listing_result = await upsert_our_listings(session, import_rows)
+    await session.commit()
+    matched = 0
+    for row in import_rows:
+        try:
+            await match_our_listing(session, row.sku)
+            matched += 1
+        except Exception:  # noqa: BLE001 — матчинг не критичен
+            continue
+    await session.commit()
+    return ApplyOut(
+        created_searches=created_searches,
+        created_listings=listing_result.created,
+        updated_listings=listing_result.updated,
+        matched=matched,
+        skipped=skipped,
+    )

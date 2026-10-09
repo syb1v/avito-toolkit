@@ -36,6 +36,21 @@ class RepriceSummary(BaseModel):
     items: list[RepriceSummaryItem]
 
 
+class SearchFilterItem(BaseModel):
+    avito_id: int | None = None
+    query: str = Field(..., description="поисковая строка Авито, 2–5 слов, без цветов")
+    keyword_groups: list[list[str]] = Field(
+        ..., description="AND-группы: бренд, модель; внутри группы — варианты написания"
+    )
+    exclude_keywords: list[str] = Field(
+        ..., description="другие цвета/модели/мусор: копия, ремонт, запчасти и т.п."
+    )
+
+
+class SearchFiltersBatch(BaseModel):
+    items: list[SearchFilterItem]
+
+
 class DescriptionReviewItem(BaseModel):
     listing_id: int
     actually_excluded: bool = Field(

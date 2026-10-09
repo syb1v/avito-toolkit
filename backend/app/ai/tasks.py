@@ -12,11 +12,14 @@ from app.ai.prompts import (
     PRICE_ADVISOR_VERSION,
     REPRICE_SUMMARY_SYSTEM_PROMPT,
     REPRICE_SUMMARY_VERSION,
+    SEARCH_FILTERS_SYSTEM_PROMPT,
+    SEARCH_FILTERS_VERSION,
     build_description_review_prompt,
     build_digest_prompt,
     build_moderation_prompt,
     build_price_prompt,
     build_reprice_summary_prompt,
+    build_search_filters_prompt,
 )
 from app.ai.schemas import (
     DescriptionReviewBatch,
@@ -24,6 +27,7 @@ from app.ai.schemas import (
     ModerationBatch,
     PriceActionRecommendation,
     RepriceSummary,
+    SearchFiltersBatch,
 )
 from app.services.pricing import RepricingContext
 
@@ -125,4 +129,17 @@ async def summarize_price_edits(
         user_prompt=build_reprice_summary_prompt(items=items),
         task="reprice_summary",
         prompt_version=REPRICE_SUMMARY_VERSION,
+    )
+
+
+async def generate_search_filters(
+    *,
+    items: list[tuple[int | None, str, str | None]],
+) -> LlmResult[SearchFiltersBatch]:
+    return await complete_structured(
+        SearchFiltersBatch,
+        system_prompt=SEARCH_FILTERS_SYSTEM_PROMPT,
+        user_prompt=build_search_filters_prompt(items=items),
+        task="search_filters",
+        prompt_version=SEARCH_FILTERS_VERSION,
     )
