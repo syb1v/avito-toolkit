@@ -199,6 +199,11 @@ class TelegramBot:
 
     async def start(self) -> None:
         settings = get_settings()
+        self._redis = Redis.from_url(settings.redis_url)
+        self._client = httpx.AsyncClient(
+            base_url=f"https://api.telegram.org/bot{self._token}",
+            timeout=httpx.Timeout(40.0, connect=10.0),
+        )
         await self._api(
             "setMyCommands",
             {
@@ -210,11 +215,6 @@ class TelegramBot:
                     {"command": "logout", "description": "Выйти"},
                 ]
             },
-        )
-        self._redis = Redis.from_url(settings.redis_url)
-        self._client = httpx.AsyncClient(
-            base_url=f"https://api.telegram.org/bot{self._token}",
-            timeout=httpx.Timeout(40.0, connect=10.0),
         )
         logger.info("telegram bot started (inline menu)")
         await asyncio.gather(self._poll_loop(), self._notify_loop())
