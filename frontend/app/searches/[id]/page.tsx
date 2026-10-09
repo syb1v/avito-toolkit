@@ -8,6 +8,7 @@ import { EditSearchButton } from "@/app/components/edit-search-button";
 import { ListingActions } from "@/app/components/listing-actions";
 import { PriceChart } from "@/app/components/price-chart";
 import { RegionFilter } from "@/app/components/region-filter";
+import { SellersPanel } from "@/app/components/sellers-panel";
 import { StatCard } from "@/app/components/stat-card";
 import {
   type ListingSort,
@@ -54,6 +55,10 @@ const EXCLUDE_REASON_META: Record<string, { label: string; className: string }> 
   stopword: {
     label: "стоп-слово",
     className: "border-amber-500/40 bg-amber-500/10 text-amber-200",
+  },
+  seller: {
+    label: "продавец",
+    className: "border-violet-500/40 bg-violet-500/10 text-violet-200",
   },
   region: {
     label: "другой город",
@@ -160,6 +165,7 @@ export default async function SearchDetailPage({
     sort?: string;
     fresh?: string;
     page?: string;
+    seller?: string;
   }>;
 }) {
   const [{ id }, query] = await Promise.all([params, searchParams]);
@@ -167,6 +173,7 @@ export default async function SearchDetailPage({
   const categoryFilter = query?.category ?? null;
   const excludedOnly = query?.excluded === "1";
   const regionFilter = query?.region ?? null;
+  const sellerFilter = query?.seller ?? null;
   const freshOnly = query?.fresh === "1";
   const pageNumber = Math.max(1, Number(query?.page) || 1);
   const sortParam = query?.sort ?? "position";
@@ -181,6 +188,7 @@ export default async function SearchDetailPage({
       category: categoryFilter,
       excluded: excludedOnly ? "1" : null,
       region: regionFilter,
+      seller: sellerFilter,
       sort: sortOption !== "position" ? sortOption : null,
       fresh: freshOnly ? "1" : null,
       page: pageNumber > 1 ? String(pageNumber) : null,
@@ -208,6 +216,7 @@ export default async function SearchDetailPage({
       category: categoryFilter ?? undefined,
       excluded: excludedOnly ? true : undefined,
       region: regionFilter ?? undefined,
+      seller: sellerFilter ?? undefined,
       sort: sortOption,
       fresh: freshOnly ? true : undefined,
       limit: LISTINGS_PAGE_SIZE,
@@ -318,6 +327,8 @@ export default async function SearchDetailPage({
 
       <DigestPanel searchId={id} />
 
+      <SellersPanel searchId={id} />
+
       <section className="rounded-xl border border-neutral-800 bg-neutral-900/60 p-4 sm:p-5">
         <div className="flex items-center">
           <h2 className="text-base font-medium sm:text-lg">Цены рынка</h2>
@@ -339,6 +350,11 @@ export default async function SearchDetailPage({
         {stats !== null && summary.stopword_excluded > 0 ? (
           <p className="mt-1 text-xs text-amber-300/80">
             Исключено стоп-словами: {summary.stopword_excluded}
+          </p>
+        ) : null}
+        {stats !== null && summary.seller_excluded > 0 ? (
+          <p className="mt-1 text-xs text-violet-300/80">
+            Отсеяно по продавцам (целевые/исключённые): {summary.seller_excluded}
           </p>
         ) : null}
         {stats !== null && summary.region_excluded > 0 ? (
@@ -423,7 +439,7 @@ export default async function SearchDetailPage({
           <Link
             href={hrefWith({ flagged: null, category: null, excluded: null, region: null })}
             className={`rounded-full border px-2.5 py-1 text-xs transition ${
-              !flaggedOnly && !categoryFilter && !excludedOnly && !regionFilter
+              !flaggedOnly && !categoryFilter && !excludedOnly && !regionFilter && !sellerFilter
                 ? "border-neutral-500 bg-neutral-800 text-neutral-100"
                 : "border-neutral-800 text-neutral-400 hover:border-neutral-600"
             }`}
@@ -505,6 +521,14 @@ export default async function SearchDetailPage({
 
         <div className="flex flex-wrap items-center gap-2 px-4 pb-3 sm:px-5">
           <RegionFilter current={regionFilter} counts={regionCounts} />
+          {sellerFilter ? (
+            <span className="flex items-center gap-1 rounded-full border border-violet-500/40 bg-violet-500/10 px-2.5 py-1 text-xs text-violet-200">
+              продавец: {sellerFilter.length > 40 ? `${sellerFilter.slice(0, 40)}…` : sellerFilter}
+              <Link href={hrefWith({ seller: null })} className="text-violet-300/80 hover:text-violet-100">
+                ×
+              </Link>
+            </span>
+          ) : null}
         </div>
 
         <div className="flex flex-wrap items-center gap-2 px-4 pb-3 sm:px-5">
@@ -568,6 +592,20 @@ export default async function SearchDetailPage({
                         ? ` · в базе ${formatRelativeTime(listing.first_seen)}`
                         : ""}
                     </span>
+                    {listing.seller_name || listing.seller_url ? (
+                      <span className="ml-2 text-xs">
+                        <a
+                          href={hrefWith({
+                            seller: listing.seller_url ?? listing.seller_name,
+                            page: null,
+                          })}
+                          className="text-violet-300/80 hover:underline"
+                          title="Показать только этого продавца"
+                        >
+                          {listing.seller_name ?? "профиль"}
+                        </a>
+                      </span>
+                    ) : null}
                     {listing.exclude_reason ? (
                       <span
                         className={`ml-2 rounded border px-1.5 py-0.5 text-[10px] ${
@@ -627,6 +665,9 @@ export default async function SearchDetailPage({
                 <p className="text-xs tabular-nums text-neutral-500">
                   #{listing.last_position ?? "—"} · id {listing.id}
                   {listing.region ? ` · ${regionName(listing.region)}` : ""}
+                  {listing.seller_name || listing.seller_url
+                    ? ` · ${listing.seller_name ?? "профиль"}`
+                    : ""}
                   {listing.first_seen
                     ? ` · в базе ${formatRelativeTime(listing.first_seen)}`
                     : ""}

@@ -32,6 +32,7 @@ class MarketSummaryOut(BaseModel):
     stopword_excluded: int
     region_excluded: int
     manual_excluded: int
+    seller_excluded: int = 0
     max_age_days: int
     stats: PriceStatsOut | None
 
@@ -82,6 +83,7 @@ async def get_summary(search_id: uuid.UUID, session: DbSession) -> MarketSummary
         keyword_excluded=summary.keyword_excluded,
         stopword_excluded=summary.stopword_excluded,
         region_excluded=summary.region_excluded,
+        seller_excluded=summary.seller_excluded,
         manual_excluded=summary.manual_excluded,
         max_age_days=max_age_days,
         stats=(

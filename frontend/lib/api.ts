@@ -70,6 +70,7 @@ export type MarketSummary = {
   stopword_excluded: number;
   region_excluded: number;
   manual_excluded: number;
+  seller_excluded: number;
   max_age_days: number;
   stats: PriceStats | null;
 };
@@ -100,8 +101,10 @@ export type Listing = {
   relevance_score: number | null;
   description_snippet: string | null;
   region: string | null;
+  seller_name: string | null;
+  seller_url: string | null;
   manual_excluded: boolean;
-  exclude_reason: "manual" | "keyword" | "stopword" | "region" | null;
+  exclude_reason: "manual" | "keyword" | "stopword" | "region" | "seller" | null;
   exclude_detail: string | null;
   excluded: boolean;
   first_seen: string | null;
@@ -267,6 +270,43 @@ export const fetchSearches = async (): Promise<Search[]> =>
 export const fetchAccounts = async (): Promise<Account[]> =>
   (await getJson<Account[]>("/api/v1/accounts")) ?? [];
 
+export type SearchSeller = {
+  seller_id: number | null;
+  name: string | null;
+  url: string | null;
+  count: number;
+};
+
+export type SearchSellers = {
+  sellers: SearchSeller[];
+  target_refs: string[];
+  exclude_refs: string[];
+};
+
+export async function fetchSearchSellers(searchId: string): Promise<SearchSellers | null> {
+  try {
+    const response = await fetch(`${API_URL}/api/v1/searches/${searchId}/sellers`, {
+      cache: "no-store",
+    });
+    if (!response.ok) {
+      return null;
+    }
+    return (await response.json()) as SearchSellers;
+  } catch {
+    return null;
+  }
+}
+
+export const updateSearchSellerClient = (
+  searchId: string,
+  ref: string,
+  mode: "target" | "exclude" | "remove_target" | "remove_exclude",
+) =>
+  mutate<SearchSellers>(`/api/v1/searches/${searchId}/sellers`, {
+    method: "POST",
+    body: JSON.stringify({ ref, mode }),
+  });
+
 export const fetchSummary = (searchId: string) =>
   getJson<MarketSummary>(`/api/v1/searches/${searchId}/summary`);
 
@@ -284,6 +324,7 @@ export const fetchListings = async (
     sort?: ListingSort;
     fresh?: boolean;
     offset?: number;
+    seller?: string;
   } = {},
 ): Promise<Listing[]> => {
   const parts = [`limit=${options.limit ?? 0}`];
@@ -307,6 +348,9 @@ export const fetchListings = async (
   }
   if (options.offset) {
     parts.push(`offset=${options.offset}`);
+  }
+  if (options.seller) {
+    parts.push(`seller=${encodeURIComponent(options.seller)}`);
   }
   return (
     (await getJson<Listing[]>(`/api/v1/searches/${searchId}/listings?${parts.join("&")}`)) ??

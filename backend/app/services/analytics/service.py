@@ -6,7 +6,14 @@ from sqlalchemy import Select, func, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models import Listing, ListingExclusion, MarketAnalyticsDaily, Search, SearchListing
+from app.db.models import (
+    Listing,
+    ListingExclusion,
+    MarketAnalyticsDaily,
+    Search,
+    SearchListing,
+    Seller,
+)
 from app.services.analytics.aggregates import MarketSummary, build_market_summary
 from app.services.analytics.iqr import compute_price_stats
 from app.services.regions import (
@@ -21,6 +28,12 @@ from app.services.search_filter import (
     first_matching_exclude,
     keywords_from_params,
     matches_keyword_groups,
+)
+from app.services.seller_filter import (
+    EXCLUDE_KEY,
+    TARGET_KEY,
+    seller_filter_reason,
+    seller_refs_from_params,
 )
 
 LIFETIME_WINDOW_DAYS = 30
@@ -38,6 +51,7 @@ class ExclusionCounts:
     stopword: int = 0
     region: int = 0
     manual: int = 0
+    seller: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -56,6 +70,8 @@ async def _filtered_listings(session: AsyncSession, search_id: uuid.UUID) -> lis
     excludes = exclude_keywords_from_params(params)
     regions = regions_from_params(params)
     exclude_regions = exclude_regions_from_params(params)
+    target_refs = seller_refs_from_params(params, TARGET_KEY)
+    exclude_refs = seller_refs_from_params(params, EXCLUDE_KEY)
     max_age_days = params.get("max_age_days") if isinstance(params, dict) else None
     statement = (
         select(
@@ -65,8 +81,11 @@ async def _filtered_listings(session: AsyncSession, search_id: uuid.UUID) -> lis
             ListingExclusion.listing_id,
             Listing.description,
             Listing.params,
+            Seller.name,
+            Seller.url,
         )
         .join(SearchListing, SearchListing.listing_id == Listing.id)
+        .outerjoin(Seller, Seller.id == Listing.seller_id)
         .outerjoin(
             ListingExclusion,
             (ListingExclusion.listing_id == Listing.id) & (ListingExclusion.search_id == search_id),
@@ -84,7 +103,16 @@ async def _filtered_listings(session: AsyncSession, search_id: uuid.UUID) -> lis
         )
     rows = await session.execute(statement)
     filtered: list[FilteredListing] = []
-    for title, price, listing_region, manual_id, description, listing_params in rows.all():
+    for (
+        title,
+        price,
+        listing_region,
+        manual_id,
+        description,
+        listing_params,
+        seller_name,
+        seller_url,
+    ) in rows.all():
         if price is None:
             continue
         text = combined_text(title or "", description)
@@ -99,6 +127,10 @@ async def _filtered_listings(session: AsyncSession, search_id: uuid.UUID) -> lis
             or not desc_verdict_ok(listing_params, word)
         ):
             reason = "stopword"
+        elif (target_refs or exclude_refs) and seller_filter_reason(
+            name=seller_name, url=seller_url, target_refs=target_refs, exclude_refs=exclude_refs
+        ) is not None:
+            reason = "seller"
         elif not matches_region(listing_region, regions, exclude_regions):
             reason = "region"
         filtered.append(FilteredListing(title=title or "", price=float(price), reason=reason))
@@ -109,7 +141,13 @@ async def _active_listings(
     session: AsyncSession, search_id: uuid.UUID
 ) -> tuple[list[float], ExclusionCounts]:
     """Цены активных объявлений (без флагов) после всех фильтров поиска."""
-    counters: dict[str, int] = {"keyword": 0, "stopword": 0, "region": 0, "manual": 0}
+    counters: dict[str, int] = {
+        "keyword": 0,
+        "stopword": 0,
+        "region": 0,
+        "manual": 0,
+        "seller": 0,
+    }
     prices: list[float] = []
     for row in await _filtered_listings(session, search_id):
         if row.reason is None:
@@ -275,6 +313,7 @@ async def build_search_summary(session: AsyncSession, search_id: uuid.UUID) -> M
         stopword_excluded=excluded.stopword,
         region_excluded=excluded.region,
         manual_excluded=excluded.manual,
+        seller_excluded=excluded.seller,
     )
 
 

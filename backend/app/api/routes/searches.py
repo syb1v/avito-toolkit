@@ -1,5 +1,6 @@
 import uuid
 from datetime import UTC, datetime, timedelta
+from typing import Literal
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
@@ -9,7 +10,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from app.api.deps import DbSession
 from app.config import get_settings
-from app.db.models import Alert, Listing, ListingExclusion, Search, SearchListing
+from app.db.models import Alert, Listing, ListingExclusion, Search, SearchListing, Seller
 from app.services.progress import CrawlProgress, read_progress
 from app.services.regions import (
     exclude_regions_from_params,
@@ -27,6 +28,13 @@ from app.services.search_filter import (
     matches_keyword_groups,
 )
 from app.services.searches import import_searches, merge_params, normalize_search_rows
+from app.services.seller_filter import (
+    EXCLUDE_KEY,
+    TARGET_KEY,
+    ref_matches_seller,
+    seller_filter_reason,
+    seller_refs_from_params,
+)
 
 router = APIRouter(prefix="/searches", tags=["searches"])
 
@@ -77,6 +85,8 @@ class ListingRead(BaseModel):
     description_snippet: str | None = None
     region: str | None = None
     manual_excluded: bool = False
+    seller_name: str | None = None
+    seller_url: str | None = None
     exclude_reason: str | None = None
     exclude_detail: str | None = None
     excluded: bool = False
@@ -257,6 +267,7 @@ async def list_search_listings(
     sort: str = "position",
     fresh: bool | None = None,
     offset: int = 0,
+    seller: str | None = None,
 ) -> list[ListingRead]:
     """Выдача поиска. ``limit=0`` — без лимита; ``sort`` — цена/позиция/новизна/статус."""
     search = await session.get(Search, search_id)
@@ -267,6 +278,8 @@ async def list_search_listings(
     excludes = exclude_keywords_from_params(search.params)
     regions = regions_from_params(search.params)
     exclude_regions = exclude_regions_from_params(search.params)
+    target_refs = seller_refs_from_params(search.params, TARGET_KEY)
+    exclude_refs = seller_refs_from_params(search.params, EXCLUDE_KEY)
     max_age_days = params.get("max_age_days")
 
     statement = (
@@ -285,12 +298,15 @@ async def list_search_listings(
             Listing.region,
             ListingExclusion.listing_id,
             SearchListing.first_seen,
+            Seller.name,
+            Seller.url,
         )
         .join(SearchListing, SearchListing.listing_id == Listing.id)
         .outerjoin(
             ListingExclusion,
             (ListingExclusion.listing_id == Listing.id) & (ListingExclusion.search_id == search_id),
         )
+        .outerjoin(Seller, Seller.id == Listing.seller_id)
         .where(SearchListing.search_id == search_id)
     )
     if flagged is not None:
@@ -319,6 +335,8 @@ async def list_search_listings(
         text = combined_text(row[1] or "", row[10])
         listing_region = row[11]
         manual_excluded = row[12] is not None
+        seller_name = row[14]
+        seller_url = row[15]
         detail: str | None = None
         if manual_excluded:
             reason: str | None = "manual"
@@ -328,11 +346,23 @@ async def list_search_listings(
         elif word := first_matching_exclude(text, excludes):
             reason = "stopword"
             detail = word
+        elif (target_refs or exclude_refs) and (
+            seller_reason := seller_filter_reason(
+                name=seller_name,
+                url=seller_url,
+                target_refs=target_refs,
+                exclude_refs=exclude_refs,
+            )
+        ) is not None:
+            reason = "seller"
+            detail = "исключён" if seller_reason == "excluded" else "не целевой"
         elif not matches_region(listing_region, regions, exclude_regions):
             reason = "region"
             detail = listing_region
         else:
             reason = None
+        if seller and not ref_matches_seller(seller, name=seller_name, url=seller_url):
+            continue
         items.append(
             ListingRead(
                 id=row[0],
@@ -348,6 +378,8 @@ async def list_search_listings(
                 description_snippet=(row[10][:400] if row[10] else None),
                 region=listing_region,
                 manual_excluded=manual_excluded,
+                seller_name=seller_name,
+                seller_url=seller_url,
                 exclude_reason=reason,
                 exclude_detail=detail,
                 excluded=reason is not None,
@@ -359,6 +391,92 @@ async def list_search_listings(
         if limit > 0:
             items = items[safe_offset : safe_offset + limit]
     return items
+
+
+class SearchSellerOut(BaseModel):
+    seller_id: int | None
+    name: str | None
+    url: str | None
+    count: int
+
+
+class SearchSellersOut(BaseModel):
+    sellers: list[SearchSellerOut]
+    target_refs: list[str]
+    exclude_refs: list[str]
+
+
+class SellerRefIn(BaseModel):
+    ref: str = Field(min_length=1, max_length=300)
+    mode: Literal["target", "exclude", "remove_target", "remove_exclude"] = "target"
+
+
+async def _search_sellers(session: DbSession, search: Search) -> SearchSellersOut:
+    rows = await session.execute(
+        select(Listing.seller_id, Seller.name, Seller.url, func.count())
+        .select_from(Listing)
+        .join(SearchListing, SearchListing.listing_id == Listing.id)
+        .outerjoin(Seller, Seller.id == Listing.seller_id)
+        .where(SearchListing.search_id == search.id, Listing.status == "active")
+        .group_by(Listing.seller_id, Seller.name, Seller.url)
+        .order_by(func.count().desc())
+        .limit(500)
+    )
+    sellers = [
+        SearchSellerOut(seller_id=row[0], name=row[1], url=row[2], count=int(row[3] or 0))
+        for row in rows.all()
+    ]
+    return SearchSellersOut(
+        sellers=sellers,
+        target_refs=seller_refs_from_params(search.params, TARGET_KEY),
+        exclude_refs=seller_refs_from_params(search.params, EXCLUDE_KEY),
+    )
+
+
+@router.get("/{search_id}/sellers", response_model=SearchSellersOut)
+async def list_search_sellers(search_id: uuid.UUID, session: DbSession) -> SearchSellersOut:
+    """Продавцы выдачи поиска + списки целевых/исключённых."""
+    search = await session.get(Search, search_id)
+    if search is None:
+        raise HTTPException(status_code=404, detail="search not found")
+    return await _search_sellers(session, search)
+
+
+@router.post("/{search_id}/sellers", response_model=SearchSellersOut)
+async def update_search_seller(
+    search_id: uuid.UUID, payload: SellerRefIn, session: DbSession
+) -> SearchSellersOut:
+    """Добавляет/убирает продавца в целевые или исключённые (ссылка или имя)."""
+    search = await session.get(Search, search_id)
+    if search is None:
+        raise HTTPException(status_code=404, detail="search not found")
+    params = dict(search.params) if isinstance(search.params, dict) else {}
+    target = seller_refs_from_params(params, TARGET_KEY)
+    exclude = seller_refs_from_params(params, EXCLUDE_KEY)
+    ref = payload.ref.strip()
+    if payload.mode == "target":
+        if ref not in target:
+            target.append(ref)
+        exclude = [item for item in exclude if item != ref]
+    elif payload.mode == "exclude":
+        if ref not in exclude:
+            exclude.append(ref)
+        target = [item for item in target if item != ref]
+    elif payload.mode == "remove_target":
+        target = [item for item in target if item != ref]
+    else:
+        exclude = [item for item in exclude if item != ref]
+    if target:
+        params[TARGET_KEY] = target
+    else:
+        params.pop(TARGET_KEY, None)
+    if exclude:
+        params[EXCLUDE_KEY] = exclude
+    else:
+        params.pop(EXCLUDE_KEY, None)
+    search.params = params
+    await session.commit()
+    return await _search_sellers(session, search)
 
 
 class ExclusionsRequest(BaseModel):

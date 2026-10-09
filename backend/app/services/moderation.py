@@ -19,7 +19,7 @@ from app.ai.tasks import moderate_listings_batch, review_descriptions_batch
 from app.collectors.base import SourceAdapter
 from app.collectors.web.parsing import extract_description
 from app.config import get_settings
-from app.db.models import Listing, ListingExclusion, Search, SearchListing
+from app.db.models import Listing, ListingExclusion, Search, SearchListing, Seller
 from app.services.analytics.iqr import compute_price_stats
 from app.services.regions import (
     exclude_regions_from_params,
@@ -33,6 +33,12 @@ from app.services.search_filter import (
     first_matching_exclude,
     keywords_from_params,
     matches_keyword_groups,
+)
+from app.services.seller_filter import (
+    EXCLUDE_KEY,
+    TARGET_KEY,
+    seller_filter_reason,
+    seller_refs_from_params,
 )
 
 logger = logging.getLogger(__name__)
@@ -262,6 +268,8 @@ def passes_base_filters(
     region: str | None,
     params: dict | None,
     manual_excluded: bool = False,
+    seller_name: str | None = None,
+    seller_url: str | None = None,
 ) -> bool:
     """Проходит ли объявление include/регион/ручные фильтры поиска (без стоп-слов).
 
@@ -276,6 +284,12 @@ def passes_base_filters(
     if groups and not matches_keyword_groups(text, groups):
         return False
     if first_matching_exclude(title, excludes) is not None:
+        return False
+    target_refs = seller_refs_from_params(params, TARGET_KEY)
+    exclude_refs = seller_refs_from_params(params, EXCLUDE_KEY)
+    if (target_refs or exclude_refs) and seller_filter_reason(
+        name=seller_name, url=seller_url, target_refs=target_refs, exclude_refs=exclude_refs
+    ) is not None:
         return False
     return matches_region(region, regions_from_params(params), exclude_regions_from_params(params))
 
@@ -316,8 +330,11 @@ async def moderate_search(
             Listing.description,
             Listing.params,
             Listing.region,
+            Seller.name,
+            Seller.url,
         )
         .join(SearchListing, SearchListing.listing_id == Listing.id)
+        .outerjoin(Seller, Seller.id == Listing.seller_id)
         .where(SearchListing.search_id == search_id, Listing.status == "active")
     )
     if isinstance(max_age_days, int) and not isinstance(max_age_days, bool) and max_age_days > 0:
@@ -335,6 +352,8 @@ async def moderate_search(
             str | None,
             dict | None,
             str | None,
+            str | None,
+            str | None,
         ]
     ] = [
         (
@@ -346,6 +365,8 @@ async def moderate_search(
             row[5],
             row[6],
             row[7],
+            row[8],
+            row[9],
         )
         for row in rows
     ]
@@ -362,6 +383,8 @@ async def moderate_search(
             region=row[7],
             params=search_params if isinstance(search_params, dict) else None,
             manual_excluded=row[0] in manual_ids,
+            seller_name=row[8],
+            seller_url=row[9],
         )
     ]
     prices = [row[2] for row in listing_rows if row[2] is not None]
@@ -375,7 +398,18 @@ async def moderate_search(
     if use_descriptions and transport is not None and median is not None:
         scored_candidates: list[tuple[float, float, int, str, str | None]] = []
         for row in listing_rows:
-            listing_id, title, price, _seller_id, url, description, _params, _region = row
+            (
+                listing_id,
+                title,
+                price,
+                _seller_id,
+                url,
+                description,
+                _params,
+                _region,
+                _seller_name,
+                _seller_url,
+            ) = row
             if description is not None:
                 continue
             verdict = evaluate_listing(title, None, price, median, clusters.get(listing_id, 0))
@@ -417,6 +451,8 @@ async def moderate_search(
                 descriptions.get(row[0], row[5]),
                 row[6],
                 row[7],
+                row[8],
+                row[9],
             )
             for row in listing_rows
         ]
@@ -448,6 +484,8 @@ async def moderate_search(
             description,
             listing_params,
             _region,
+            _seller_name,
+            _seller_url,
         ) in listing_rows:
             if not description:
                 continue
@@ -510,9 +548,22 @@ async def moderate_search(
             str | None,
             dict | None,
             str | None,
+            str | None,
+            str | None,
         ],
     ) -> bool:
-        listing_id, title, _price, _seller, _url, description, row_params, _region = row
+        (
+            listing_id,
+            title,
+            _price,
+            _seller,
+            _url,
+            description,
+            row_params,
+            _region,
+            _seller_name,
+            _seller_url,
+        ) = row
         word = first_matching_exclude(combined_text(title or "", description), excludes)
         if word is None:
             return True
@@ -528,7 +579,18 @@ async def moderate_search(
     clusters = detect_clusters([(row[0], row[1], row[2], row[3]) for row in listing_rows])
     verdicts: dict[int, Verdict] = {}
     candidates_ai: list[tuple[int, str, float | None, str | None]] = []
-    for listing_id, title, price, _seller_id, _url, description, _params, _region in listing_rows:
+    for (
+        listing_id,
+        title,
+        price,
+        _seller_id,
+        _url,
+        description,
+        _params,
+        _region,
+        _seller_name,
+        _seller_url,
+    ) in listing_rows:
         verdict = evaluate_listing(
             title,
             description,

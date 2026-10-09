@@ -28,6 +28,7 @@ class MarketSummary:
     stopword_excluded: int = 0
     region_excluded: int = 0
     manual_excluded: int = 0
+    seller_excluded: int = 0
 
 
 def compute_daily_analytics(
