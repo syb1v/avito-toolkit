@@ -298,8 +298,9 @@ push тега `v*` публикует GitHub Release с секцией из CHAN
 - AI-дайджест и рекомендации требуют `DEEPSEEK_API_KEY` (без него API отдаёт 409).
 ## Дорожная карта
 
-Программа **v1.0.0** (каркас UI/UX, live-обновления, AI-чат, Telegram 2.0,
-бренды, подготовка к агентам) — [docs/v1-program.md](docs/v1-program.md).
+Программа **v1.0.0–1.6.0** (каркас UI/UX, live-обновления, AI-чат, Telegram 2.0,
+бренды, агенты и субагенты) — [docs/v1-program.md](docs/v1-program.md);
+план локальных субагентов — [docs/subagents-plan.md](docs/subagents-plan.md).
 Исторический журнал работ — [docs/plan.md](docs/plan.md).
 
 ### История

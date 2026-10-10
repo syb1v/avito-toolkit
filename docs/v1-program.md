@@ -96,6 +96,9 @@
 
 ## Справка: будущий локальный рантайм (не входит в программу)
 
+Детальный план следующего этапа (локальные субагенты, LoRA, eval, оркестратор v2) —
+[docs/subagents-plan.md](subagents-plan.md).
+
 - Железо: Mac Studio (M-серия Ultra). Запуск через MLX-LM / Ollama / LM Studio.
 - Модели: Qwen3-30B-A3B (шустрый MoE, RU+JSON), Qwen3-32B, Gemma 3 27B,
   DeepSeek-R1-Distill-70B (при ≥128 ГБ памяти).

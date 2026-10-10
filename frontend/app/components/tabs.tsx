@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 export function Tabs({
   tabs,
@@ -11,6 +11,27 @@ export function Tabs({
 }) {
   const [active, setActive] = useState(initialId ?? tabs[0]?.id ?? "");
 
+  useEffect(() => {
+    const fromHash = window.location.hash.replace("#", "");
+    if (fromHash && tabs.some((tab) => tab.id === fromHash)) {
+      setActive(fromHash);
+    }
+    const onHash = () => {
+      const value = window.location.hash.replace("#", "");
+      if (value && tabs.some((tab) => tab.id === value)) {
+        setActive(value);
+      }
+    };
+    window.addEventListener("hashchange", onHash);
+    return () => window.removeEventListener("hashchange", onHash);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  function select(id: string) {
+    setActive(id);
+    window.history.replaceState(null, "", `#${id}`);
+  }
+
   return (
     <div className="flex flex-col gap-6">
       <nav className="flex flex-wrap gap-1 rounded-xl border border-neutral-800 bg-neutral-900/60 p-1">
@@ -18,7 +39,7 @@ export function Tabs({
           <button
             key={tab.id}
             type="button"
-            onClick={() => setActive(tab.id)}
+            onClick={() => select(tab.id)}
             className={`rounded-lg px-3.5 py-1.5 text-sm transition ${
               active === tab.id
                 ? "bg-neutral-800 text-neutral-100"

@@ -24,6 +24,21 @@
 
 ## [Unreleased]
 
+## [1.6.1] - 2026-10-09
+
+### Исправлено
+
+- UI/a11y по ревью Web Interface Guidelines: глобальный `focus-visible`,
+  `prefers-reduced-motion`, `color-scheme: dark`, `overscroll-contain` и
+  `role="dialog"`/`aria-label` у модалок, `aria-label` у иконочных кнопок и
+  чекбоксов (импорт, поиски), `aria-live` у тостов, hash-состояние вкладок
+  на странице поиска (ссылка ведёт на нужную вкладку).
+
+### Документация
+
+- `docs/subagents-plan.md` — план следующего этапа: локальные субагенты,
+  датасет/LoRA, eval, оркестратор v2, продуктовые шаги.
+
 ## [1.6.0] - 2026-10-09
 
 ### Добавлено

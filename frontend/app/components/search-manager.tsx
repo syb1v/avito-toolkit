@@ -269,6 +269,7 @@ export function SearchManager({
                   onChange={() => toggleSelected(search.id)}
                   className="mt-1"
                   title="Выбрать для массового обхода"
+                  aria-label={`Выбрать «${search.name}» для массового обхода`}
                 />
                 <Link href={`/searches/${search.id}`} className="min-w-0 flex-1">
                   <p className="font-medium hover:underline">{search.name}</p>

@@ -443,6 +443,7 @@ export function ImportSearchesModal({ accounts }: { accounts: Account[] }) {
                       <input
                         type="checkbox"
                         title="Выбрать страницу"
+                        aria-label="Выбрать страницу"
                         checked={
                           pageRows.filter(usableRow).length > 0 &&
                           pageRows
@@ -485,6 +486,7 @@ export function ImportSearchesModal({ accounts }: { accounts: Account[] }) {
                             disabled={!selectable}
                             checked={row.avito_id !== null && selected.has(row.avito_id)}
                             onChange={() => selectable && toggle(row)}
+                            aria-label={`Выбрать: ${row.title.slice(0, 60)}`}
                           />
                         </td>
                         <td className="max-w-xs px-3 py-2">

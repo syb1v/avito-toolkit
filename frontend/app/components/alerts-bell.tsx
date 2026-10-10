@@ -52,10 +52,14 @@ export function AlertsBell() {
         onClick={() => setOpen((value) => !value)}
         className="relative rounded-lg border border-neutral-800 px-2.5 py-1.5 text-sm text-neutral-300 transition hover:border-neutral-600"
         title="Уведомления"
+        aria-label={`Уведомления: новых ${fresh.length}`}
       >
-        🔔
+        <span aria-hidden="true">🔔</span>
         {fresh.length > 0 ? (
-          <span className="absolute -right-1.5 -top-1.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-amber-500 px-1 text-[10px] font-medium text-neutral-950">
+          <span
+            className="absolute -right-1.5 -top-1.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-amber-500 px-1 text-[10px] font-medium text-neutral-950"
+            aria-hidden="true"
+          >
             {fresh.length > 99 ? "99+" : fresh.length}
           </span>
         ) : null}
