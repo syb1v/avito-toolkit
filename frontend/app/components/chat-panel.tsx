@@ -42,10 +42,10 @@ export function ChatButton() {
 }
 
 export function ChatPanel() {
-  return <ChatModal onClose={() => undefined} />;
+  return <ChatModal onClose={() => undefined} embedded />;
 }
 
-function ChatModal({ onClose }: { onClose: () => void }) {
+function ChatModal({ onClose, embedded = false }: { onClose: () => void; embedded?: boolean }) {
   const [sessions, setSessions] = useState<ChatSession[]>([]);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [messages, setMessages] = useState<ChatMessageOut[]>([]);
@@ -170,6 +170,7 @@ function ChatModal({ onClose }: { onClose: () => void }) {
       title="AI-ассистент"
       subtitle="Сводка по системе, поиски, цены и правки — простым языком"
       maxWidth="max-w-3xl"
+      embedded={embedded}
       footer={
         <button
           type="button"

@@ -11,6 +11,7 @@ export function Modal({
   children,
   footer,
   maxWidth = "max-w-2xl",
+  embedded = false,
 }: {
   open: boolean;
   onClose: () => void;
@@ -19,6 +20,7 @@ export function Modal({
   children: React.ReactNode;
   footer?: React.ReactNode;
   maxWidth?: string;
+  embedded?: boolean;
 }) {
   useEffect(() => {
     if (!open) {
@@ -39,6 +41,10 @@ export function Modal({
 
   if (!open || typeof document === "undefined") {
     return null;
+  }
+
+  if (embedded) {
+    return <div className={`w-full ${maxWidth}`}>{children}</div>;
   }
 
   return createPortal(

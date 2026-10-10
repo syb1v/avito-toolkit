@@ -1,6 +1,7 @@
 import Link from "next/link";
 
 import { AlertsPanel } from "@/app/components/alerts-panel";
+import { CompetitorRulesEditor } from "@/app/components/competitor-rules-editor";
 import { CrawlPanel } from "@/app/components/crawl-panel";
 import { DigestPanel } from "@/app/components/digest-panel";
 import { InfoHint } from "@/app/components/info-hint";
@@ -8,7 +9,6 @@ import { EditSearchButton } from "@/app/components/edit-search-button";
 import { ListingActions } from "@/app/components/listing-actions";
 import { PriceChart } from "@/app/components/price-chart";
 import { RegionFilter } from "@/app/components/region-filter";
-import { SellersPanel } from "@/app/components/sellers-panel";
 import { Tabs } from "@/app/components/tabs";
 import { StatCard } from "@/app/components/stat-card";
 import {
@@ -815,7 +815,7 @@ export default async function SearchDetailPage({
           {
             id: "sellers",
             label: "Продавцы",
-            content: <SellersPanel searchId={id} />,
+            content: <CompetitorRulesEditor searchId={id} />,
           },
         ]}
       />
