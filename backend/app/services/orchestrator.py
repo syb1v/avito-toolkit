@@ -84,6 +84,7 @@ async def run_orchestrator(session: AsyncSession, redis: Redis) -> dict[str, Any
                 "headline": report.get("headline"),
                 "price_actions": report.get("price_actions"),
                 "risks": report.get("risks"),
+                "sources": report.get("sources") or [],
             }
             for report in reports
         ],
@@ -132,6 +133,12 @@ async def run_orchestrator(session: AsyncSession, redis: Redis) -> dict[str, Any
         "headline": consensus.content.headline,
         "items": items,
         "agents": [report.get("playbook", {}).get("name") for report in reports],
+        "sources": [
+            source
+            for report in reports
+            for source in (report.get("sources") or [])
+            if isinstance(source, dict) and source.get("url")
+        ],
         "at": datetime.now(UTC).isoformat(),
     }
     decision = AgentDecision(status="proposed", payload=payload)

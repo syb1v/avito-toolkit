@@ -107,6 +107,11 @@ async def collect_category_data(session: AsyncSession, playbook: AgentPlaybook) 
 async def run_agent(session: AsyncSession, redis: Redis, playbook: AgentPlaybook) -> dict[str, Any]:
     """Прогон агента: данные категории + плейбук → отчёт, сохранённый как артефакт."""
     data = await collect_category_data(session, playbook)
+    data["research"] = {
+        "status": "not_run",
+        "sources": [],
+        "note": "Веб-проверка запускается точечно из карточки рекомендации.",
+    }
     try:
         result = await complete_structured(
             AgentReport,
@@ -114,7 +119,8 @@ async def run_agent(session: AsyncSession, redis: Redis, playbook: AgentPlaybook
                 "Ты агент рынка Авито по категории. Опирайся только на данные и критерии "
                 "владельца. Пиши простым человеческим языком, без технических кодов. "
                 "Дай сводку рынка, предложения по ценам наших товаров (можно с обоснованием) "
-                "и риски. Если данных мало — честно скажи об этом."
+                "и риски. Если данных мало — честно скажи об этом. Не выдумывай источники: "
+                "если веб-источников нет, верни sources пустым и укажи неопределённость."
             ),
             user_prompt=build_agent_prompt(
                 name=playbook.name,

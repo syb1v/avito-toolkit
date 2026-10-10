@@ -826,6 +826,7 @@ export type AgentReportOut = {
   market_view: string;
   price_actions: { sku: string; suggestion: string; confidence: number }[];
   risks: string[];
+  sources?: { url: string; title: string; claim: string; retrieved_at: string }[];
 };
 
 export async function fetchAgentPlaybooksClient(): Promise<AgentPlaybook[]> {
@@ -901,6 +902,7 @@ export type AgentDecision = {
       reason: string;
     }[];
     agents?: string[];
+    sources?: { url: string; title: string; claim: string; retrieved_at: string }[];
   };
   comment: string | null;
   created_at: string;

@@ -59,6 +59,10 @@ class AgentReport(BaseModel):
     market_view: str
     price_actions: list[AgentPriceAction] = Field(default_factory=list)
     risks: list[str] = Field(default_factory=list)
+    sources: list[dict[str, str]] = Field(
+        default_factory=list,
+        description="Проверяемые источники: url, title, claim, retrieved_at",
+    )
 
 
 class ListingTags(BaseModel):
