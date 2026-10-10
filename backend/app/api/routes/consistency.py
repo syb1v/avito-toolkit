@@ -61,7 +61,10 @@ async def consistency(session: DbSession) -> ConsistencyOut:
         select(func.count())
         .select_from(ListingEdit)
         .join(OurListing, OurListing.sku == ListingEdit.sku)
-        .where(OurListing.account_id.is_(None))
+        .where(
+            OurListing.account_id.is_(None),
+            ListingEdit.status.in_(("draft", "approved", "applying", "reverting")),
+        )
     )
     decisions_without_sources = await session.scalar(
         select(func.count())
