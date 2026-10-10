@@ -356,6 +356,8 @@ export function AccountManager({ initial }: { initial: Account[] }) {
     "rounded-lg border border-neutral-700 px-3 py-1 text-xs text-neutral-300 transition hover:border-neutral-500 disabled:opacity-50";
   const input =
     "rounded-lg border border-neutral-800 bg-neutral-950 px-3 py-2 text-sm text-neutral-200 outline-none focus:border-sky-500/60";
+  const sellers = items.filter((account) => account.role === "seller");
+  const searchers = items.filter((account) => account.role === "searcher");
 
   return (
     <section className="flex flex-col gap-4">
@@ -398,6 +400,18 @@ export function AccountManager({ initial }: { initial: Account[] }) {
         >
           + Добавить аккаунт
         </button>
+      </div>
+
+      <div className="grid gap-2 sm:grid-cols-2">
+        <div className="rounded-lg border border-violet-500/20 bg-violet-500/5 px-3 py-2 text-xs text-violet-200">
+          Продавцы: <b>{sellers.length}</b>
+          {sellers.length ? ` · ${sellers.map((item) => item.name).join(", ")}` : " · пока нет аккаунтов"}
+          {!sellers.length ? <p className="mt-1 text-[11px] text-amber-200/80">Создайте продавца с актуальными API-ключами Avito.</p> : null}
+        </div>
+        <div className="rounded-lg border border-emerald-500/20 bg-emerald-500/5 px-3 py-2 text-xs text-emerald-200">
+          Поисковики: <b>{searchers.length}</b>
+          {searchers.length ? ` · ${searchers.map((item) => item.name).join(", ")}` : " · пока нет аккаунтов"}
+        </div>
       </div>
 
       <details className="rounded-xl border border-neutral-800 bg-neutral-900/40 p-4 text-sm text-neutral-400">
