@@ -62,6 +62,8 @@ class MatchOut(BaseModel):
     url: str | None
     status: str
     similarity_score: float
+    identity: dict | None = None
+    conflict_reasons: list | None = None
 
 
 class MatchStatusUpdate(BaseModel):

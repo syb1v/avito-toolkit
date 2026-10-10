@@ -12,6 +12,7 @@ import {
   type OurMatch,
   type PriceAdvice,
   type Recommendation,
+  updateMatchStatusClient,
 } from "@/lib/api";
 import { formatPercent, formatPrice } from "@/lib/format";
 import { STRATEGY_LABELS } from "@/lib/terms";
@@ -32,6 +33,13 @@ export function SkuModal({
   const [adviceCached, setAdviceCached] = useState(false);
   const [adviceBusy, setAdviceBusy] = useState(false);
   const toast = useToast();
+
+  async function updateMatch(listingId: number, status: "confirmed" | "rejected") {
+    const result = await updateMatchStatusClient(sku, listingId, status);
+    if (!result.ok) { toast.push("error", result.error); return; }
+    setMatches((current) => current?.map((match) => match.listing_id === listingId ? { ...match, status } : match) ?? null);
+    toast.push("success", status === "confirmed" ? "Матч подтверждён" : "Матч исключён");
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -195,11 +203,8 @@ export function SkuModal({
                     ) : (
                       match.title
                     )}
-                  </span>
-                  <span className="whitespace-nowrap tabular-nums text-neutral-400">
-                    {formatPrice(match.price)} ·{" "}
-                    {(match.similarity_score * 100).toFixed(0)}%
-                  </span>
+                   </span>
+                   <span className="flex shrink-0 flex-col items-end gap-1 text-[11px] text-neutral-400"><span className="whitespace-nowrap tabular-nums">{formatPrice(match.price)} · {(match.similarity_score * 100).toFixed(0)}%</span><span className={match.status === "rejected" ? "text-red-300" : match.status === "confirmed" ? "text-emerald-300" : "text-neutral-600"}>{match.status === "rejected" ? "исключён" : match.status === "confirmed" ? "подтверждён" : "автоматический матч"}</span><span className="flex gap-1">{match.status !== "confirmed" ? <button type="button" onClick={() => updateMatch(match.listing_id, "confirmed")} className="rounded border border-emerald-500/30 px-1.5 py-0.5 text-emerald-200 hover:bg-emerald-500/10">Подтвердить</button> : null}{match.status !== "rejected" ? <button type="button" onClick={() => updateMatch(match.listing_id, "rejected")} className="rounded border border-red-500/30 px-1.5 py-0.5 text-red-200 hover:bg-red-500/10">Исключить</button> : null}</span></span>
                 </li>
               ))}
             </ul>

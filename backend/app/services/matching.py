@@ -166,6 +166,8 @@ class MatchView:
     url: str | None
     status: str
     similarity_score: float
+    identity: dict | None = None
+    conflict_reasons: list | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -340,6 +342,8 @@ async def list_matches(session: AsyncSession, sku: str) -> list[MatchView]:
                 url=listing.url,
                 status=match.match_status,
                 similarity_score=match.similarity_score,
+                identity=match.identity,
+                conflict_reasons=match.conflict_reasons,
             )
         )
     return views

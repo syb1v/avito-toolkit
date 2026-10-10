@@ -1021,6 +1021,8 @@ export type OurMatch = {
   url: string | null;
   status: string;
   similarity_score: number;
+  identity: { query?: Record<string, unknown>; candidate?: Record<string, unknown> } | null;
+  conflict_reasons: string[] | null;
 };
 
 export async function fetchMatchesClient(sku: string): Promise<OurMatch[]> {
@@ -1037,6 +1039,9 @@ export async function fetchMatchesClient(sku: string): Promise<OurMatch[]> {
     return [];
   }
 }
+
+export const updateMatchStatusClient = (sku: string, listingId: number, status: "confirmed" | "rejected" | "auto_matched") =>
+  mutate<{ status: string }>(`/api/v1/our-listings/${encodeURIComponent(sku)}/matches/${listingId}`, { method: "PATCH", body: JSON.stringify({ status }) });
 
 export type PriceAdvice = {
   recommended_price: number;
