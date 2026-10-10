@@ -41,6 +41,10 @@ export function ChatButton() {
   );
 }
 
+export function ChatPanel() {
+  return <ChatModal onClose={() => undefined} />;
+}
+
 function ChatModal({ onClose }: { onClose: () => void }) {
   const [sessions, setSessions] = useState<ChatSession[]>([]);
   const [sessionId, setSessionId] = useState<string | null>(null);
