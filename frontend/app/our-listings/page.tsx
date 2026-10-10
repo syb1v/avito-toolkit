@@ -5,12 +5,12 @@ import { fetchOurListingsOverview, fetchRecommendations } from "@/lib/api";
 export default async function OurListingsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ sku?: string }>;
+  searchParams: Promise<{ sku?: string; seller?: string }>;
 }) {
-  const [{ sku }, rows, recommendations] = await Promise.all([
+  const [{ sku, seller }, rows, recommendations] = await Promise.all([
     searchParams,
-    fetchOurListingsOverview(),
-    fetchRecommendations(),
+    searchParams.then(({ seller: selected }) => fetchOurListingsOverview(selected)),
+    searchParams.then(({ seller: selected }) => fetchRecommendations(selected)),
   ]);
 
   return (

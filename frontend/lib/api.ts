@@ -383,11 +383,11 @@ export const fetchListings = async (
 export const fetchAlerts = async (searchId: string): Promise<Alert[]> =>
   (await getJson<Alert[]>(`/api/v1/alerts?search_id=${searchId}`)) ?? [];
 
-export const fetchOurListingsOverview = async (): Promise<OurListingOverview[]> =>
-  (await getJson<OurListingOverview[]>("/api/v1/our-listings/overview")) ?? [];
+export const fetchOurListingsOverview = async (seller?: string): Promise<OurListingOverview[]> =>
+  (await getJson<OurListingOverview[]>(`/api/v1/our-listings/overview${seller ? `?seller=${encodeURIComponent(seller)}` : ""}`)) ?? [];
 
-export const fetchRecommendations = async (): Promise<Recommendation[]> =>
-  (await getJson<Recommendation[]>("/api/v1/our-listings/recommendations")) ?? [];
+export const fetchRecommendations = async (seller?: string): Promise<Recommendation[]> =>
+  (await getJson<Recommendation[]>(`/api/v1/our-listings/recommendations${seller ? `?seller=${encodeURIComponent(seller)}` : ""}`)) ?? [];
 
 export type ResearchSource = {
   url: string;

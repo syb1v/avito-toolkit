@@ -76,11 +76,13 @@ def build_recommendation(
     )
 
 
-async def build_recommendations(session: AsyncSession) -> list[Recommendation]:
+async def build_recommendations(
+    session: AsyncSession, account_name: str | None = None
+) -> list[Recommendation]:
     """Рекомендации по всем нашим SKU с матчами на рынке."""
     settings = get_settings()
     recommendations: list[Recommendation] = []
-    for row in await build_overview(session):
+    for row in await build_overview(session, account_name=account_name):
         recommendation = build_recommendation(
             sku=row.sku,
             title=row.title,

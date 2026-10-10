@@ -130,14 +130,34 @@ async def upsert_our_listing(payload: OurListingCreate, session: DbSession) -> O
 
 
 @router.get("/our-listings/overview", response_model=list[OverviewOut])
-async def our_listings_overview(session: DbSession) -> list[OverviewOut]:
-    rows = await build_overview(session)
+async def our_listings_overview(
+    session: DbSession, seller: uuid.UUID | None = None
+) -> list[OverviewOut]:
+    account_name: str | None = None
+    if seller is not None:
+        from app.db.models import AvitoAccount
+
+        account = await session.get(AvitoAccount, seller)
+        if account is None or account.role != "seller":
+            raise HTTPException(status_code=404, detail="seller account not found")
+        account_name = account.name
+    rows = await build_overview(session, account_name=account_name)
     return [OverviewOut(**asdict(row)) for row in rows]
 
 
 @router.get("/our-listings/recommendations", response_model=list[RecommendationOut])
-async def our_listings_recommendations(session: DbSession) -> list[RecommendationOut]:
-    recommendations = await build_recommendations(session)
+async def our_listings_recommendations(
+    session: DbSession, seller: uuid.UUID | None = None
+) -> list[RecommendationOut]:
+    account_name: str | None = None
+    if seller is not None:
+        from app.db.models import AvitoAccount
+
+        account = await session.get(AvitoAccount, seller)
+        if account is None or account.role != "seller":
+            raise HTTPException(status_code=404, detail="seller account not found")
+        account_name = account.name
+    recommendations = await build_recommendations(session, account_name=account_name)
     return [RecommendationOut(**asdict(item)) for item in recommendations]
 
 

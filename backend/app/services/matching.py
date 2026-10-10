@@ -54,9 +54,7 @@ def parse_product_identity(value: str) -> ProductIdentity:
     families = _model_family(tokens)
     brand = tokens[0] if tokens else None
     edition = (
-        "opera de paris"
-        if "opera" in tokens and "de" in tokens and "paris" in tokens
-        else None
+        "opera de paris" if "opera" in tokens and "de" in tokens and "paris" in tokens else None
     )
     return ProductIdentity(
         brand=brand,
@@ -303,11 +301,11 @@ async def match_our_listing(session: AsyncSession, sku: str) -> list[RankedCandi
                 ProductMarketMatch.our_sku_id,
                 ProductMarketMatch.market_listing_id,
             ],
-                    set_={
-                        "similarity_score": statement.excluded.similarity_score,
-                        "identity": statement.excluded.identity,
-                        "conflict_reasons": statement.excluded.conflict_reasons,
-                        "matched_at": statement.excluded.matched_at,
+            set_={
+                "similarity_score": statement.excluded.similarity_score,
+                "identity": statement.excluded.identity,
+                "conflict_reasons": statement.excluded.conflict_reasons,
+                "matched_at": statement.excluded.matched_at,
             },
             where=ProductMarketMatch.match_status == "auto_matched",
         )
@@ -391,9 +389,14 @@ async def match_all_our_listings(session: AsyncSession) -> int:
     return matched
 
 
-async def build_overview(session: AsyncSession) -> list[OverviewRow]:
+async def build_overview(
+    session: AsyncSession, account_name: str | None = None
+) -> list[OverviewRow]:
     """Сводка по нашим SKU: цена, статус на Авито, матчи и дельта к медиане."""
-    our_rows = (await session.execute(select(OurListing).order_by(OurListing.sku))).scalars().all()
+    statement = select(OurListing).order_by(OurListing.sku)
+    if account_name is not None:
+        statement = statement.where(OurListing.account == account_name)
+    our_rows = (await session.execute(statement)).scalars().all()
     price_rows = await session.execute(
         select(ProductMarketMatch.our_sku_id, Listing.current_price)
         .join(Listing, Listing.id == ProductMarketMatch.market_listing_id)
