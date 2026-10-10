@@ -7,6 +7,8 @@
 
 ## [Unreleased]
 
+## [1.6.1] - 2026-10-10
+
 ## [1.6.0] - 2026-10-10
 
 ## [1.5.0] - 2026-10-10
@@ -999,7 +1001,8 @@
 - Дашборд Next.js 16 + Tailwind 4 со статусом API и дорожной картой.
 - Документация: README, `docs/plan.md`, `.env.example`, MIT-лицензия.
 
-[Unreleased]: https://github.com/syb1v/avito-toolkit/compare/v1.6.0...HEAD
+[Unreleased]: https://github.com/syb1v/avito-toolkit/compare/v1.6.1...HEAD
+[1.6.1]: https://github.com/syb1v/avito-toolkit/compare/v1.6.0...v1.6.1
 [1.6.0]: https://github.com/syb1v/avito-toolkit/compare/v1.5.0...v1.6.0
 [1.5.0]: https://github.com/syb1v/avito-toolkit/compare/v1.4.0...v1.5.0
 [1.4.0]: https://github.com/syb1v/avito-toolkit/compare/v1.3.1...v1.4.0
