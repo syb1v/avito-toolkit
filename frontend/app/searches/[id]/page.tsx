@@ -238,7 +238,7 @@ export default async function SearchDetailPage({
   if (summary === null) {
     return (
       <main className="mx-auto max-w-3xl px-4 py-12 sm:px-6 sm:py-16">
-        <Link href="/" className="text-sm text-neutral-500 hover:text-neutral-300">
+        <Link href="/searches" className="text-sm text-neutral-500 hover:text-neutral-300">
           ← Все поиски
         </Link>
         <div className="mt-6 rounded-xl border border-amber-500/30 bg-amber-500/10 p-5 text-sm text-amber-200">

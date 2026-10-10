@@ -7,6 +7,7 @@ import { useEffect, useState } from "react";
 import { useConfirm } from "@/app/components/confirm";
 import { ImportSearchesModal } from "@/app/components/import-searches-modal";
 import { InfoHint } from "@/app/components/info-hint";
+import { SearchStatusBadge } from "@/app/components/search-status-badge";
 import {
   SearchFormModal,
   excludeWordsOf,
@@ -24,6 +25,7 @@ import {
   fetchSearches,
   triggerCrawl,
   updateSearchClient,
+  updateSearchSellerClient,
 } from "@/lib/api";
 import { regionName } from "@/lib/regions";
 
@@ -43,6 +45,7 @@ export function SearchManager({
   const [statusFilter, setStatusFilter] = useState<"all" | "active" | "paused">("all");
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [bulkBusy, setBulkBusy] = useState(false);
+  const [bulkSellerRef, setBulkSellerRef] = useState("");
 
   function toggleSelected(id: string) {
     setSelected((current) => {
@@ -85,6 +88,27 @@ export function SearchManager({
     );
     await refresh();
   }
+
+  async function applySellerBulk(mode: "target" | "exclude") {
+    const ref = bulkSellerRef.trim();
+    if (!ref || selected.size === 0) return;
+    const ok = await confirm({
+      title: `${mode === "target" ? "Добавить в whitelist" : "Добавить в blacklist"}?`,
+      text: `Правило будет применено к ${selected.size} поискам.`,
+      confirmLabel: "Применить",
+    });
+    if (!ok) return;
+    setBulkBusy(true);
+    let changed = 0;
+    for (const id of selected) {
+      const result = await updateSearchSellerClient(id, ref, mode);
+      if (result.ok) changed += 1;
+    }
+    setBulkBusy(false);
+    setBulkSellerRef("");
+    toast.push(changed === selected.size ? "success" : "error", `Изменено поисков: ${changed} из ${selected.size}`);
+    await refresh();
+  }
   const [items, setItems] = useState(initial);
 
   const visibleItems = items.filter((search) => {
@@ -116,7 +140,7 @@ export function SearchManager({
     const search = initial.find((item) => item.id === editId);
     if (search) {
       setTarget({ search });
-      router.replace("/", { scroll: false });
+       router.replace(`/searches/${editId}`, { scroll: false });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editId]);
@@ -227,9 +251,12 @@ export function SearchManager({
 
       {selected.size > 0 ? (
         <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-sky-500/30 bg-sky-500/10 px-4 py-2 text-xs text-sky-100">
-          <span>выбрано поисков: {selected.size}</span>
-          <span className="flex gap-2">
-            <button
+           <span>выбрано поисков: {selected.size}</span>
+           <span className="flex flex-wrap items-center justify-end gap-2">
+             <input value={bulkSellerRef} onChange={(event) => setBulkSellerRef(event.target.value)} placeholder="Продавец для фильтра…" aria-label="Продавец для массового фильтра" className="w-48 rounded-lg border border-neutral-800 bg-neutral-950 px-2.5 py-1 text-xs text-neutral-200 outline-none focus:border-sky-500/60" />
+             <button type="button" disabled={bulkBusy || !bulkSellerRef.trim()} onClick={() => applySellerBulk("target")} className="rounded-lg border border-emerald-500/40 px-3 py-1 text-xs text-emerald-200 transition hover:bg-emerald-500/10 disabled:opacity-50">В whitelist</button>
+             <button type="button" disabled={bulkBusy || !bulkSellerRef.trim()} onClick={() => applySellerBulk("exclude")} className="rounded-lg border border-red-500/40 px-3 py-1 text-xs text-red-200 transition hover:bg-red-500/10 disabled:opacity-50">В blacklist</button>
+             <button
               type="button"
               disabled={bulkBusy}
               onClick={crawlSelected}
@@ -275,15 +302,7 @@ export function SearchManager({
                   <p className="font-medium hover:underline">{search.name}</p>
                   <p className="mt-1 truncate text-xs text-neutral-500">{search.url}</p>
                 </Link>
-                <span
-                  className={`whitespace-nowrap rounded-full border px-2 py-0.5 text-[10px] ${
-                    search.is_active
-                      ? "border-emerald-500/30 bg-emerald-500/15 text-emerald-300"
-                      : "border-neutral-700 bg-neutral-800 text-neutral-400"
-                  }`}
-                >
-                  {search.is_active ? "активен" : "на паузе"}
-                </span>
+                <SearchStatusBadge searchId={search.id} active={search.is_active} />
               </div>
               <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-xs text-neutral-500">
                 <span>обход: {scheduleLabel(search.schedule_cron)}</span>
