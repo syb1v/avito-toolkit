@@ -21,8 +21,40 @@ from app.db.models import AgentPlaybook, ListingEdit, Search
 from app.services.ai_center import save_artifact
 from app.services.events import publish
 from app.services.facets import listing_brand
+from app.services.web_research import research_product_identity
 
 logger = logging.getLogger(__name__)
+
+
+async def collect_research(items: list[dict[str, Any]]) -> dict[str, Any]:
+    sources: list[dict[str, Any]] = []
+    for item in items[:3]:
+        result = await research_product_identity(str(item["title"]))
+        for source in result.sources:
+            sources.append(
+                {
+                    "sku": item["sku"],
+                    "url": source.url,
+                    "title": source.title,
+                    "retrieved_at": source.retrieved_at.isoformat(),
+                    "claim": "Поисковый результат; содержимое страницы ещё не проверено",
+                    "verified": False,
+                }
+            )
+    return {"status": "sources_found" if sources else "needs_review", "sources": sources}
+
+
+def constrain_agent_output(payload: dict[str, Any], data: dict[str, Any]) -> None:
+    allowed = {item["sku"] for item in data["our_items"]}
+    payload["price_actions"] = [
+        action for action in payload.get("price_actions", []) if action.get("sku") in allowed
+    ]
+    # Sources are supplied by the retrieval layer, never authored by the model.
+    payload["sources"] = data["research"]["sources"]
+    payload["input_snapshot"] = data
+    payload.setdefault("risks", []).append(
+        "Веб-результаты — ссылки для проверки, а не подтверждённые характеристики моделей."
+    )
 
 
 def _criteria_text(criteria: dict) -> str:
@@ -107,11 +139,7 @@ async def collect_category_data(session: AsyncSession, playbook: AgentPlaybook) 
 async def run_agent(session: AsyncSession, redis: Redis, playbook: AgentPlaybook) -> dict[str, Any]:
     """Прогон агента: данные категории + плейбук → отчёт, сохранённый как артефакт."""
     data = await collect_category_data(session, playbook)
-    data["research"] = {
-        "status": "not_run",
-        "sources": [],
-        "note": "Веб-проверка запускается точечно из карточки рекомендации.",
-    }
+    data["research"] = await collect_research(data["our_items"])
     try:
         result = await complete_structured(
             AgentReport,
@@ -136,6 +164,7 @@ async def run_agent(session: AsyncSession, redis: Redis, playbook: AgentPlaybook
         raise RuntimeError(str(error)) from error
     await record_llm_run(session, task="agent", result=result, prompt_version=AGENT_REPORT_VERSION)
     payload = result.content.model_dump(mode="json")
+    constrain_agent_output(payload, data)
     payload["at"] = datetime.now(UTC).isoformat()
     payload["playbook"] = {
         "id": str(playbook.id),

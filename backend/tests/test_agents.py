@@ -1,6 +1,42 @@
+import pytest
+
 from app.ai.client import resolve_model
 from app.ai.prompts import build_agent_prompt
 from app.config import Settings
+from app.services.agents import collect_research, constrain_agent_output
+from app.services.web_research import ResearchResult, validate_source
+
+
+@pytest.mark.asyncio
+async def test_agent_research_passes_product_sources_into_input(monkeypatch) -> None:
+    queries = []
+
+    async def research(query):
+        queries.append(query)
+        return ResearchResult(
+            query,
+            (validate_source("https://devialet.com/gemini", "Gemini", ["unverified lead"]),),
+            "sources_found",
+        )
+
+    monkeypatch.setattr("app.services.agents.research_product_identity", research)
+    result = await collect_research([{"sku": "one", "title": "Devialet Gemini 2"}])
+    assert queries == ["Devialet Gemini 2"]
+    assert result["sources"][0]["url"] == "https://devialet.com/gemini"
+    assert result["sources"][0]["verified"] is False
+
+
+def test_agent_cannot_invent_sources_or_propose_out_of_scope_sku() -> None:
+    payload = {
+        "price_actions": [{"sku": "allowed"}, {"sku": "outside"}],
+        "sources": [{"url": "https://invented.example"}],
+        "risks": [],
+    }
+    data = {"our_items": [{"sku": "allowed"}], "research": {"sources": []}}
+    constrain_agent_output(payload, data)
+    assert payload["price_actions"] == [{"sku": "allowed"}]
+    assert payload["sources"] == []
+    assert payload["risks"]
 
 
 def test_resolve_model_cloud_and_local() -> None:

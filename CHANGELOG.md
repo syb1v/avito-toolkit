@@ -7,6 +7,10 @@
 
 ## [Unreleased]
 
+## [1.6.7] - 2026-10-10
+
+- Реальное web research в отчётах агентов с ограничением источников retrieval layer.
+
 ## [1.6.6] - 2026-10-10
 
 - Синхронизация версии приложения и release tag после production smoke-check.
@@ -1013,7 +1017,8 @@
 - Дашборд Next.js 16 + Tailwind 4 со статусом API и дорожной картой.
 - Документация: README, `docs/plan.md`, `.env.example`, MIT-лицензия.
 
-[Unreleased]: https://github.com/syb1v/avito-toolkit/compare/v1.6.6...HEAD
+[Unreleased]: https://github.com/syb1v/avito-toolkit/compare/v1.6.7...HEAD
+[1.6.7]: https://github.com/syb1v/avito-toolkit/compare/v1.6.6...v1.6.7
 [1.6.6]: https://github.com/syb1v/avito-toolkit/compare/v1.6.5...v1.6.6
 [1.6.4]: https://github.com/syb1v/avito-toolkit/compare/v1.6.3...v1.6.4
 [1.6.3]: https://github.com/syb1v/avito-toolkit/compare/v1.6.2...v1.6.3
