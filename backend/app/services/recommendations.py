@@ -1,3 +1,4 @@
+import uuid
 from dataclasses import dataclass
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -77,12 +78,12 @@ def build_recommendation(
 
 
 async def build_recommendations(
-    session: AsyncSession, account_name: str | None = None
+    session: AsyncSession, account_id: uuid.UUID | None = None
 ) -> list[Recommendation]:
     """Рекомендации по всем нашим SKU с матчами на рынке."""
     settings = get_settings()
     recommendations: list[Recommendation] = []
-    for row in await build_overview(session, account_name=account_name):
+    for row in await build_overview(session, account_id=account_id):
         recommendation = build_recommendation(
             sku=row.sku,
             title=row.title,

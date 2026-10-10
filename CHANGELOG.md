@@ -7,6 +7,10 @@
 
 ## [Unreleased]
 
+## [1.6.9] - 2026-10-10
+
+- `our_listings.account_id` как источник истины с FK `ON DELETE SET NULL`; backfill существующих объявлений.
+
 ## [1.6.8] - 2026-10-10
 
 - Очистка сиротских ссылок на удалённые аккаунты и явный счётчик продавцов/поисковиков.
@@ -1021,7 +1025,8 @@
 - Дашборд Next.js 16 + Tailwind 4 со статусом API и дорожной картой.
 - Документация: README, `docs/plan.md`, `.env.example`, MIT-лицензия.
 
-[Unreleased]: https://github.com/syb1v/avito-toolkit/compare/v1.6.8...HEAD
+[Unreleased]: https://github.com/syb1v/avito-toolkit/compare/v1.6.9...HEAD
+[1.6.9]: https://github.com/syb1v/avito-toolkit/compare/v1.6.8...v1.6.9
 [1.6.8]: https://github.com/syb1v/avito-toolkit/compare/v1.6.7...v1.6.8
 [1.6.7]: https://github.com/syb1v/avito-toolkit/compare/v1.6.6...v1.6.7
 [1.6.6]: https://github.com/syb1v/avito-toolkit/compare/v1.6.5...v1.6.6

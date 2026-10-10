@@ -1,3 +1,4 @@
+import uuid
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -8,7 +9,14 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
-from app.db.models import Listing, OurListing, ProductMarketMatch, Search, SearchListing
+from app.db.models import (
+    AvitoAccount,
+    Listing,
+    OurListing,
+    ProductMarketMatch,
+    Search,
+    SearchListing,
+)
 from app.services.analytics.iqr import PriceStats, compute_price_stats
 from app.services.search_filter import normalize_text
 
@@ -394,13 +402,26 @@ async def match_all_our_listings(session: AsyncSession) -> int:
 
 
 async def build_overview(
-    session: AsyncSession, account_name: str | None = None
+    session: AsyncSession, account_id: uuid.UUID | None = None
 ) -> list[OverviewRow]:
     """Сводка по нашим SKU: цена, статус на Авито, матчи и дельта к медиане."""
     statement = select(OurListing).order_by(OurListing.sku)
-    if account_name is not None:
-        statement = statement.where(OurListing.account == account_name)
+    if account_id is not None:
+        statement = statement.where(OurListing.account_id == account_id)
     our_rows = (await session.execute(statement)).scalars().all()
+    account_ids = {row.account_id for row in our_rows if row.account_id is not None}
+    account_names = (
+        {
+            account.id: account.name
+            for account in (
+                await session.execute(select(AvitoAccount).where(AvitoAccount.id.in_(account_ids)))
+            )
+            .scalars()
+            .all()
+        }
+        if account_ids
+        else {}
+    )
     price_rows = await session.execute(
         select(ProductMarketMatch.our_sku_id, Listing.current_price)
         .join(Listing, Listing.id == ProductMarketMatch.market_listing_id)
@@ -425,7 +446,7 @@ async def build_overview(
                 title=our.title,
                 our_price=float(our.price),
                 cost_price=float(our.cost_price) if our.cost_price is not None else None,
-                account=our.account,
+                account=account_names.get(our.account_id) if our.account_id is not None else None,
                 is_active=our.is_active,
                 avito_status=our.avito_status,
                 avito_url=our.avito_url,

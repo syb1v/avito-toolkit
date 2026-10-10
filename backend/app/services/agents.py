@@ -97,7 +97,7 @@ async def collect_category_data(session: AsyncSession, playbook: AgentPlaybook) 
     our_rows = list(
         (
             await session.execute(
-                select(OurListing).where(OurListing.is_active, OurListing.account.is_not(None))
+                select(OurListing).where(OurListing.is_active, OurListing.account_id.is_not(None))
             )
         ).scalars()
     )

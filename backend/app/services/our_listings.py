@@ -1,4 +1,5 @@
 import re
+import uuid
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
@@ -6,7 +7,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models import Listing, OurListing, SearchListing
+from app.db.models import AvitoAccount, Listing, OurListing, SearchListing
 
 NON_NUMERIC = re.compile(r"[^0-9.,-]")
 
@@ -19,6 +20,7 @@ class ImportRow:
     cost_price: float | None = None
     category: str | None = None
     account: str | None = None
+    account_id: uuid.UUID | None = None
     avito_item_id: int | None = None
     avito_url: str | None = None
     avito_status: str | None = None
@@ -102,6 +104,11 @@ async def upsert_our_listings(session: AsyncSession, rows: Sequence[ImportRow]) 
     created = 0
     updated = 0
     for row in rows:
+        account_id = row.account_id
+        if row.account:
+            account_id = await session.scalar(
+                select(AvitoAccount.id).where(AvitoAccount.name == row.account)
+            )
         existing = await session.get(OurListing, row.sku)
         if existing is None and row.avito_item_id is not None:
             existing = await session.scalar(
@@ -116,6 +123,7 @@ async def upsert_our_listings(session: AsyncSession, rows: Sequence[ImportRow]) 
                     cost_price=row.cost_price,
                     category=row.category,
                     account=row.account,
+                    account_id=account_id,
                     avito_item_id=row.avito_item_id,
                     avito_url=row.avito_url,
                     avito_status=row.avito_status,
@@ -131,6 +139,7 @@ async def upsert_our_listings(session: AsyncSession, rows: Sequence[ImportRow]) 
             existing.category = row.category
         if row.account:
             existing.account = row.account
+            existing.account_id = account_id
         if row.avito_item_id is not None:
             existing.avito_item_id = row.avito_item_id
         if row.avito_url:
@@ -143,7 +152,10 @@ async def upsert_our_listings(session: AsyncSession, rows: Sequence[ImportRow]) 
 
 
 async def import_from_search(
-    session: AsyncSession, search_id: Any, account: str | None = None
+    session: AsyncSession,
+    search_id: Any,
+    account: str | None = None,
+    account_id: Any | None = None,
 ) -> ImportResult:
     """Переносит объявления спарсенного поиска (например, своего профиля) в наши SKU."""
     rows = await session.execute(
@@ -169,6 +181,7 @@ async def import_from_search(
                 title=title,
                 price=float(price),
                 account=account,
+                account_id=account_id,
                 avito_item_id=listing_id,
                 avito_url=url,
                 avito_status=status,

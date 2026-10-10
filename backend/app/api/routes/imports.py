@@ -163,16 +163,16 @@ async def list_api_accounts(session: DbSession) -> list[ApiAccountOut]:
     if not accounts:
         return []
     count_rows = await session.execute(
-        select(OurListing.account, func.count())
+        select(OurListing.account_id, func.count())
         .where(
-            OurListing.account.in_([account.name for account in accounts]),
+            OurListing.account_id.in_([account.id for account in accounts]),
             OurListing.avito_item_id.is_not(None),
         )
-        .group_by(OurListing.account)
+        .group_by(OurListing.account_id)
     )
     counts = {row[0]: int(row[1]) for row in count_rows.all()}
     return [
-        ApiAccountOut(id=account.id, name=account.name, items_count=counts.get(account.name, 0))
+        ApiAccountOut(id=account.id, name=account.name, items_count=counts.get(account.id, 0))
         for account in accounts
     ]
 
@@ -184,10 +184,10 @@ async def staging_from_account(payload: FromAccountIn, session: DbSession) -> Im
         account = await session.get(AvitoAccount, payload.account_id)
         if account is None or not account.api_client_id:
             raise HTTPException(status_code=404, detail="API-аккаунт не найден")
-        names = [account.name]
+        account_ids = [account.id]
     else:
-        names = [
-            account.name
+        account_ids = [
+            account.id
             for account in (
                 await session.execute(
                     select(AvitoAccount).where(AvitoAccount.api_client_id.is_not(None))
@@ -196,14 +196,14 @@ async def staging_from_account(payload: FromAccountIn, session: DbSession) -> Im
             .scalars()
             .all()
         ]
-    if not names:
+    if not account_ids:
         raise HTTPException(status_code=404, detail="нет API-аккаунтов — добавьте аккаунт по ключу")
     listings = (
         (
             await session.execute(
                 select(OurListing)
                 .where(
-                    OurListing.account.in_(names),
+                    OurListing.account_id.in_(account_ids),
                     OurListing.avito_item_id.is_not(None),
                     OurListing.is_active.is_(True),
                 )
@@ -389,6 +389,7 @@ async def apply_import(token: str, payload: ApplyIn, session: DbSession) -> Appl
                 title=item.title,
                 price=item.price,
                 account=account.name if account is not None else None,
+                account_id=account.id if account is not None else None,
                 avito_item_id=item.avito_id,
                 avito_url=None,
                 avito_status=item.status or "active",

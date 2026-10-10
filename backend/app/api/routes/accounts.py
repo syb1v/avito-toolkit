@@ -6,11 +6,11 @@ from typing import Any
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 from redis.asyncio import Redis
-from sqlalchemy import func, select, update
+from sqlalchemy import func, select
 
 from app.api.deps import DbSession
 from app.config import get_settings
-from app.db.models import AvitoAccount, OurListing, Search
+from app.db.models import AvitoAccount, Search
 from app.services.account_care import account_care_state, clear_rest, set_rest
 from app.services.accounts import (
     account_overview,
@@ -284,11 +284,6 @@ async def update_account(
 @router.delete("/{account_id}", status_code=204)
 async def delete_account(account_id: uuid.UUID, session: DbSession) -> None:
     account = await _load(session, account_id)
-    # OurListing.account is a legacy denormalized name. Clear it explicitly so
-    # deleted accounts cannot remain visible as ghost sellers in the UI.
-    await session.execute(
-        update(OurListing).where(OurListing.account == account.name).values(account=None)
-    )
     await session.delete(account)
     await session.commit()
 

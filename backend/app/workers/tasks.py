@@ -781,7 +781,7 @@ async def _sync_account_items(account_id: str) -> dict[str, object]:
                 (
                     await session.execute(
                         select(OurListing).where(
-                            OurListing.account == account.name,
+                            OurListing.account_id == account.id,
                             OurListing.avito_item_id.is_not(None),
                         )
                     )

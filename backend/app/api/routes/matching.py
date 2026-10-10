@@ -135,15 +135,15 @@ async def upsert_our_listing(payload: OurListingCreate, session: DbSession) -> O
 async def our_listings_overview(
     session: DbSession, seller: uuid.UUID | None = None
 ) -> list[OverviewOut]:
-    account_name: str | None = None
+    account_id = None
     if seller is not None:
         from app.db.models import AvitoAccount
 
         account = await session.get(AvitoAccount, seller)
         if account is None or account.role != "seller":
             raise HTTPException(status_code=404, detail="seller account not found")
-        account_name = account.name
-    rows = await build_overview(session, account_name=account_name)
+        account_id = account.id
+    rows = await build_overview(session, account_id=account_id)
     return [OverviewOut(**asdict(row)) for row in rows]
 
 
@@ -151,15 +151,15 @@ async def our_listings_overview(
 async def our_listings_recommendations(
     session: DbSession, seller: uuid.UUID | None = None
 ) -> list[RecommendationOut]:
-    account_name: str | None = None
+    account_id = None
     if seller is not None:
         from app.db.models import AvitoAccount
 
         account = await session.get(AvitoAccount, seller)
         if account is None or account.role != "seller":
             raise HTTPException(status_code=404, detail="seller account not found")
-        account_name = account.name
-    recommendations = await build_recommendations(session, account_name=account_name)
+        account_id = account.id
+    recommendations = await build_recommendations(session, account_id=account_id)
     return [RecommendationOut(**asdict(item)) for item in recommendations]
 
 
@@ -186,7 +186,13 @@ async def import_our_listings_from_search(
 ) -> ImportOut:
     if await session.get(Search, search_id) is None:
         raise HTTPException(status_code=404, detail="search not found")
-    result = await import_from_search(session, search_id, account=account)
+    account_id = None
+    if account is not None:
+        from app.db.models import AvitoAccount
+
+        account_row = await session.scalar(select(AvitoAccount).where(AvitoAccount.name == account))
+        account_id = account_row.id if account_row is not None else None
+    result = await import_from_search(session, search_id, account=account, account_id=account_id)
     return ImportOut(created=result.created, updated=result.updated, skipped=result.skipped)
 
 
