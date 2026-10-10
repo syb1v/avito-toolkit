@@ -147,8 +147,12 @@ class ListingExclusion(Base):
 class ListingSnapshot(Base):
     __tablename__ = "listing_snapshots"
 
-    search_id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True)
-    listing_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    search_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, ForeignKey("searches.id", ondelete="CASCADE"), primary_key=True
+    )
+    listing_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("listings.id", ondelete="CASCADE"), primary_key=True
+    )
     recorded_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), primary_key=True)
     price: Mapped[float] = mapped_column(Numeric(12, 2))
     position_index: Mapped[int | None] = mapped_column(Integer)

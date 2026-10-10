@@ -24,9 +24,11 @@ from app.services.import_file import (
     save_staging,
     search_params,
     search_url,
+    validate_generated_filter,
 )
 from app.services.matching import match_our_listing
 from app.services.our_listings import ImportRow, sku_for_item, upsert_our_listings
+from app.services.web_research import research_product_identity
 
 router = APIRouter(prefix="/searches/import-file", tags=["searches-import"])
 
@@ -54,6 +56,8 @@ class SearchFiltersOut(BaseModel):
     keyword_groups: list[list[str]]
     exclude_keywords: list[str]
     generated: bool
+    research_status: str = "not_run"
+    research_sources: list[dict[str, str]] = Field(default_factory=list)
 
 
 class FiltersOut(BaseModel):
@@ -259,6 +263,14 @@ async def generate_filters(token: str, payload: FiltersIn, session: DbSession) -
     if missing:
         raise HTTPException(status_code=404, detail=f"нет в файле: {missing[:5]}")
 
+    research_by_id: dict[int, dict] = {}
+    for item in selected_ids:
+        research = await research_product_identity(str(by_id[item].get("title") or ""))
+        research_by_id[item] = {
+            "status": research.status,
+            "sources": [{"url": source.url, "title": source.title} for source in research.sources],
+        }
+
     results: dict[int, SearchFiltersOut] = {}
     configured = bool(settings.deepseek_api_key) and settings.llm_model.startswith("deepseek/")
     if configured:
@@ -275,7 +287,9 @@ async def generate_filters(token: str, payload: FiltersIn, session: DbSession) -
                     )
                 )
             try:
-                result = await generate_search_filters(items=items)
+                result = await generate_search_filters(
+                    items=items, research={str(key): research_by_id[key] for key in batch_ids}
+                )
             except LlmNotConfiguredError:
                 configured = False
                 break
@@ -283,7 +297,15 @@ async def generate_filters(token: str, payload: FiltersIn, session: DbSession) -
                 logger.warning("search filters batch failed (%s), retrying one by one", error)
                 for single in items:
                     try:
-                        single_result = await generate_search_filters(items=[single])
+                        single_id = single[0]
+                        single_result = await generate_search_filters(
+                            items=[single],
+                            research=(
+                                {str(single_id): research_by_id[single_id]}
+                                if single_id is not None
+                                else {}
+                            ),
+                        )
                     except LlmNotConfiguredError:
                         configured = False
                         break
@@ -301,7 +323,14 @@ async def generate_filters(token: str, payload: FiltersIn, session: DbSession) -
     out: list[SearchFiltersOut] = []
     for item in selected_ids:
         found = results.get(item)
-        if found is not None:
+        if found is not None and validate_generated_filter(
+            title=str(by_id[item].get("title") or ""),
+            query=found.query,
+            keyword_groups=found.keyword_groups,
+            exclude_keywords=found.exclude_keywords,
+        ):
+            found.research_status = research_by_id[item]["status"]
+            found.research_sources = research_by_id[item]["sources"]
             out.append(found)
         else:
             row = by_id[item]
@@ -337,8 +366,13 @@ async def apply_import(token: str, payload: ApplyIn, session: DbSession) -> Appl
     account: AvitoAccount | None = None
     if payload.account_id is not None:
         account = await session.get(AvitoAccount, payload.account_id)
-        if account is None:
+        if account is None or account.role != "seller":
             raise HTTPException(status_code=404, detail="аккаунт не найден")
+    else:
+        raise HTTPException(
+            status_code=422,
+            detail="выберите аккаунт-продавца перед применением импорта",
+        )
 
     city = payload.regions[0] if len(payload.regions) == 1 else None
     existing_urls = {

@@ -424,7 +424,7 @@ export function ImportSearchesModal({ accounts }: { accounts: Account[] }) {
                     onChange={(event) => setAccountId(event.target.value)}
                     className="rounded-lg border border-neutral-800 bg-neutral-950 px-2 py-1 text-xs text-neutral-200 outline-none focus:border-sky-500/60"
                   >
-                    <option value="">— по умолчанию —</option>
+                     <option value="">— выберите поисковик —</option>
                     {searcherAccounts.map((account) => (
                       <option key={account.id} value={account.id}>
                         {account.name}
@@ -555,6 +555,11 @@ export function ImportSearchesModal({ accounts }: { accounts: Account[] }) {
                               {!filter.generated ? (
                                 <span className="text-[11px] text-amber-300/80">
                                   без AI (fallback) — проверьте руками
+                                </span>
+                              ) : null}
+                              {filter.generated && filter.research_status === "needs_review" ? (
+                                <span className="text-[11px] text-amber-300/80">
+                                  модель требует проверки источниками
                                 </span>
                               ) : null}
                             </div>

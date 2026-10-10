@@ -105,7 +105,7 @@ async def upsert_our_listings(session: AsyncSession, rows: Sequence[ImportRow]) 
     updated = 0
     for row in rows:
         account_id = row.account_id
-        if row.account:
+        if account_id is None and row.account:
             account_id = await session.scalar(
                 select(AvitoAccount.id).where(AvitoAccount.name == row.account)
             )
@@ -139,6 +139,7 @@ async def upsert_our_listings(session: AsyncSession, rows: Sequence[ImportRow]) 
             existing.category = row.category
         if row.account:
             existing.account = row.account
+        if account_id is not None:
             existing.account_id = account_id
         if row.avito_item_id is not None:
             existing.avito_item_id = row.avito_item_id

@@ -748,6 +748,8 @@ export type ImportFilter = {
   keyword_groups: string[][];
   exclude_keywords: string[];
   generated: boolean;
+  research_status?: string;
+  research_sources?: { url: string; title: string }[];
 };
 
 export type ImportApplyResult = {

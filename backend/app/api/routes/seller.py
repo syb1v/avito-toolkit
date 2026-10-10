@@ -10,6 +10,7 @@ from sqlalchemy import select
 from app.api.deps import DbSession
 from app.config import get_settings
 from app.db.models import ListingEdit, OurListing
+from app.services.ownership import require_seller
 from app.services.recommendations import build_recommendations
 
 router = APIRouter(prefix="/our-listings/edits", tags=["seller"])
@@ -131,8 +132,12 @@ async def create_edits(payload: CreateEditsIn, session: DbSession) -> CreateEdit
             break
         if recommendation.sku in busy_skus:
             continue
+        our = await session.get(OurListing, recommendation.sku)
+        if our is None or our.account_id is None:
+            continue
         edit = ListingEdit(
             sku=recommendation.sku,
+            account_id=our.account_id,
             old_price=recommendation.our_price,
             target_price=recommendation.clamped_price,
             delta_pct=recommendation.delta_pct,
@@ -158,6 +163,7 @@ async def create_manual_edit(payload: ManualEditIn, session: DbSession) -> Manua
     our = await session.get(OurListing, payload.sku)
     if our is None:
         raise HTTPException(status_code=404, detail=f"our listing {payload.sku} not found")
+    await require_seller(session, our)
     open_rows = await session.execute(
         select(ListingEdit.id).where(
             ListingEdit.sku == payload.sku, ListingEdit.status.in_(OPEN_STATUSES)
@@ -173,6 +179,7 @@ async def create_manual_edit(payload: ManualEditIn, session: DbSession) -> Manua
     requires_approval = abs(delta_pct) > settings.reprice_hitl_threshold_pct
     edit = ListingEdit(
         sku=payload.sku,
+        account_id=our.account_id,
         old_price=old_price,
         target_price=target,
         delta_pct=delta_pct,

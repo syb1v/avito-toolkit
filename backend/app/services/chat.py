@@ -67,7 +67,9 @@ async def _tool_system_overview(session: AsyncSession, redis: Redis, **_: Any) -
         ),
         "our_listings": int(
             await session.scalar(
-                select(func.count()).select_from(OurListing).where(OurListing.is_active)
+                select(func.count())
+                .select_from(OurListing)
+                .where(OurListing.is_active, OurListing.account_id.is_not(None))
             )
             or 0
         ),

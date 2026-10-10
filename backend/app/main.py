@@ -12,6 +12,7 @@ from app.api.routes import (
     alerts,
     analytics,
     chat,
+    consistency,
     dashboard,
     health,
     imports,
@@ -54,6 +55,7 @@ def create_app() -> FastAPI:
     application.include_router(imports.router, prefix="/api/v1")
     application.include_router(ws.router, prefix="/api/v1")
     application.include_router(chat.router, prefix="/api/v1")
+    application.include_router(consistency.router, prefix="/api/v1")
     application.include_router(agent.router, prefix="/api/v1")
     application.include_router(alerts.router, prefix="/api/v1")
     application.include_router(ai.router, prefix="/api/v1")

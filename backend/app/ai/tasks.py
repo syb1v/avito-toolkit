@@ -1,3 +1,4 @@
+import json
 from collections.abc import Sequence
 
 from app.ai.client import LlmResult, complete_structured
@@ -139,11 +140,14 @@ async def summarize_price_edits(
 async def generate_search_filters(
     *,
     items: list[tuple[int | None, str, str | None]],
+    research: dict | None = None,
 ) -> LlmResult[SearchFiltersBatch]:
     return await complete_structured(
         SearchFiltersBatch,
         system_prompt=SEARCH_FILTERS_SYSTEM_PROMPT,
-        user_prompt=build_search_filters_prompt(items=items),
+        user_prompt=build_search_filters_prompt(items=items)
+        + "\nИсточники проверки моделей (поисковые ссылки, не подтверждённые факты):\n"
+        + json.dumps(research or {}, ensure_ascii=False),
         task="search_filters",
         prompt_version=SEARCH_FILTERS_VERSION,
         max_tokens=2000,

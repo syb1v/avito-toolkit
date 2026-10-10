@@ -1,9 +1,11 @@
 import uuid
 from dataclasses import dataclass
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
+from app.db.models import AvitoAccount
 from app.services.matching import build_overview
 from app.services.pricing import RepricingContext, build_price_target
 
@@ -83,7 +85,14 @@ async def build_recommendations(
     """Рекомендации по всем нашим SKU с матчами на рынке."""
     settings = get_settings()
     recommendations: list[Recommendation] = []
+    sellers = set(
+        (
+            await session.execute(select(AvitoAccount.name).where(AvitoAccount.role == "seller"))
+        ).scalars()
+    )
     for row in await build_overview(session, account_id=account_id):
+        if row.account not in sellers:
+            continue
         recommendation = build_recommendation(
             sku=row.sku,
             title=row.title,

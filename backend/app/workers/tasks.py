@@ -43,7 +43,6 @@ from app.services.analytics.service import recalc_daily_analytics
 from app.services.avito_api import (
     AvitoApiError,
     account_credentials,
-    env_credentials,
     fetch_item_info,
     fetch_self,
     update_item_price,
@@ -531,16 +530,26 @@ async def _apply_listing_edit(edit_id: str, revert: bool) -> dict[str, object]:
                 await session.commit()
                 return {"ok": True, "mode": "dry_run", "target": target}
 
-            account = await _pick_seller_account(session, edit.account_id)
+            from app.services.ownership import edit_owner_matches
+
+            if not edit_owner_matches(our.account_id, edit.account_id):
+                edit.status = "failed"
+                edit.error = "у SKU и правки нет совпадающего аккаунта-продавца"
+                await session.commit()
+                return {"ok": False, "error": edit.error}
+            account = await session.get(AvitoAccount, our.account_id)
+            if account is None or account.role != "seller" or account.status != "active":
+                edit.status = "failed"
+                edit.error = "аккаунт-продавец SKU недоступен"
+                await session.commit()
+                return {"ok": False, "error": edit.error}
             item_id = our.avito_item_id or item_id_from_url(our.avito_url)
             if item_id is None:
                 edit.status = "failed"
                 edit.error = "у SKU нет ID объявления Авито (импортируйте товары из файла/API)"
                 await session.commit()
                 return {"ok": False, "error": edit.error}
-            credentials = (
-                account_credentials(account) if account is not None else None
-            ) or env_credentials(settings)
+            credentials = account_credentials(account)
             if credentials is None:
                 edit.status = "failed"
                 edit.error = (
@@ -889,8 +898,12 @@ async def _auto_reprice() -> dict[str, object]:
             )
             created: list[ListingEdit] = []
             for recommendation in selected:
+                our = await session.get(OurListing, recommendation.sku)
+                if our is None or our.account_id is None:
+                    continue
                 edit = ListingEdit(
                     sku=recommendation.sku,
+                    account_id=our.account_id,
                     old_price=recommendation.our_price,
                     target_price=recommendation.clamped_price,
                     delta_pct=recommendation.delta_pct,

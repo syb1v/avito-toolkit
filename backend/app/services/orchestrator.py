@@ -70,7 +70,13 @@ async def run_orchestrator(session: AsyncSession, redis: Redis) -> dict[str, Any
         raise RuntimeError("агенты не дали отчётов (проверьте ключ AI и плейбуки)")
 
     our_rows = (
-        (await session.execute(select(OurListing).where(OurListing.is_active.is_(True)).limit(200)))
+        (
+            await session.execute(
+                select(OurListing)
+                .where(OurListing.is_active.is_(True), OurListing.account_id.is_not(None))
+                .limit(200)
+            )
+        )
         .scalars()
         .all()
     )

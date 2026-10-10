@@ -151,6 +151,30 @@ def fallback_query(title: str) -> str:
     return " ".join(cleaned[:MAX_QUERY_WORDS]) or title[:80]
 
 
+def validate_generated_filter(
+    *, title: str, query: str, keyword_groups: list[list[str]], exclude_keywords: list[str]
+) -> bool:
+    """Reject unsafe LLM filters before they become scheduled searches."""
+    title_tokens = set(re.findall(r"[0-9a-zа-яё]+", title.lower()))
+    query_tokens = set(re.findall(r"[0-9a-zа-яё]+", query.lower()))
+    if not query.strip() or not query_tokens & title_tokens:
+        return False
+    if not 1 <= len(keyword_groups) <= 3 or any(not group for group in keyword_groups):
+        return False
+    include_tokens = {
+        token.lower() for group in keyword_groups for value in group for token in value.split()
+    }
+    if any(
+        not any(set(re.findall(r"[0-9a-zа-яё]+", value.lower())) & title_tokens for value in group)
+        for group in keyword_groups
+    ):
+        return False
+    exclude_tokens = {token.lower() for value in exclude_keywords for token in value.split()}
+    if include_tokens & exclude_tokens:
+        return False
+    return not any(len(value.split()) > 6 for value in exclude_keywords)
+
+
 def search_params(
     *,
     query: str,

@@ -127,7 +127,7 @@ async def create_digest(
     top_listings = await filtered_top_listings(session, search_id, TOP_LISTINGS_FOR_PROMPT)
     our_rows = await session.execute(
         select(OurListing.sku, OurListing.title, OurListing.price)
-        .where(OurListing.is_active.is_(True))
+        .where(OurListing.is_active.is_(True), OurListing.account_id.is_not(None))
         .order_by(OurListing.title)
         .limit(OUR_LISTINGS_FOR_PROMPT)
     )
@@ -292,6 +292,9 @@ async def apply_digest_suggestions(search_id: uuid.UUID, session: DbSession) -> 
         if our is None or not our.is_active:
             skipped += 1
             continue
+        if our.account_id is None:
+            skipped += 1
+            continue
         our_price = float(our.price)
         if our_price <= 0:
             skipped += 1
@@ -303,6 +306,7 @@ async def apply_digest_suggestions(search_id: uuid.UUID, session: DbSession) -> 
         delta_pct = (clamped - our_price) / our_price * 100
         edit = ListingEdit(
             sku=sku,
+            account_id=our.account_id,
             old_price=our_price,
             target_price=clamped,
             delta_pct=delta_pct,
@@ -332,6 +336,9 @@ async def create_advice(
     our = await session.get(OurListing, sku)
     if our is None:
         raise HTTPException(status_code=404, detail=f"our listing {sku} not found")
+    from app.services.ownership import require_seller
+
+    await require_seller(session, our)
     position = await build_our_position(session, sku)
     if position is None or position.stats is None:
         raise HTTPException(status_code=404, detail="no matches with prices yet")
