@@ -52,6 +52,15 @@ def test_rank_candidates_rejects_other_series() -> None:
     assert [item.candidate.listing_id for item in ranked] == [21]
 
 
+def test_rank_candidates_rejects_different_model_family_with_shared_edition() -> None:
+    candidates = [
+        MatchCandidate(30, "Devialet Gemini 2 Opera de Paris", 45000.0),
+        MatchCandidate(31, "Devialet Mania Opera de Paris", 90000.0),
+    ]
+    ranked = rank_candidates("Devialet Gemini 2 Opera de Paris", candidates, min_score=60, limit=10)
+    assert [item.candidate.listing_id for item in ranked] == [30]
+
+
 def test_market_position_with_outlier() -> None:
     position = compute_market_position(70000.0, [50000, 60000, 65000, 70000, 1000000])
     assert position.stats is not None

@@ -179,6 +179,8 @@ class ProductMarketMatch(Base):
     market_listing_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     similarity_score: Mapped[float] = mapped_column(Float, default=0.0)
     match_status: Mapped[str] = mapped_column(String(20), default="auto_matched")
+    identity: Mapped[dict | None] = mapped_column(JSONB)
+    conflict_reasons: Mapped[list | None] = mapped_column(JSONB)
     matched_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 

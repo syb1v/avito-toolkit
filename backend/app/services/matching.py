@@ -17,6 +17,85 @@ MATCH_STATUSES = ("auto_matched", "confirmed", "rejected")
 # Слова-модификаторы модели: если у одной стороны есть, а у другой нет — это другой товар.
 MODEL_MODIFIERS = {"pro", "plus", "max", "mini", "ultra", "se"}
 CAPACITY_UNITS = {"gb": "гб", "гб": "гб", "tb": "тб", "тб": "тб"}
+# Known model-family anchors. They are deliberately treated as identity fields,
+# not fuzzy title vocabulary: shared editions (for example Opera de Paris) must
+# never make two different families comparable.
+MODEL_FAMILY_TOKENS = {
+    "gemini",
+    "mania",
+    "phantom",
+    "dione",
+    "lyra",
+    "twin",
+    "eleven",
+    "a9",
+    "a1",
+    "homepod",
+    "airpods",
+    "watch",
+    "iphone",
+    "ipad",
+    "macbook",
+}
+
+
+@dataclass(frozen=True, slots=True)
+class ProductIdentity:
+    brand: str | None
+    model_family: str | None
+    numeric_markers: frozenset[str]
+    edition: str | None
+    capacities: frozenset[str]
+    modifiers: frozenset[str]
+
+
+def parse_product_identity(value: str) -> ProductIdentity:
+    tokens = _tokens(value)
+    families = _model_family(tokens)
+    brand = tokens[0] if tokens else None
+    edition = (
+        "opera de paris"
+        if "opera" in tokens and "de" in tokens and "paris" in tokens
+        else None
+    )
+    return ProductIdentity(
+        brand=brand,
+        model_family=next(iter(families), None),
+        numeric_markers=frozenset(_numbers(tokens) - _capacity_numbers(tokens)),
+        edition=edition,
+        capacities=frozenset(_capacities(tokens)),
+        modifiers=frozenset(set(tokens) & MODEL_MODIFIERS),
+    )
+
+
+def identity_conflicts(left: ProductIdentity, right: ProductIdentity) -> list[str]:
+    conflicts: list[str] = []
+    if left.brand and right.brand and left.brand != right.brand:
+        conflicts.append("brand")
+    if left.model_family and right.model_family and left.model_family != right.model_family:
+        conflicts.append("model_family")
+    if (
+        left.numeric_markers
+        and right.numeric_markers
+        and left.numeric_markers.isdisjoint(right.numeric_markers)
+    ):
+        conflicts.append("generation")
+    if left.capacities and right.capacities and left.capacities != right.capacities:
+        conflicts.append("capacity")
+    if left.modifiers != right.modifiers:
+        conflicts.append("variant")
+    return conflicts
+
+
+def _identity_payload(identity: ProductIdentity) -> dict[str, object]:
+    return {
+        "brand": identity.brand,
+        "model_family": identity.model_family,
+        "numeric_markers": sorted(identity.numeric_markers),
+        "edition": identity.edition,
+        "capacities": sorted(identity.capacities),
+        "modifiers": sorted(identity.modifiers),
+    }
 
 
 def _tokens(value: str) -> list[str]:
@@ -45,10 +124,18 @@ def _capacity_numbers(tokens: Sequence[str]) -> set[str]:
     }
 
 
+def _model_family(tokens: Sequence[str]) -> set[str]:
+    return {token for token in tokens if token in MODEL_FAMILY_TOKENS}
+
+
 def _variant_compatible(query_tokens: Sequence[str], candidate_tokens: Sequence[str]) -> bool:
     """Отсекает чужие модели: Pro/Plus/Max, ёмкости и серии не должны расходиться."""
     query_set = set(query_tokens)
     candidate_set = set(candidate_tokens)
+    query_identity = parse_product_identity(" ".join(query_tokens))
+    candidate_identity = parse_product_identity(" ".join(candidate_tokens))
+    if "model_family" in identity_conflicts(query_identity, candidate_identity):
+        return False
     if (query_set & MODEL_MODIFIERS) != (candidate_set & MODEL_MODIFIERS):
         return False
     query_caps = _capacities(query_tokens)
@@ -191,6 +278,7 @@ async def match_our_listing(session: AsyncSession, sku: str) -> list[RankedCandi
     ranked_ids = [item.candidate.listing_id for item in ranked]
     if ranked:
         now = datetime.now(UTC)
+        query_identity = parse_product_identity(our.title)
         statement = pg_insert(ProductMarketMatch).values(
             [
                 {
@@ -198,6 +286,13 @@ async def match_our_listing(session: AsyncSession, sku: str) -> list[RankedCandi
                     "market_listing_id": ranked_item.candidate.listing_id,
                     "similarity_score": ranked_item.score,
                     "match_status": "auto_matched",
+                    "identity": {
+                        "query": _identity_payload(query_identity),
+                        "candidate": _identity_payload(
+                            parse_product_identity(ranked_item.candidate.title)
+                        ),
+                    },
+                    "conflict_reasons": [],
                     "matched_at": now,
                 }
                 for ranked_item in ranked
@@ -208,9 +303,11 @@ async def match_our_listing(session: AsyncSession, sku: str) -> list[RankedCandi
                 ProductMarketMatch.our_sku_id,
                 ProductMarketMatch.market_listing_id,
             ],
-            set_={
-                "similarity_score": statement.excluded.similarity_score,
-                "matched_at": statement.excluded.matched_at,
+                    set_={
+                        "similarity_score": statement.excluded.similarity_score,
+                        "identity": statement.excluded.identity,
+                        "conflict_reasons": statement.excluded.conflict_reasons,
+                        "matched_at": statement.excluded.matched_at,
             },
             where=ProductMarketMatch.match_status == "auto_matched",
         )
