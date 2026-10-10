@@ -121,6 +121,14 @@ export function AgentsPanel() {
           </button>
         </div>
       </div>
+      <div className="mt-3 grid gap-2 border-b border-neutral-800 pb-4 text-xs sm:grid-cols-4">
+        {[
+          ["1", "Выбрать плейбук", "Категория и ваши критерии"],
+          ["2", "Собрать данные", "Поиски, товары и история цен"],
+          ["3", "Сравнить агентов", "Несогласия и источники"],
+          ["4", "Решение по SKU", "Одобрить, отклонить или изменить"],
+        ].map(([step, title, description]) => <div key={step} className="rounded-lg border border-neutral-800 bg-neutral-950/40 p-2"><span className="text-sky-300">{step}.</span> <span className="text-neutral-300">{title}</span><p className="mt-1 text-[11px] text-neutral-600">{description}</p></div>)}
+      </div>
 
       {playbooks.length > 0 ? (
         <ul className="mt-3 flex flex-col gap-2">

@@ -389,6 +389,25 @@ export const fetchOurListingsOverview = async (): Promise<OurListingOverview[]> 
 export const fetchRecommendations = async (): Promise<Recommendation[]> =>
   (await getJson<Recommendation[]>("/api/v1/our-listings/recommendations")) ?? [];
 
+export type ResearchSource = {
+  url: string;
+  title: string;
+  retrieved_at: string;
+  claims: string[];
+};
+
+export type ResearchResult = {
+  query: string;
+  status: string;
+  sources: ResearchSource[];
+};
+
+export const researchProductClient = (query: string) =>
+  mutate<ResearchResult>("/api/v1/research/product", {
+    method: "POST",
+    body: JSON.stringify({ query }),
+  });
+
 export const fetchDashboard = () => getJson<Dashboard>("/api/v1/dashboard");
 
 export type ProxyEntryStatus = {

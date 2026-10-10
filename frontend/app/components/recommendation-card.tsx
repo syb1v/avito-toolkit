@@ -3,6 +3,7 @@
 import { useState } from "react";
 
 import { SkuEdits } from "@/app/components/sku-edits";
+import { ResearchSources } from "@/app/components/research-sources";
 import { type Recommendation } from "@/lib/api";
 import { formatPercent, formatPrice } from "@/lib/format";
 
@@ -24,6 +25,7 @@ export function RecommendationCard({ item }: { item: Recommendation }) {
         <div><p className="text-[11px] uppercase tracking-wide text-neutral-600">Сравнений</p><p className="mt-1 tabular-nums text-lg text-neutral-300">{item.matched_count}</p></div>
       </div>
       <p className="mt-3 text-sm text-neutral-400">Изменение: {formatPercent(item.delta_pct / 100)} · {item.requires_approval ? "нужно подтверждение" : "в пределах правила"}</p>
+      <ResearchSources query={item.title} />
       <button type="button" onClick={() => setOpen((value) => !value)} className="mt-4 rounded-lg border border-neutral-700 px-3 py-1.5 text-xs text-neutral-300 transition hover:border-neutral-500">{open ? "Скрыть точечное редактирование" : "Редактировать эту позицию"}</button>
       {open ? <div className="mt-3"><SkuEdits sku={item.sku} /></div> : null}
     </article>
