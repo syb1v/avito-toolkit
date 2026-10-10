@@ -17,6 +17,7 @@ from app.api.routes import (
     imports,
     matching,
     proxies,
+    research,
     searches,
     seller,
     ws,
@@ -58,6 +59,7 @@ def create_app() -> FastAPI:
     application.include_router(ai.router, prefix="/api/v1")
     application.include_router(dashboard.router, prefix="/api/v1")
     application.include_router(proxies.router, prefix="/api/v1")
+    application.include_router(research.router, prefix="/api/v1")
     application.include_router(accounts.router, prefix="/api/v1")
     application.include_router(seller.router, prefix="/api/v1")
     application.state.environment = settings.environment
